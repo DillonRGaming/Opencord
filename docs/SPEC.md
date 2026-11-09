@@ -23,8 +23,9 @@ server/
   config.js         env + defaults + all paths
   db/index.js       opens SQLite, runs migrations (PRAGMA user_version)
   db/migrations/001_init.sql
-  lib/              auth (hashing, sessions, middleware), ids, http errors + validation, storage, rate limit
-  models/           all SQL lives here (users, relationships, servers, channels, messages, attachments)
+  lib/              auth (hashing, sessions, middleware), ids, http errors + validation, storage, rate limit,
+                    access (who may see a channel/server)
+  models/           all SQL lives here (users, sessions, relationships, servers, channels, messages, attachments)
   routes/           express routers, thin: validate → model → realtime emit → respond
   realtime.js       socket.io: auth, rooms, presence, emit helpers
 public/
@@ -34,7 +35,9 @@ data/               (gitignored, created at startup)
   uploads/
     avatars/  icons/  images/  videos/  audio/  files/  tmp/
 scripts/
-  tunnel.js         Cloudflare quick tunnel (built separately)
+  tunnel.js         Cloudflare quick tunnel with its own empty config (`npm run tunnel`)
+test/
+  e2e.js            starts a server on a throwaway data folder and drives the whole API (`npm test`)
 ```
 
 `DATA_DIR` env var moves `data/`. `PORT` default `3100`, `HOST` default `127.0.0.1`.
@@ -98,7 +101,7 @@ Relation  { user: User, status: 'friend'|'incoming'|'outgoing'|'blocked', since 
 Server    { id, name, icon /* url|null */, ownerId, channels: Channel[] }
 Channel   { id, type: 'text', serverId, name, topic, position, lastMessageId }
 DMChannel { id, type: 'dm', recipient: User, lastMessageId }
-Member    { user: User, joinedAt }
+Member    { user: User, joinedAt, online }
 Attachment{ id, kind, name, mime, size, url }
 Message   { id, channelId, author: User, content, attachments: Attachment[], editedAt, createdAt }
 Invite    { code, server: { id, name, icon, memberCount } }
@@ -193,7 +196,7 @@ Server → client events:
 | `message:update` | `Message` | channel audience |
 | `message:delete` | `{ id, channelId }` | channel audience |
 | `typing` | `{ channelId, userId }` | channel audience (client ignores own) |
-| `presence` | `{ userId, online }` | friends + server co-members |
+| `presence` | `{ userId, online }` | friends + server co-members; also sent when two people become friends or someone joins a server |
 | `user:update` | `User` | friends + co-members + self (`Me` to self) |
 | `relationship:update` | `Relation` | the affected user |
 | `relationship:remove` | `{ userId }` | the affected user |
@@ -204,15 +207,18 @@ Server → client events:
 | `member:remove` | `{ serverId, userId }` | server room |
 | `channel:create` / `channel:update` | `Channel` | server room |
 | `channel:delete` | `{ id, serverId }` | server room |
-| `read` | `{ channelId, messageId }` | the user's other sockets |
+| `read` | `{ channelId, messageId }` | all of the user's sockets |
 
 Client → server: `typing` with `channelId` (server checks access, then relays).
 On join/leave/kick the server moves the user's sockets in/out of `server:<id>` (`io.in('user:x').socketsJoin(...)`).
 Presence: a user is online while they have ≥1 socket.
+Someone who joins a server starts with every channel marked read.
 
 ## Frontend
 
-Discord-like layout, but its own look (not a copy of Discord's colours or branding):
+Discord-like layout, but its own look (not a copy of Discord's colours or branding): every area is its own
+rounded card with a thin border, with gaps between the cards on a soft dotted backdrop. Primary buttons are
+near-black (near-white on dark themes); the accent colour is used sparingly (links, unread dots, active icons).
 server rail (home button, server icons with unread pill, + create/join) · sidebar (DM list + "Friends", or
 channel list with server menu) with a user panel at the bottom · main (chat or friends page) · member list.
 Mobile (<800px): one column at a time with a back button.
@@ -223,13 +229,13 @@ Mobile (<800px): one column at a time with a back button.
   near the bottom, inline edit (own) and delete (own / owner) on hover, typing indicator, long messages
   (>3000 chars) collapsed with "Show more", light markdown (**bold**, *italic*, ~~strike~~, `code`,
   ``` blocks ```, links). Images inline (click to view large), video/audio players, file cards with size.
-- Composer: Enter sends, Shift+Enter newline, attach button, drag & drop, paste files. Each file uploads in
+- Composer: Enter sends (sends are queued, so quick messages go out in order), Shift+Enter newline, attach button, drag & drop, paste files. Each file uploads in
   8 MiB chunks with a progress bar (XHR for progress), resumes after network errors; send waits for uploads.
 - Unread: channel/DM bold when `lastMessageId > readStates[id]`; ack when viewing; server icon pill.
 - Profile popout on clicking a name/avatar: banner colour, avatar, names, status, bio, Message / Add Friend,
   Kick (owner).
 - Settings (full screen): My Profile (avatar incl. animated GIF, display name, status, bio, banner colour,
-  live preview) · Appearance (theme Dark / Midnight / OLED / Light, accent colour presets + picker,
+  live preview) · Appearance (theme Light (default) / Dark / Midnight / OLED, accent colour presets + picker,
   font size, cozy/compact density, round/square avatars, custom CSS) · Account (change password, log out).
   Settings live in `me.settings` and apply instantly.
 - Server settings (owner): name, icon, create invite link, delete server. Invite modal with copy button
