@@ -1,22 +1,21 @@
 {
   "name": "opencord",
-  "version": "1.0.0",
+  "version": "0.1.0",
+  "private": true,
   "description": "A free chat app with no sending limits and loads of customisation.",
-  "main": "server/server.js",
+  "main": "server/index.js",
   "scripts": {
-    "start": "node server/server.js",
-    "dev": "node --watch server/server.js"
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "tunnel": "node scripts/tunnel.js"
   },
-  "keywords": [],
-  "author": "",
   "license": "UNLICENSED",
-  "type": "commonjs",
-  "dependencies": {
-    "bcrypt": "^6.0.0",
-    "cors": "^2.8.6",
-    "express": "^5.2.1",
-    "jsonwebtoken": "^9.0.3",
-    "socket.io": "^4.8.3"
+  "engines": {
+    "node": ">=20.12"
   },
-  "private": true
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "express": "^5.3.0",
+    "socket.io": "^4.8.4"
+  }
 }
