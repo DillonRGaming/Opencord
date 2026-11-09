@@ -1,0 +1,391 @@
+// End-to-end test: starts a real server on a throwaway data folder and drives it over HTTP and Socket.IO.
+// Run with: npm test
+const assert = require('node:assert/strict');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
+const { io } = require('socket.io-client');
+
+const PORT = 3190;
+const BASE = `http://127.0.0.1:${PORT}`;
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencord-test-'));
+const uploads = path.join(dataDir, 'uploads');
+
+let passed = 0;
+function ok(label) {
+  passed += 1;
+  console.log(`  ok  ${label}`);
+}
+
+// A logged-in browser stand-in: remembers its cookie.
+// Every socket opened by the tests, so they can all be closed at the end (even after a failure).
+const sockets = [];
+
+class Client {
+  cookie = '';
+
+  async request(method, url, body, headers = {}) {
+    const isJson = body !== undefined && !Buffer.isBuffer(body);
+    const res = await fetch(BASE + url, {
+      method,
+      headers: {
+        cookie: this.cookie,
+        ...(isJson ? { 'content-type': 'application/json' } : body ? { 'content-type': 'application/octet-stream' } : {}),
+        ...headers,
+      },
+      body: isJson ? JSON.stringify(body) : body,
+    });
+    const setCookie = res.headers.get('set-cookie');
+    if (setCookie) this.cookie = setCookie.split(';')[0];
+    const type = res.headers.get('content-type') || '';
+    const data = type.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
+    return { status: res.status, data, headers: res.headers };
+  }
+
+  // Expects success and returns the body.
+  async call(method, url, body) {
+    const res = await this.request(method, url, body);
+    assert.ok(res.status < 300, `${method} ${url} → ${res.status} ${JSON.stringify(res.data)}`);
+    return res.data;
+  }
+
+  async expect(status, method, url, body) {
+    const res = await this.request(method, url, body);
+    assert.equal(res.status, status, `${method} ${url} → ${res.status} ${JSON.stringify(res.data)}`);
+    return res.data;
+  }
+
+  socket() {
+    const socket = io(BASE, { extraHeaders: { cookie: this.cookie }, transports: ['websocket'] });
+    sockets.push(socket);
+    return socket;
+  }
+
+  async upload(name, type, buffer) {
+    const start = await this.call('POST', '/api/uploads', { name, size: buffer.length, type });
+    if (start.attachment) return start.attachment;
+    let offset = 0;
+    for (;;) {
+      const chunk = buffer.subarray(offset, offset + start.chunkSize);
+      const res = await this.call('PUT', `/api/uploads/${start.id}?offset=${offset}`, chunk);
+      offset = res.received;
+      if (res.attachment) return res.attachment;
+    }
+  }
+}
+
+function nextEvent(socket, event, match = () => true) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`No "${event}" event arrived`)), 3000);
+    const handler = (payload) => {
+      if (!match(payload)) return;
+      clearTimeout(timer);
+      socket.off(event, handler);
+      resolve(payload);
+    };
+    socket.on(event, handler);
+  });
+}
+
+async function register(username) {
+  const client = new Client();
+  client.me = await client.call('POST', '/api/auth/register', { username, password: 'password123' });
+  return client;
+}
+
+async function run() {
+  // --- accounts ---
+  const alice = await register('Alice');
+  const bob = await register('bob');
+  const carol = await register('carol');
+  assert.equal(alice.me.username, 'alice');
+  await new Client().expect(401, 'GET', '/api/bootstrap');
+  await new Client().expect(409, 'POST', '/api/auth/register', { username: 'alice', password: 'password123' });
+  await new Client().expect(400, 'POST', '/api/auth/register', { username: 'bad name!', password: 'password123' });
+  await new Client().expect(400, 'POST', '/api/auth/register', { username: 'shorty', password: 'short' });
+  await new Client().expect(401, 'POST', '/api/auth/login', { username: 'alice', password: 'wrong-password' });
+  const res = await alice.request('POST', '/api/servers', { name: 'x' }, { origin: 'https://evil.example' });
+  assert.equal(res.status, 403);
+  ok('register, login errors, cross-site requests refused');
+
+  // --- realtime setup ---
+  const aSock = alice.socket();
+  const bSock = bob.socket();
+  await Promise.all([nextEvent(aSock, 'connect'), nextEvent(bSock, 'connect')]);
+
+  // --- friends ---
+  let wait = nextEvent(bSock, 'relationship:update');
+  let rel = await alice.call('POST', '/api/relationships', { username: 'bob' });
+  assert.equal(rel.status, 'outgoing');
+  assert.equal((await wait).status, 'incoming');
+  await alice.expect(409, 'POST', '/api/relationships', { username: 'bob' });
+  await alice.expect(400, 'POST', '/api/relationships', { username: 'alice' });
+  await alice.expect(404, 'POST', '/api/relationships', { username: 'nobody' });
+  wait = Promise.all([nextEvent(aSock, 'relationship:update'), nextEvent(aSock, 'presence', (p) => p.userId === bob.me.id)]);
+  rel = await bob.call('PUT', `/api/relationships/${alice.me.id}`);
+  assert.equal(rel.status, 'friend');
+  const [relEvent, presence] = await wait;
+  assert.equal(relEvent.status, 'friend');
+  assert.equal(presence.online, true);
+  ok('friend request, accept, realtime relationship + presence');
+
+  // Both request each other → friends straight away.
+  await carol.call('POST', '/api/relationships', { username: 'alice' });
+  rel = await alice.call('POST', '/api/relationships', { username: 'carol' });
+  assert.equal(rel.status, 'friend');
+  await alice.call('DELETE', `/api/relationships/${carol.me.id}`);
+  assert.equal((await carol.call('GET', '/api/bootstrap')).relationships.length, 0);
+  ok('mutual requests become friends, remove friend');
+
+  // --- DMs ---
+  await carol.expect(403, 'POST', '/api/dms', { userId: alice.me.id });
+  const dm = await alice.call('POST', '/api/dms', { userId: bob.me.id });
+  assert.equal(dm.recipient.id, bob.me.id);
+  assert.equal((await bob.call('GET', '/api/bootstrap')).dms.length, 0);
+  wait = nextEvent(bSock, 'message:create');
+  const dmMessage = await alice.call('POST', `/api/channels/${dm.id}/messages`, { content: 'hi **bob**' });
+  assert.equal((await wait).id, dmMessage.id);
+  const bobBoot = await bob.call('GET', '/api/bootstrap');
+  assert.equal(bobBoot.dms[0].recipient.id, alice.me.id);
+  assert.equal(bobBoot.readStates[dm.id], undefined);
+  assert.ok(bobBoot.online.includes(alice.me.id));
+  await carol.expect(404, 'GET', `/api/channels/${dm.id}/messages`);
+  await bob.call('POST', `/api/channels/${dm.id}/ack`, { messageId: dmMessage.id });
+  assert.equal((await bob.call('GET', '/api/bootstrap')).readStates[dm.id], dmMessage.id);
+  ok('DM open, first message reaches the other person, unread + ack');
+
+  // --- servers, invites ---
+  const server = await alice.call('POST', '/api/servers', { name: 'Test Server' });
+  const general = server.channels[0];
+  assert.equal(general.name, 'general');
+  await bob.expect(404, 'GET', `/api/channels/${general.id}/messages`);
+  await bob.expect(404, 'POST', `/api/channels/${general.id}/messages`, { content: 'let me in' });
+  const invite = await alice.call('POST', `/api/servers/${server.id}/invites`);
+  assert.match(invite.code, /^[a-hjkmnp-z2-9]{8}$/);
+  const preview = await new Client().call('GET', `/api/invites/${invite.code}`);
+  assert.deepEqual(preview.server, { id: server.id, name: 'Test Server', icon: null, memberCount: 1 });
+  await new Client().expect(401, 'POST', `/api/invites/${invite.code}`);
+  await bob.expect(404, 'GET', '/api/invites/zzzzzzzz');
+  wait = Promise.all([nextEvent(aSock, 'member:add'), nextEvent(bSock, 'server:create')]);
+  await bob.call('POST', `/api/invites/${invite.code}`);
+  await bob.call('POST', `/api/invites/${invite.code}`); // idempotent
+  await wait;
+  const members = await bob.call('GET', `/api/servers/${server.id}/members`);
+  assert.equal(members.length, 2);
+  assert.ok(members.every((m) => m.online));
+  ok('create server, invite preview, join, member list');
+
+  // --- channels ---
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/channels`, { name: 'nope' });
+  wait = nextEvent(bSock, 'channel:create');
+  const channel = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'Off Topic' });
+  assert.equal(channel.name, 'off-topic');
+  assert.equal((await wait).id, channel.id);
+  const patched = await alice.call('PATCH', `/api/channels/${channel.id}`, { topic: 'anything goes' });
+  assert.equal(patched.topic, 'anything goes');
+  ok('channels: create, rename/topic, owner only');
+
+  // --- messages: send, typing, edit, delete, paging ---
+  wait = nextEvent(aSock, 'typing');
+  bSock.emit('typing', general.id);
+  assert.deepEqual(await wait, { channelId: general.id, userId: bob.me.id });
+  wait = nextEvent(aSock, 'message:create');
+  const message = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'hello' });
+  assert.equal((await wait).content, 'hello');
+  await bob.expect(400, 'POST', `/api/channels/${general.id}/messages`, { content: '   ' });
+  const long = 'x'.repeat(200_000);
+  assert.equal((await bob.call('POST', `/api/channels/${general.id}/messages`, { content: long })).content.length, 200_000);
+  await alice.expect(403, 'PATCH', `/api/messages/${message.id}`, { content: 'hacked' });
+  wait = nextEvent(aSock, 'message:update');
+  const edited = await bob.call('PATCH', `/api/messages/${message.id}`, { content: 'hello!' });
+  assert.ok(edited.editedAt);
+  assert.equal((await wait).content, 'hello!');
+  wait = nextEvent(bSock, 'message:delete');
+  await alice.call('DELETE', `/api/messages/${message.id}`); // owner deletes someone else's message
+  assert.equal((await wait).id, message.id);
+  for (let i = 0; i < 60; i++) await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `m${i}` });
+  const page = await bob.call('GET', `/api/channels/${general.id}/messages`);
+  assert.equal(page.length, 50);
+  assert.equal(page.at(-1).content, 'm59');
+  const older = await bob.call('GET', `/api/channels/${general.id}/messages?before=${page[0].id}`);
+  assert.equal(older.length, 11);
+  assert.equal(older.at(-1).content, 'm9');
+  ok('messages: realtime, typing, 200k chars, edit, owner delete, paging');
+
+  // --- uploads ---
+  const video = crypto.randomBytes(21 * 1024 * 1024);
+  const attachment = await bob.upload('my clip.mp4', 'video/mp4', video);
+  assert.equal(attachment.kind, 'video');
+  assert.equal(attachment.size, video.length);
+  const stored = path.join(uploads, 'videos', `${attachment.id}.mp4`);
+  assert.equal(fs.statSync(stored).size, video.length);
+  assert.equal(fs.readdirSync(path.join(uploads, 'tmp')).length, 0);
+  await alice.expect(404, 'GET', attachment.url); // unsent: uploader only
+  await alice.expect(400, 'POST', `/api/channels/${general.id}/messages`, { attachmentIds: [attachment.id] });
+  const withFile = await bob.call('POST', `/api/channels/${general.id}/messages`, { attachmentIds: [attachment.id] });
+  assert.equal(withFile.attachments[0].id, attachment.id);
+  await bob.expect(400, 'POST', `/api/channels/${general.id}/messages`, { attachmentIds: [attachment.id] });
+
+  const full = await alice.request('GET', attachment.url);
+  assert.equal(full.status, 200);
+  assert.equal(full.headers.get('content-type'), 'video/mp4');
+  assert.ok(full.data.equals(video));
+  const range = await alice.request('GET', attachment.url, undefined, { range: 'bytes=1000000-1000099' });
+  assert.equal(range.status, 206);
+  assert.equal(range.headers.get('content-range'), `bytes 1000000-1000099/${video.length}`);
+  assert.ok(range.data.equals(video.subarray(1000000, 1000100)));
+  await carol.expect(404, 'GET', attachment.url);
+  await new Client().expect(401, 'GET', attachment.url);
+  ok('21 MB chunked upload, Range request, non-members refused');
+
+  // Resume: a chunk at the wrong offset reports where to continue from.
+  const start = await bob.call('POST', '/api/uploads', { name: 'page.html', size: 10, type: 'text/html' });
+  await bob.call('PUT', `/api/uploads/${start.id}?offset=0`, Buffer.from('<b>hi'));
+  const conflict = await bob.expect(409, 'PUT', `/api/uploads/${start.id}?offset=0`, Buffer.from('<b>hi'));
+  assert.equal(conflict.received, 5);
+  assert.deepEqual(await bob.call('GET', `/api/uploads/${start.id}`), { received: 5, size: 10 });
+  await bob.expect(413, 'PUT', `/api/uploads/${start.id}?offset=5`, Buffer.from('way too many bytes'));
+  assert.equal((await bob.call('GET', `/api/uploads/${start.id}`)).received, 5);
+  const done = await bob.call('PUT', `/api/uploads/${start.id}?offset=5`, Buffer.from('</b>!'));
+  assert.equal(done.attachment.kind, 'file');
+  const html = await bob.request('GET', done.attachment.url);
+  assert.equal(html.headers.get('content-type'), 'application/octet-stream');
+  assert.match(html.headers.get('content-disposition'), /^attachment/);
+  assert.equal(html.data.toString(), '<b>hi</b>!');
+  const empty = await bob.upload('empty.txt', 'text/plain', Buffer.alloc(0));
+  assert.equal(empty.size, 0);
+  const cancelled = await bob.call('POST', '/api/uploads', { name: 'a.bin', size: 5, type: '' });
+  await bob.call('DELETE', `/api/uploads/${cancelled.id}`);
+  assert.equal(fs.existsSync(path.join(uploads, 'tmp', cancelled.id)), false);
+  ok('upload resume, oversized chunk rolled back, html served as download, empty file, cancel');
+
+  // Deleting a message deletes its file.
+  await bob.call('DELETE', `/api/messages/${withFile.id}`);
+  assert.equal(fs.existsSync(stored), false);
+  await bob.expect(404, 'GET', attachment.url);
+  ok('deleting a message deletes its files');
+
+  // --- profile ---
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  wait = nextEvent(aSock, 'user:update', (u) => u.id === bob.me.id);
+  let me = await bob.call('PUT', '/api/users/@me/avatar', png);
+  assert.match(me.avatar, /^\/media\/avatars\/.+\.png$/);
+  assert.equal((await wait).avatar, me.avatar);
+  assert.equal((await alice.request('GET', me.avatar)).headers.get('content-type'), 'image/png');
+  await bob.expect(400, 'PUT', '/api/users/@me/avatar', Buffer.from('<svg onload=alert(1)>'));
+  const firstAvatar = path.join(uploads, 'avatars', path.basename(me.avatar));
+  me = await bob.call('PUT', '/api/users/@me/avatar', png);
+  assert.equal(fs.existsSync(firstAvatar), false);
+  me = await bob.call('PATCH', '/api/users/@me', {
+    displayName: 'Bobby', bio: 'hello', statusText: 'busy', bannerColor: '#ff8800', settings: { theme: 'oled' },
+  });
+  assert.deepEqual([me.displayName, me.bannerColor, me.settings.theme], ['Bobby', '#ff8800', 'oled']);
+  await bob.expect(400, 'PATCH', '/api/users/@me', { bannerColor: 'red' });
+  await bob.expect(400, 'PATCH', '/api/users/@me', { bio: 'x'.repeat(191) });
+  assert.equal((await alice.call('GET', `/api/users/${bob.me.id}`)).displayName, 'Bobby');
+  me = await bob.call('DELETE', '/api/users/@me/avatar');
+  assert.equal(me.avatar, null);
+  ok('avatar upload/replace/remove, profile + settings');
+
+  // --- password change logs out other sessions ---
+  const bob2 = new Client();
+  await bob2.call('POST', '/api/auth/login', { username: 'BOB', password: 'password123' });
+  const b2Sock = bob2.socket();
+  await nextEvent(b2Sock, 'connect');
+  wait = nextEvent(b2Sock, 'disconnect');
+  await bob.expect(403, 'PUT', '/api/users/@me/password', { currentPassword: 'nope', newPassword: 'newpassword1' });
+  await bob.call('PUT', '/api/users/@me/password', { currentPassword: 'password123', newPassword: 'newpassword1' });
+  await wait;
+  await bob2.expect(401, 'GET', '/api/users/@me');
+  await bob.call('GET', '/api/users/@me');
+  ok('change password logs out other sessions');
+
+  // --- server icon, rename, kick, leave ---
+  wait = nextEvent(bSock, 'server:update');
+  const withIcon = await alice.call('PUT', `/api/servers/${server.id}/icon`, png);
+  assert.match(withIcon.icon, /^\/media\/icons\//);
+  await wait;
+  await bob.expect(403, 'PATCH', `/api/servers/${server.id}`, { name: 'Mine now' });
+  assert.equal((await alice.call('PATCH', `/api/servers/${server.id}`, { name: 'Renamed' })).name, 'Renamed');
+  await alice.expect(400, 'DELETE', `/api/servers/${server.id}/members/@me`);
+  await bob.expect(403, 'DELETE', `/api/servers/${server.id}/members/${alice.me.id}`);
+  wait = nextEvent(bSock, 'server:delete');
+  await alice.call('DELETE', `/api/servers/${server.id}/members/${bob.me.id}`);
+  await wait;
+  await bob.expect(404, 'GET', `/api/channels/${general.id}/messages`);
+  await bob.call('POST', `/api/invites/${invite.code}`);
+  wait = nextEvent(aSock, 'member:remove');
+  await bob.call('DELETE', `/api/servers/${server.id}/members/@me`);
+  await wait;
+  ok('server icon, rename, kick, leave');
+
+  // --- blocking ---
+  wait = nextEvent(bSock, 'relationship:remove');
+  rel = await alice.call('POST', `/api/relationships/${bob.me.id}/block`);
+  assert.equal(rel.status, 'blocked');
+  await wait;
+  assert.equal((await bob.call('GET', '/api/bootstrap')).relationships.length, 0);
+  await bob.expect(403, 'POST', `/api/channels/${dm.id}/messages`, { content: 'hello?' });
+  await bob.expect(403, 'POST', '/api/dms', { userId: alice.me.id });
+  await bob.expect(403, 'POST', '/api/relationships', { username: 'alice' });
+  await alice.call('DELETE', `/api/relationships/${bob.me.id}`);
+  assert.equal((await bob.call('POST', '/api/relationships', { username: 'alice' })).status, 'outgoing');
+  ok('blocking stops DMs and requests, unblock');
+
+  // --- deleting a channel / server removes files ---
+  const pic = await alice.upload('pic.png', 'image/png', png);
+  await alice.call('POST', `/api/channels/${channel.id}/messages`, { content: 'look', attachmentIds: [pic.id] });
+  const pic2 = await alice.upload('pic2.png', 'image/png', png);
+  await alice.call('POST', `/api/channels/${general.id}/messages`, { attachmentIds: [pic2.id] });
+  const picPath = (a) => path.join(uploads, 'images', `${a.id}.png`);
+  assert.ok(fs.existsSync(picPath(pic)) && fs.existsSync(picPath(pic2)));
+  await alice.call('DELETE', `/api/channels/${channel.id}`);
+  assert.equal(fs.existsSync(picPath(pic)), false);
+  await alice.call('DELETE', `/api/servers/${server.id}`);
+  assert.equal(fs.existsSync(picPath(pic2)), false);
+  assert.equal(fs.readdirSync(path.join(uploads, 'icons')).length, 0);
+  assert.equal((await alice.call('GET', '/api/bootstrap')).servers.length, 0);
+  ok('deleting a channel or server deletes its files');
+
+  // --- presence + logout ---
+  await bob.call('PUT', `/api/relationships/${alice.me.id}`).catch(() => {});
+  await alice.call('PUT', `/api/relationships/${bob.me.id}`);
+  wait = nextEvent(aSock, 'presence', (p) => p.userId === bob.me.id && !p.online);
+  await bob.call('POST', '/api/auth/logout');
+  await wait;
+  await bob.expect(401, 'GET', '/api/users/@me');
+  ok('logout disconnects sockets and shows offline');
+
+  // --- pages and headers ---
+  const page1 = await new Client().request('GET', '/channels/@me');
+  assert.match(page1.headers.get('content-type'), /html/);
+  assert.match(page1.headers.get('content-security-policy'), /script-src 'self'/);
+  await new Client().expect(404, 'GET', '/js/missing.js');
+  await alice.expect(404, 'GET', '/api/nope');
+  ok('SPA fallback, security headers, 404s');
+
+}
+
+async function main() {
+  const server = spawn(process.execPath, ['server/index.js'], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, REGISTRATION: 'open' },
+    stdio: ['ignore', 'pipe', 'inherit'],
+  });
+  await new Promise((resolve) => server.stdout.once('data', resolve));
+  try {
+    await run();
+    console.log(`\nAll ${passed} groups passed.`);
+  } catch (err) {
+    console.error(`\nFAILED after ${passed} groups:\n`, err);
+    process.exitCode = 1;
+  } finally {
+    for (const socket of sockets) socket.close();
+    server.kill();
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+}
+
+main();

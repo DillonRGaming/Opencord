@@ -103,6 +103,6 @@ function finishUpload(uploadId, kind, name) {
 }
 
 module.exports = {
-  ensureFolders, kindFor, absolute, remove, freeBytes, saveImage,
+  ensureFolders, kindFor, remove, freeBytes, saveImage,
   createTmp, removeTmp, appendChunk, finishUpload,
 };
