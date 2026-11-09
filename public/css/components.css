@@ -77,12 +77,6 @@
 .auth-art-mark { position: absolute; display: block; }
 .auth-art-mark.one { right: -90px; top: -40px; }
 .auth-art-mark.two { left: 40px; bottom: 150px; color: color-mix(in srgb, var(--accent) 90%, #fff); }
-.auth-art-card {
-  position: absolute; right: 28px; bottom: 28px; left: 28px; max-width: 340px; margin-left: auto;
-  display: grid; gap: 0.6rem; padding: 1.4rem 1.5rem; border-radius: var(--radius-panel); background: var(--bg-panel); color: var(--text);
-}
-.auth-art-card strong { font-family: var(--serif); font-size: 2rem; font-weight: 400; line-height: 1.05; }
-.auth-art-card p { font-size: 0.88rem; color: var(--text-muted); }
 
 @media (max-width: 899px) {
   .auth { grid-template-columns: minmax(0, 1fr); }

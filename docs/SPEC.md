@@ -228,7 +228,7 @@ Someone who joins a server starts with every channel marked read.
 Rounded flat panels on a darker ground ("Moss"): server rail · sidebar (DM list + "Friends", or channel list
 whose server name folds out Invite / New channel / Server settings / Leave) with the user panel and the only
 settings button at the bottom · main column · side panel (member list, a profile, pinned messages or search
-results). Logo: the "Open O", a speech bubble with a sharp bottom-left corner whose hole runs out the right side.
+results). Logo: the "Infinity Cord", one thick cord looped twice with an over-and-under crossing.
 Geist / Geist Mono, sage accent used sparingly, no shadows, glows or blues, no empty-state filler text.
 Mobile (<800px): one column at a time with a back button.
 

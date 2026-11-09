@@ -14,14 +14,11 @@ function input(label, props, isValid, hint) {
   return { control, el: h('label', { class: 'auth-field' }, h('span', { class: 'auth-label' }, label), wrap, hint && h('span', { class: 'auth-hint' }, hint)) };
 }
 
-// The art half of the screen: the logo drawn big, and what Opencord is for.
+// The art half of the screen: the logo drawn big.
 function showcase() {
   return h('aside', { class: 'auth-art', 'aria-hidden': 'true' },
     h('span', { class: 'auth-art-mark one' }, icon('logo', 520)),
-    h('span', { class: 'auth-art-mark two' }, icon('logo', 260)),
-    h('div', { class: 'auth-art-card' },
-      h('strong', {}, 'No limits.', h('br'), 'Send anything.'),
-      h('p', {}, 'Messages of any length and files of any size, with your friends, on a server you run yourself.')));
+    h('span', { class: 'auth-art-mark two' }, icon('logo', 260)));
 }
 
 // The log in / create account screen. With an invite, it shows the server first and joins after signing in.
@@ -42,8 +39,6 @@ export function showAuth(root, invite) {
     const username = input('Username', {
       name: 'username', autocomplete: 'username', required: true, maxLength: 32, autocapitalize: 'none', spellcheck: false,
     }, (v) => USERNAME.test(v.trim()), !login && 'Letters, numbers, _ and . (2–32)');
-    const displayName = input('Display name', { name: 'displayName', autocomplete: 'nickname', maxLength: 32, placeholder: 'Optional' },
-      (v) => v.trim().length > 0);
     const password = input('Password', {
       name: 'password', type: 'password', required: true, minLength: login ? 1 : 8,
       autocomplete: login ? 'current-password' : 'new-password',
@@ -58,8 +53,8 @@ export function showAuth(root, invite) {
         error.textContent = '';
         submit.disabled = true;
         try {
+          // A new account's display name starts as its username; it can be changed in settings.
           const body = { username: username.control.value.trim(), password: password.control.value };
-          if (!login && displayName.control.value.trim()) body.displayName = displayName.control.value.trim();
           await api.post(login ? '/api/auth/login' : '/api/auth/register', body);
           await finish();
         } catch (err) {
@@ -67,7 +62,7 @@ export function showAuth(root, invite) {
           submit.disabled = false;
         }
       },
-    }, username.el, !login && displayName.el, password.el, error, submit);
+    }, username.el, password.el, error, submit);
 
     root.replaceChildren(h('div', { class: 'auth' },
       h('main', { class: 'auth-main' },
