@@ -4,12 +4,12 @@ import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, THEMES } from '../theme.js';
 import { segmented } from '../ui.js';
 
-// Colours for the little theme previews: backdrop, panel, button.
+// Colours for the little theme previews: sidebar, chat, text.
 const PREVIEW = {
-  light: ['#f4f4f5', '#ffffff', '#26140f'],
-  dark: ['#0f1012', '#18191c', '#f2f2f3'],
-  midnight: ['#070a12', '#0e1422', '#e6ebf7'],
-  oled: ['#000000', '#0d0d0e', '#ffffff'],
+  dark: ['#121214', '#1a1a1e', '#f1f1f3'],
+  midnight: ['#080b14', '#0d1220', '#e6ebf7'],
+  oled: ['#000000', '#060607', '#f2f2f3'],
+  light: ['#f3f3f4', '#fbfbfb', '#1c1c20'],
 };
 
 function group(label, ...children) {
@@ -64,6 +64,6 @@ export function appearancePage() {
     group('Message spacing', h('div', {}, segmented([['cozy', 'Cozy'], ['compact', 'Compact']], current.density, (density) => changeSettings({ density })))),
     group('Avatar shape', h('div', {}, segmented([['round', 'Round'], ['square', 'Rounded square']], current.avatarShape, (avatarShape) => changeSettings({ avatarShape })))),
     group('Custom CSS', css, h('span', { class: 'field-hint' },
-      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-app, --bg-panel, --text and --accent.')),
+      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-side, --bg-panel, --text and --accent.')),
   ];
 }

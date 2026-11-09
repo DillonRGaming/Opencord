@@ -216,9 +216,11 @@ Someone who joins a server starts with every channel marked read.
 
 ## Frontend
 
-Discord-like layout, but its own look (not a copy of Discord's colours or branding): every area is its own
-rounded card with a thin border, with gaps between the cards on a soft dotted backdrop. Primary buttons are
-near-black (near-white on dark themes); the accent colour is used sparingly (links, unread dots, active icons).
+Laid out like Discord's current desktop app (the owner asked for this), with Opencord's own name, logo and
+accent colour: flat columns that sit flush, separated by thin borders; the rail and sidebar share the darkest
+shade and the chat is one step lighter. Rail icons are rounded squares with a marker on the left edge (dot =
+unread, full height = open). The user panel is a bordered card floating over the bottom of the rail and sidebar.
+Primary buttons use the accent colour.
 server rail (home button, server icons with unread pill, + create/join) · sidebar (DM list + "Friends", or
 channel list with server menu) with a user panel at the bottom · main (chat or friends page) · member list.
 Mobile (<800px): one column at a time with a back button.
@@ -235,7 +237,7 @@ Mobile (<800px): one column at a time with a back button.
 - Profile popout on clicking a name/avatar: banner colour, avatar, names, status, bio, Message / Add Friend,
   Kick (owner).
 - Settings (full screen): My Profile (avatar incl. animated GIF, display name, status, bio, banner colour,
-  live preview) · Appearance (theme Light (default) / Dark / Midnight / OLED, accent colour presets + picker,
+  live preview) · Appearance (theme Dark (default) / Midnight / OLED / Light, accent colour presets + picker,
   font size, cozy/compact density, round/square avatars, custom CSS) · Account (change password, log out).
   Settings live in `me.settings` and apply instantly.
 - Server settings (owner): name, icon, create invite link, delete server. Invite modal with copy button
