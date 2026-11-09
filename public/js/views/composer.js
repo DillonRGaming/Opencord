@@ -3,6 +3,7 @@ import { h } from '../dom.js';
 import { formatSize } from '../format.js';
 import { sendTyping } from '../realtime.js';
 import { startUpload } from '../upload.js';
+import { icon } from '../icons.js';
 import { iconButton, pickFiles, toast } from '../ui.js';
 
 const TYPING_EVERY_MS = 3000;
@@ -13,8 +14,10 @@ function autoGrow(textarea) {
 }
 
 // The message box. Files start uploading as soon as they are added; sending waits for them to finish.
-export function createComposer(channel, placeholder) {
+// options.onEditLast: called on Up arrow in an empty box.
+export function createComposer(channel, placeholder, { onEditLast } = {}) {
   let uploads = [];
+  let replying = null; // the message being answered
   let queue = Promise.resolve();
   let lastTyping = 0;
 
@@ -29,6 +32,14 @@ export function createComposer(channel, placeholder) {
       }
     },
     onkeydown: (event) => {
+      if (event.key === 'ArrowUp' && !textarea.value && onEditLast) {
+        event.preventDefault();
+        onEditLast();
+      }
+      if (event.key === 'Escape' && replying) {
+        event.stopPropagation();
+        replyTo(null);
+      }
       if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
         event.preventDefault();
         send();
@@ -41,11 +52,23 @@ export function createComposer(channel, placeholder) {
       addFiles(files);
     },
   });
-  const el = h('div', { class: 'composer' }, tray,
+  const replyBar = h('div', { class: 'reply-bar' });
+  const el = h('div', { class: 'composer' }, replyBar, tray,
     h('div', { class: 'composer-row' },
       iconButton('paperclip', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
       textarea,
       iconButton('send', 'Send', () => send(), 'send')));
+
+  function replyTo(message) {
+    replying = message;
+    replyBar.replaceChildren(...(message ? [
+      icon('reply', 15),
+      h('span', {}, 'Replying to ', h('strong', {}, message.author.displayName)),
+      h('span', { class: 'reply-bar-text' }, message.content),
+      iconButton('x', 'Cancel reply', () => replyTo(null)),
+    ] : []));
+    if (message) textarea.focus();
+  }
 
   function addFiles(files) {
     for (const file of files) {
@@ -88,20 +111,24 @@ export function createComposer(channel, placeholder) {
     const content = textarea.value.trim();
     const batch = uploads;
     if (!content && !batch.length) return;
+    const replyToId = replying?.id || null;
+    replyTo(null);
     textarea.value = '';
     autoGrow(textarea);
     uploads = [];
     lastTyping = 0;
-    queue = queue.then(() => deliver(content, batch));
+    queue = queue.then(() => deliver(content, batch, replyToId));
   }
 
-  async function deliver(content, batch) {
+  async function deliver(content, batch, replyToId) {
     try {
       await Promise.all(batch.map((upload) => upload.done));
       const files = batch.filter((upload) => !upload.removed);
       if (files.some((upload) => upload.failed)) throw new Error("A file didn't upload. Remove it or add it again, then send.");
       if (!content && !files.length) return;
-      await api.post(`/api/channels/${channel.id}/messages`, { content, attachmentIds: files.map((upload) => upload.attachment.id) });
+      await api.post(`/api/channels/${channel.id}/messages`, {
+        content, replyToId, attachmentIds: files.map((upload) => upload.attachment.id),
+      });
       for (const upload of files) upload.el.remove();
     } catch (err) {
       // Put everything back so nothing typed or uploaded is lost.
@@ -117,5 +144,5 @@ export function createComposer(channel, placeholder) {
     for (const upload of uploads) if (!upload.attachment) upload.handle.cancel();
   }
 
-  return { el, addFiles, destroy, focus: () => textarea.focus() };
+  return { el, addFiles, destroy, replyTo, focus: () => textarea.focus() };
 }

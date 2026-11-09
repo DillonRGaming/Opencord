@@ -38,4 +38,33 @@ router.delete('/:id', (req, res) => {
   res.sendStatus(204);
 });
 
+// Reactions: any emoji (or short text), up to 32 characters. Adding twice or removing a missing one is fine.
+function reactionRoute(add) {
+  return (req, res) => {
+    const { message, channel } = visibleMessage(req.params.id, req.user.id);
+    const emoji = text(req.params.emoji, 'Reaction', { min: 1, max: 32 });
+    if (add) messages.react(message.id, req.user.id, emoji);
+    else messages.unreact(message.id, req.user.id, emoji);
+    const json = messages.serialize(messages.get(message.id));
+    realtime.toChannel(channel, 'message:update', json);
+    res.json(json);
+  };
+}
+
+router.put('/:id/reactions/:emoji', reactionRoute(true));
+router.delete('/:id/reactions/:emoji', reactionRoute(false));
+
+// Anyone who can see a message can pin it: Opencord is for friends, not moderation.
+function pinRoute(pinned) {
+  return (req, res) => {
+    const { message, channel } = visibleMessage(req.params.id, req.user.id);
+    const json = messages.serialize(messages.setPinned(message.id, pinned));
+    realtime.toChannel(channel, 'message:update', json);
+    res.json(json);
+  };
+}
+
+router.put('/:id/pin', pinRoute(true));
+router.delete('/:id/pin', pinRoute(false));
+
 module.exports = router;

@@ -214,6 +214,32 @@ async function run() {
   assert.equal(older.at(-1).content, 'm9');
   ok('messages: realtime, typing, 200k chars, edit, owner delete, paging');
 
+  // --- replies, reactions, pins, search ---
+  const original = await alice.call('POST', `/api/channels/${general.id}/messages`, { content: 'pizza or tacos?' });
+  const reply = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'tacos 100%', replyToId: original.id });
+  assert.deepEqual([reply.replyTo.id, reply.replyTo.author.id, reply.replyTo.content], [original.id, alice.me.id, 'pizza or tacos?']);
+  await bob.expect(400, 'POST', `/api/channels/${channel.id}/messages`, { content: 'wrong channel', replyToId: original.id });
+  wait = nextEvent(aSock, 'message:update', (m) => m.reactions.length);
+  await bob.call('PUT', `/api/messages/${original.id}/reactions/${encodeURIComponent('🌮')}`);
+  await alice.call('PUT', `/api/messages/${original.id}/reactions/${encodeURIComponent('🌮')}`);
+  assert.deepEqual((await wait).reactions, [{ emoji: '🌮', userIds: [bob.me.id] }]);
+  let reacted = await bob.call('PUT', `/api/messages/${original.id}/reactions/${encodeURIComponent('🌮')}`); // twice is fine
+  assert.deepEqual(reacted.reactions[0].userIds, [bob.me.id, alice.me.id]);
+  reacted = await bob.call('DELETE', `/api/messages/${original.id}/reactions/${encodeURIComponent('🌮')}`);
+  assert.deepEqual(reacted.reactions, [{ emoji: '🌮', userIds: [alice.me.id] }]);
+  await carol.expect(404, 'PUT', `/api/messages/${original.id}/reactions/x`);
+  assert.equal((await bob.call('PUT', `/api/messages/${reply.id}/pin`)).pinned, true);
+  assert.deepEqual((await alice.call('GET', `/api/channels/${general.id}/pins`)).map((m) => m.id), [reply.id]);
+  await bob.call('DELETE', `/api/messages/${reply.id}/pin`);
+  assert.equal((await alice.call('GET', `/api/channels/${general.id}/pins`)).length, 0);
+  const found = await alice.call('GET', `/api/channels/${general.id}/search?q=${encodeURIComponent('TACOS')}`);
+  assert.deepEqual(found.map((m) => m.id), [reply.id, original.id]);
+  assert.equal((await alice.call('GET', `/api/channels/${general.id}/search?q=${encodeURIComponent('100%')}`)).length, 1);
+  await alice.call('DELETE', `/api/messages/${original.id}`);
+  const after = await bob.call('GET', `/api/channels/${general.id}/messages?limit=1`);
+  assert.deepEqual(after[0].replyTo, { id: original.id, deleted: true });
+  ok('replies, reactions, pins, search');
+
   // --- uploads ---
   const video = crypto.randomBytes(21 * 1024 * 1024);
   const attachment = await bob.upload('my clip.mp4', 'video/mp4', video);

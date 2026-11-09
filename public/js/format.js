@@ -1,10 +1,11 @@
 import { h } from './dom.js';
+import { state } from './store.js';
 
-// --- light markdown: **bold**, *italic*, ~~strike~~, `code`, ``` blocks ```, links ---
+// --- light markdown: **bold**, *italic*, ~~strike~~, ||spoiler||, `code`, ``` blocks ```, links, @mentions ---
 // Everything is built as DOM nodes; user text only ever lands in text nodes.
 
 const BLOCK = /```(?:[a-z0-9+#-]*\n)?([\s\S]*?)```/gi;
-const INLINE = /`([^`\n]+)`|\*\*(.+?)\*\*|~~(.+?)~~|\*(.+?)\*|(https?:\/\/[^\s<>]+)/g;
+const INLINE = /`([^`\n]+)`|\*\*(.+?)\*\*|~~(.+?)~~|\*(.+?)\*|\|\|(.+?)\|\||(https?:\/\/[^\s<>]+)|(?<![\w@])@([a-z0-9_.]{2,32})/gi;
 
 export function renderMarkdown(text) {
   const fragment = document.createDocumentFragment();
@@ -27,15 +28,32 @@ function appendInline(parent, text) {
   let last = 0;
   for (const match of text.matchAll(INLINE)) {
     parent.append(text.slice(last, match.index));
-    const [whole, code, bold, strike, italic, url] = match;
+    const [whole, code, bold, strike, italic, spoiler, url, mention] = match;
     if (code) parent.append(h('code', {}, code));
     else if (bold) parent.append(nested('strong', bold));
     else if (strike) parent.append(nested('s', strike));
     else if (italic) parent.append(nested('em', italic));
-    else parent.append(...link(url));
+    else if (spoiler) parent.append(spoilerView(spoiler));
+    else if (url) parent.append(...link(url));
+    else parent.append(h('span', { class: `mention${mentionsMe(whole) ? ' me' : ''}` }, whole));
     last = match.index + whole.length;
   }
   parent.append(text.slice(last));
+}
+
+// True when the text says @<my username> (or @everyone).
+export function mentionsMe(text) {
+  const me = state.me?.username.replaceAll('.', '\\.');
+  return new RegExp(`(?<![\\w@])@(${me}|everyone)(?![a-z0-9_.])`, 'i').test(text);
+}
+
+function spoilerView(text) {
+  const el = h('button', {
+    type: 'button', class: 'spoiler', title: 'Spoiler: click to show',
+    onclick: (event) => { event.stopPropagation(); el.classList.add('shown'); },
+  });
+  appendInline(el, text);
+  return el;
 }
 
 function nested(tag, text) {

@@ -2,10 +2,10 @@ import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, emit, isUnread, isOwner, markRead } from '../store.js';
-import { attempt, avatar, iconButton, toast } from '../ui.js';
+import { attempt, avatar, copyText, iconButton, toast } from '../ui.js';
 import { createComposer } from './composer.js';
-import { messageRow } from './message.js';
-import { membersShown, toggleMembers } from './side.js';
+import { messageCard, messageRow } from './message.js';
+import { membersShown, openPanel, toggleMembers } from './side.js';
 import { openProfile } from './profile.js';
 
 const PAGE = 50;
@@ -19,16 +19,64 @@ const nameOf = (userId) => state.users.get(userId)?.displayName || 'Someone';
 
 function header(channel, serverId) {
   const back = iconButton('back', 'Back', () => { document.body.dataset.panel = 'nav'; }, 'back-button');
+  const tools = [
+    searchBox(channel),
+    iconButton('pin', 'Pinned messages', () => showPins(channel)),
+    serverId && membersButton(),
+  ];
   if (channel.type === 'dm') {
     const { recipient } = channel;
     return h('header', { class: 'main-header' }, back,
       h('button', { type: 'button', class: 'main-title', onclick: () => openProfile(recipient) },
-        avatar(recipient, { size: 28, presence: true }), h('span', {}, recipient.displayName)));
+        avatar(recipient, { size: 28, presence: true }), h('span', {}, recipient.displayName)),
+      h('div', { class: 'main-spacer' }), tools);
   }
   return h('header', { class: 'main-header' }, back,
-    h('div', { class: 'main-title' }, icon('hash', 16), h('span', {}, channel.name)),
+    h('div', { class: 'main-title' }, icon('hash', 18), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
-    membersButton());
+    tools);
+}
+
+function searchBox(channel) {
+  const input = h('input', {
+    type: 'search', placeholder: 'Search', 'aria-label': `Search ${channel.type === 'dm' ? 'this conversation' : `#${channel.name}`}`,
+    onkeydown: (event) => {
+      if (event.key === 'Enter' && input.value.trim()) showSearch(channel, input.value.trim());
+    },
+  });
+  return h('label', { class: 'header-search' }, icon('search', 16), input);
+}
+
+// Pinned messages and search results open in the side panel as compact cards with a Jump button.
+let pinsFor = null;
+
+function resultsPanel(title, load, onClose) {
+  const list = h('div', { class: 'card-list' }, h('p', { class: 'loading' }, 'Loading…'));
+  load().then((messages) => {
+    list.replaceChildren(...messages.map((m) => messageCard(m, jumpTo)));
+    if (!messages.length) list.replaceChildren(h('p', { class: 'loading' }, 'Nothing found.'));
+  }, (err) => list.replaceChildren(h('p', { class: 'loading' }, err.message)));
+  return openPanel({ title, build: () => list, onClose });
+}
+
+function showPins(channel) {
+  pinsFor = channel.id;
+  resultsPanel('Pinned messages', () => api.get(`/api/channels/${channel.id}/pins`), () => { pinsFor = null; });
+}
+
+function showSearch(channel, query) {
+  resultsPanel(`“${query}”`, () => api.get(`/api/channels/${channel.id}/search?q=${encodeURIComponent(query)}`));
+}
+
+// Scroll to a message if it's loaded and flash it.
+function jumpTo(id) {
+  const row = view && findRow(view, id);
+  if (!row) return toast('That message is further back. Scroll up to load it.');
+  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  const message = row.querySelector('.message');
+  message.classList.remove('flash');
+  requestAnimationFrame(() => message.classList.add('flash'));
+  return undefined;
 }
 
 function membersButton() {
@@ -41,11 +89,13 @@ function membersButton() {
 }
 
 function historyStart(channel) {
-  const title = channel.type === 'dm' ? channel.recipient.displayName : `Welcome to #${channel.name}`;
-  const text = channel.type === 'dm'
-    ? `This is the start of your conversation with ${channel.recipient.displayName}.`
-    : 'This is the very start of this channel.';
-  return h('div', { class: 'history-start' }, h('h2', {}, title), h('p', {}, text));
+  if (channel.type === 'dm') {
+    const { recipient } = channel;
+    return h('div', { class: 'history-start' }, avatar(recipient, { size: 64 }),
+      h('h2', {}, recipient.displayName), h('p', {}, `@${recipient.username}`));
+  }
+  return h('div', { class: 'history-start' }, h('span', { class: 'history-hash' }, icon('hash', 30)),
+    h('h2', {}, channel.name), channel.topic && h('p', {}, channel.topic));
 }
 
 function rowFor(v, index) {
@@ -55,6 +105,11 @@ function rowFor(v, index) {
     onEdit: startEdit,
     onDelete: deleteMessage,
     onProfile: (user) => openProfile(user, { serverId: v.serverId }),
+    onReply: (m) => v.composer.replyTo(m),
+    onReact: react,
+    onPin: (m) => attempt(() => (m.pinned ? api.del : api.put)(`/api/messages/${m.id}/pin`)),
+    onCopy: async (m) => { await copyText(m.content); toast('Copied.', 'ok'); },
+    onJump: jumpTo,
   });
 }
 
@@ -166,6 +221,20 @@ function startEdit(message, row) {
   textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }
 
+function react(message, emoji, add) {
+  const url = `/api/messages/${message.id}/reactions/${encodeURIComponent(emoji)}`;
+  attempt(() => (add ? api.put(url) : api.del(url)));
+}
+
+// Up arrow in an empty message box edits your last message.
+function editLast(v) {
+  const index = v.messages.findLastIndex(isMine);
+  if (index === -1) return;
+  const row = findRow(v, v.messages[index].id);
+  row.scrollIntoView({ block: 'nearest' });
+  startEdit(v.messages[index], row);
+}
+
 function deleteMessage(message) {
   return api.del(`/api/messages/${message.id}`);
 }
@@ -205,6 +274,7 @@ on('message:update', (message) => {
   if (index === -1) return;
   view.messages[index] = message;
   redrawRow(view, index);
+  if (pinsFor === message.channelId) showPins(view.channel);
 });
 
 on('message:delete', ({ id }) => {
@@ -265,8 +335,8 @@ export function showChat(container, channel, serverId = null) {
     top: h('div'),
     list: h('div', { class: 'message-list' }),
     typingEl: h('div', { class: 'typing', role: 'status' }),
-    composer: createComposer(channel, placeholder),
   };
+  v.composer = createComposer(channel, placeholder, { onEditLast: () => editLast(v) });
   v.scroller = h('div', {
     class: 'scroller',
     onscroll: () => {

@@ -1,6 +1,6 @@
 // Line icons drawn on a 24×24 grid. Built with DOM calls, never innerHTML.
 const PATHS = {
-  logo: 'M12 3a9 9 0 1 0 5.2 16.3L21 21l-1.3-4.2A9 9 0 0 0 12 3z',
+  logo: 'M21.38 15.46A10.00 10.00 0 0 1 12.00 22.00L3.15 22.00Q2.00 22.00 2.00 20.85L2.00 12.00A10.00 10.00 0 0 1 21.38 8.54L12.00 8.54A3.46 3.46 0 0 0 12.00 15.46Z',
   hash: 'M4 9h16M4 15h16M10 3 8 21M16 3l-2 18',
   plus: 'M12 5v14M5 12h14',
   x: 'M6 6l12 12M18 6 6 18',
@@ -22,6 +22,10 @@ const PATHS = {
   file: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6',
   logout: 'M10 4H5v16h5M15 8l4 4-4 4M19 12H9',
   link: 'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  reply: 'M9 17 4 12l5-5M20 18v-2a4 4 0 0 0-4-4H4',
+  pin: 'M12 17v5M9 10.8a2 2 0 0 1-1.1 1.8l-1.8.9A2 2 0 0 0 5 15.2V17h14v-1.8a2 2 0 0 0-1.1-1.8l-1.8-.9A2 2 0 0 1 15 10.8V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z',
+  smilePlus: 'M21 11.5V12a9 9 0 1 1-9.5-9M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01M15.5 5h6M18.5 2v6',
+  at: 'M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0zm0 0v1.5a2.5 2.5 0 0 0 5 0V12a9 9 0 1 0-3.5 7.1',
   ban: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM5.6 5.6l12.8 12.8',
 };
 
@@ -35,6 +39,7 @@ export function icon(name, size = 20) {
   svg.setAttribute('aria-hidden', 'true');
   svg.classList.add('icon');
   if (name === 'more') svg.classList.add('icon-dots');
+  if (name === 'logo') svg.classList.add('icon-fill');
   const path = document.createElementNS(SVG, 'path');
   path.setAttribute('d', PATHS[name]);
   svg.append(path);

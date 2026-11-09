@@ -49,38 +49,50 @@
 
 /* --- friends page --- */
 
-.tabs { display: flex; flex: 1; min-width: 0; gap: 0.25rem; margin-left: 12px; overflow-x: auto; scrollbar-width: none; }
-.tab { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.8rem; border-radius: var(--radius-small); font-size: 0.88rem; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
+.tabs { display: flex; flex: 1; min-width: 0; gap: 0.25rem; margin-left: 14px; overflow-x: auto; scrollbar-width: none; }
+.tab { display: inline-flex; align-items: center; gap: 0.4rem; height: 34px; padding: 0 0.8rem; border-radius: var(--radius-small); font-size: 0.88rem; font-weight: 500; color: var(--text-muted); white-space: nowrap; }
 .tab:hover { background: var(--hover); color: var(--text); }
 .tab[aria-selected="true"] { background: var(--active); color: var(--text); }
-.tab.cta { color: var(--accent-ink); }
-.tab.cta[aria-selected="true"] { background: var(--accent); color: var(--accent-text); }
 
-.page { flex: 1; overflow-y: auto; padding: 1.25rem 1.5rem; }
-.page-heading { margin: 0 0 0.5rem 0.5rem; font-size: 0.8rem; color: var(--text-faint); }
-.friend { display: flex; align-items: center; gap: 0.75rem; padding: 0.55rem 0.5rem; border-radius: var(--radius); --presence-ring: var(--bg-panel); }
-.friend:hover { background: var(--hover); --presence-ring: var(--bg-panel); }
+.friends-page { display: grid; gap: 1.5rem; max-width: 760px; padding: 1.5rem 1.75rem 3rem; }
+.add-friend { display: grid; gap: 0.5rem; }
+.add-friend-row { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 16px; border-radius: 14px; background: var(--bg-input); }
+.add-friend-row:focus-within { outline: 1px solid var(--text-faint); }
+.add-at { color: var(--text-faint); font-family: var(--mono); }
+.add-friend-row .input { flex: 1; min-width: 0; padding: 0.55rem 0; background: none; border: 0; font-size: 0.98rem; }
+.add-friend-row .input:focus { outline: none; }
+.add-status { font-size: 0.86rem; color: var(--text-muted); padding-left: 16px; }
+.add-status:empty { display: none; }
+.add-status.ok { color: var(--ok); }
+.add-status.error { color: var(--danger); }
+.friend-group { display: grid; gap: 2px; }
+.page-heading { margin: 0 0 0.4rem 0.6rem; font-size: 0.8rem; color: var(--text-faint); }
+.friend { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem 0.6rem; border-radius: var(--radius); --presence-ring: var(--bg-panel); }
+.friend:hover { background: var(--hover); }
 .friend-names { flex: 1; min-width: 0; text-align: left; }
 .friend-names strong, .friend-names span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .friend-names strong { font-weight: 500; }
 .friend-names span { font-size: 0.82rem; color: var(--text-faint); }
 .friend-who { display: flex; align-items: center; gap: 0.75rem; flex: 1; min-width: 0; }
-.add-friend { display: grid; gap: 0.9rem; max-width: 520px; }
-.add-friend h2 { font-size: 1.15rem; font-weight: 600; }
-.add-friend p { color: var(--text-muted); font-size: 0.92rem; }
-.form-ok { color: var(--ok); font-size: 0.88rem; }
-.form-ok:empty { display: none; }
+.friend-actions { display: flex; align-items: center; gap: 4px; }
 
-/* --- settings: takes the place of the sidebar and main column, the rail stays --- */
+/* --- pages in the main column (settings, add a server, invite…) --- */
 
-.app.settings-open > .sidebar, .app.settings-open > .main { display: none; }
-.settings { grid-column: 2 / -1; display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: var(--gap); min-height: 0; }
-.settings-nav { display: flex; flex-direction: column; gap: 1px; padding: 8px; overflow-y: auto; }
-.settings-nav h2 { padding: 14px 10px 10px; font-size: 0.98rem; font-weight: 600; }
-.settings-page { position: relative; overflow-y: auto; padding: 1.75rem 2.25rem 4rem; }
-.settings-content { display: grid; gap: 1.6rem; max-width: 720px; }
-.settings-content h1 { font-size: 1.35rem; font-weight: 600; }
-.settings-close { position: absolute; top: 1rem; right: 1rem; }
+.column.page-open > .column-content { display: none; }
+.page-view { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.page-view .main-header h1 { font-size: 1rem; font-weight: 600; }
+.page-view .tabs { flex: 0 1 auto; }
+.page-back { display: none; margin-left: -8px; }
+.page-scroll { flex: 1; min-height: 0; overflow-y: auto; }
+.page-content { padding: 1.75rem 1.75rem 4rem; }
+.narrow { display: grid; gap: 1.4rem; max-width: 520px; }
+.card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--gap); max-width: 860px; }
+.card { display: grid; align-content: start; gap: 0.9rem; padding: 1.4rem; border-radius: var(--radius-panel); background: var(--bg-raised); }
+.card h2 { font-size: 1.05rem; font-weight: 600; }
+.card .input { background: var(--bg-panel); }
+.icon-row { gap: 0.75rem; }
+
+.settings-content { display: grid; gap: 1.6rem; max-width: 760px; }
 .settings-group { display: grid; gap: 0.6rem; }
 .profile-editor { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 2rem; align-items: start; }
 
@@ -96,15 +108,9 @@
 .range { width: min(320px, 100%); accent-color: var(--accent); }
 
 @media (max-width: 799px) {
-  .app.settings-open { grid-template-columns: minmax(0, 1fr); }
-  .app.settings-open > .rail { display: none; }
-  .settings { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
-  .settings-page { border-top: 1px solid var(--border); }
-  .settings-nav { flex-direction: row; align-items: center; padding: 0.4rem 3rem 0.4rem 0.4rem; overflow-x: auto; }
-  .settings-nav h2 { display: none; }
-  .settings-nav .nav-item { width: auto; white-space: nowrap; margin: 0; }
-  .settings-page { padding: 1rem 1rem 4rem; }
-  .settings-close { position: fixed; top: 0.6rem; right: 0.6rem; z-index: 1; }
+  .page-back { display: inline-grid; }
+  .page-content, .friends-page { padding: 1rem 1rem 3rem; }
   .profile-editor { grid-template-columns: minmax(0, 1fr); }
-  .page { padding: 0.75rem; }
+  .header-search { display: none; }
 }
+.card .button.ghost { background: var(--bg-panel); }

@@ -4,7 +4,7 @@ import { icon } from '../icons.js';
 import { state, on, isUnread, isOwner, sortedDms, relationsWith } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { attempt, avatar, confirmButton, iconButton, serverIcon } from '../ui.js';
-import { openChannelPanel, openInviteLink } from './serverPanels.js';
+import { openChannelPage, openInviteLink } from './serverPages.js';
 import { openServerSettings } from './serverSettings.js';
 import { openProfile } from './profile.js';
 import { openSettings } from './settings.js';
@@ -22,12 +22,11 @@ function homeList() {
   const pending = relationsWith('incoming').length;
   const dms = sortedDms();
   return [
-    h('div', { class: 'sidebar-header' }, h('span', { class: 'sidebar-title' }, 'Opencord')),
+    h('div', { class: 'sidebar-header brand' }, icon('logo', 22), h('span', { class: 'sidebar-title' }, 'Opencord')),
     h('div', { class: 'sidebar-scroll' },
       navItem({ active: route.name === 'home', onclick: () => navigate(paths.home()) },
         icon('users', 18), h('span', { class: 'nav-label' }, 'Friends'), pending > 0 && h('span', { class: 'badge' }, pending)),
-      h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Direct messages')),
-      dms.length === 0 && h('p', { class: 'sidebar-empty' }, 'No conversations yet. Add a friend and say hi.'),
+      dms.length > 0 && h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Direct messages')),
       dms.map((dm) => navItem({
         active: route.channelId === dm.id, unread: isUnread(dm), onclick: () => navigate(paths.dm(dm.id)),
       }, avatar(dm.recipient, { size: 32, presence: true }),
@@ -41,7 +40,7 @@ function serverActions(server) {
   const owner = isOwner(server.id);
   return h('div', { class: 'server-actions' },
     navItem({ onclick: () => attempt(() => openInviteLink(server)) }, icon('userPlus', 18), h('span', { class: 'nav-label' }, 'Invite people')),
-    owner && navItem({ onclick: () => openChannelPanel(server) }, icon('plus', 18), h('span', { class: 'nav-label' }, 'New channel')),
+    owner && navItem({ onclick: () => openChannelPage(server) }, icon('plus', 18), h('span', { class: 'nav-label' }, 'New channel')),
     owner && navItem({ onclick: () => openServerSettings(server) }, icon('settings', 18), h('span', { class: 'nav-label' }, 'Server settings')),
     !owner && confirmButton({
       label: 'Leave server', confirmLabel: 'Click again to leave', className: 'nav-item danger',
@@ -63,14 +62,14 @@ function serverList(server) {
     open && serverActions(server),
     h('div', { class: 'sidebar-scroll' },
       h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Text channels'),
-        owner && iconButton('plus', 'New channel', () => openChannelPanel(server))),
+        owner && iconButton('plus', 'New channel', () => openChannelPage(server))),
       channels.map((channel) => navItem({
         active: route.channelId === channel.id, unread: isUnread(channel),
         onclick: () => navigate(paths.channel(server.id, channel.id)),
       }, icon('hash', 18), h('span', { class: 'nav-label' }, channel.name),
       owner && h('span', {
         class: 'icon-button', role: 'button', tabIndex: 0, title: 'Edit channel', 'aria-label': `Edit #${channel.name}`,
-        onclick: (event) => { event.stopPropagation(); openChannelPanel(server, channel); },
+        onclick: (event) => { event.stopPropagation(); openChannelPage(server, channel); },
       }, icon('pencil', 15))))),
   ];
 }

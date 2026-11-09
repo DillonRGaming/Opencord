@@ -35,8 +35,7 @@ function render() {
     .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName));
   const online = members.filter((m) => state.online.has(m.user.id));
   const offline = members.filter((m) => !state.online.has(m.user.id));
-  list.replaceChildren(...group('Online', online, true), ...group('Offline', offline, false),
-    query && !members.length ? h('p', { class: 'sidebar-empty' }, 'Nobody by that name here.') : '');
+  list.replaceChildren(...group('Online', online, true), ...group('Offline', offline, false));
 }
 
 async function load(id) {

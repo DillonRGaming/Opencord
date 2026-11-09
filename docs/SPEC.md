@@ -67,7 +67,7 @@ Invite codes: 8 chars from `abcdefghjkmnpqrstuvwxyz23456789`.
 - Rate limit register/login: 20 attempts per IP per 15 min → 429.
 - `REGISTRATION=closed` in `.env` disables sign-ups (403).
 
-## Database (001_init.sql)
+## Database (001_init.sql, 002_message_features.sql)
 
 ```sql
 users(id PK, username UNIQUE, display_name, password_hash, avatar NULL, banner_color NULL,
@@ -81,8 +81,10 @@ channels(id PK, server_id FK NULL, type CHECK IN ('text','dm'), name NULL, topic
          position, dm_key UNIQUE NULL, last_message_id NULL, created_at)
 dm_members(channel_id FK, user_id FK, PK(channel_id, user_id))
 invites(code PK, server_id FK, creator_id FK, uses DEFAULT 0, created_at)
-messages(id PK, channel_id FK, author_id FK, content DEFAULT '', edited_at NULL, created_at)
+messages(id PK, channel_id FK, author_id FK, content DEFAULT '', edited_at NULL, created_at,
+         reply_to_id NULL, pinned_at NULL)
   INDEX (channel_id, id)
+reactions(message_id FK, user_id FK, emoji, created_at, PK(message_id, user_id, emoji))
 attachments(id PK, message_id FK NULL, uploader_id FK, kind CHECK IN ('image','video','audio','file'),
             name, mime, size, path, created_at)       -- path relative to uploads/, e.g. images/<id>.png
 pending_uploads(id PK, user_id FK, name, mime, size, received DEFAULT 0, created_at)
@@ -103,7 +105,9 @@ Channel   { id, type: 'text', serverId, name, topic, position, lastMessageId }
 DMChannel { id, type: 'dm', recipient: User, lastMessageId }
 Member    { user: User, joinedAt, online }
 Attachment{ id, kind, name, mime, size, url }
-Message   { id, channelId, author: User, content, attachments: Attachment[], editedAt, createdAt }
+Message   { id, channelId, author: User, content, attachments: Attachment[], editedAt, createdAt,
+            replyTo: { id, author: User, content /* first 200 chars */ } | { id, deleted: true } | null,
+            reactions: { emoji, userIds: string[] }[], pinned: boolean }
 Invite    { code, server: { id, name, icon, memberCount } }
 ```
 URLs: avatar `/media/avatars/<file>`, icon `/media/icons/<file>`,
@@ -153,11 +157,16 @@ Servers, invites, channels
 
 Messages
 - `GET /api/channels/:id/messages?before=<id>&limit=50` (limit ≤100) → `Message[]` oldest→newest
-- `POST /api/channels/:id/messages {content, attachmentIds?: string[]}` → `Message`
+- `POST /api/channels/:id/messages {content, attachmentIds?: string[], replyToId?}` → `Message`
+  (`replyToId` must be in the same channel)
+- `GET /api/channels/:id/pins` → `Message[]` newest pin first
+- `GET /api/channels/:id/search?q=` → up to 50 `Message[]` newest first (plain text, case-insensitive)
   needs content or attachments; attachments must be yours and unsent. Updates `channels.last_message_id`
   and the author's read state. DM: 403 if either side blocked.
 - `PATCH /api/messages/:id {content}` (author) → `Message`
 - `DELETE /api/messages/:id` (author, or server owner) → 204
+- `PUT|DELETE /api/messages/:id/reactions/:emoji` (any emoji or text ≤32 chars) → `Message`, broadcasts message:update
+- `PUT|DELETE /api/messages/:id/pin` (anyone who can see it) → `Message`, broadcasts message:update
 - `POST /api/channels/:id/ack {messageId}` → 204 (updates read state)
 
 Uploads (chunked, any size)
@@ -216,32 +225,31 @@ Someone who joins a server starts with every channel marked read.
 
 ## Frontend
 
-A soft, light take on the Discord layout (the owner picked the reference design), with Opencord's own name,
-logo and accent colour: flat columns told apart by shade — rail darkest, then sidebar, then chat — with a thin
-border only under the header and beside the member list. Round server icons in the rail, with add (dashed) and
-settings (bottom) buttons. Messages put a small rounded-square avatar, the name and the time (right) on one
-line with the text underneath; day dividers are soft bars; the composer is a filled bar with your avatar.
-The member list has a search box (filters by name, in the browser) and marks the server owner.
-server rail (home button, server icons with unread pill, + create/join) · sidebar (DM list + "Friends", or
-channel list with server menu) with a user panel at the bottom · main (chat or friends page) · member list.
+Rounded flat panels on a darker ground ("Moss"): server rail · sidebar (DM list + "Friends", or channel list
+whose server name folds out Invite / New channel / Server settings / Leave) with the user panel and the only
+settings button at the bottom · main column · side panel (member list, a profile, pinned messages or search
+results). Logo: the "Open O", a speech bubble with a sharp bottom-left corner whose hole runs out the right side.
+Geist / Geist Mono, sage accent used sparingly, no shadows, glows or blues, no empty-state filler text.
 Mobile (<800px): one column at a time with a back button.
 
 - Auth screens: log in / create account. `/invite/<code>` shows the invite while logged out and joins after login.
-- Friends page: tabs Online / All / Pending / Blocked / Add Friend.
+- Friends page: the add-a-friend box is always at the top; tabs Online / All / Pending / Blocked filter the list.
 - Chat: grouped messages (same author within 7 min), day dividers, load older on scroll up, auto-scroll when
-  near the bottom, inline edit (own) and delete (own / owner) on hover, typing indicator, long messages
-  (>3000 chars) collapsed with "Show more", light markdown (**bold**, *italic*, ~~strike~~, `code`,
-  ``` blocks ```, links). Images inline (click to view large), video/audio players, file cards with size.
+  near the bottom, typing indicator, long messages (>3000 chars) collapsed with "Show more", light markdown
+  (**bold**, *italic*, ~~strike~~, ||spoiler||, `code`, ``` blocks ```, links, @mentions; a message that
+  mentions you is tinted). Hover bar: 👍 ❤️ 😂 quick reactions, reaction tray (opens under the message, any
+  emoji or word), reply, pin, copy text, edit (own), delete (own / owner). Reactions show as chips with
+  counts; replies show who and what they answer and jump there on click. Header: search box and pinned list
+  (both open in the side panel with Jump buttons). Up arrow in an empty composer edits your last message. Images inline (click to view large), video/audio players, file cards with size.
 - Composer: Enter sends (sends are queued, so quick messages go out in order), Shift+Enter newline, attach button, drag & drop, paste files. Each file uploads in
   8 MiB chunks with a progress bar (XHR for progress), resumes after network errors; send waits for uploads.
 - Unread: channel/DM bold when `lastMessageId > readStates[id]`; ack when viewing; server icon pill.
-- No pop-up dialogs. A side panel on the right shows the member list, or whatever was opened instead:
-  a profile (banner colour, avatar, names, status, bio, Message / Add Friend, Kick for the owner), an
-  invite link with a copy button (`location.origin + '/invite/' + code`), add/join server (accepts a full
-  link or a code and previews first), channel editor, server settings (owner: name, icon, delete).
+- No pop-up dialogs. Forms open as pages in the main column (the chat underneath is only hidden, so drafts
+  and uploads survive): add/join server side by side, invite link with copy (`location.origin + '/invite/'
+  + code`), channel editor, server settings (owner: name, icon, delete), settings. Profiles open in the side
+  panel (banner colour, avatar, names, status, bio, Message / friend / Block, Kick for the owner).
   Destructive actions need a second click on the same button instead of an "are you sure?" box.
-- Look: rounded flat panels on a darker ground, Geist / Geist Mono, no shadows or glows, no blues.
-- Settings (replace the sidebar and chat, rail stays): My Profile (avatar incl. animated GIF, display name,
+- Settings: one page with Profile / Appearance / Account tabs in its header. Profile (avatar incl. animated GIF, display name,
   status, bio, banner colour, live preview) · Appearance (theme Moss (default) / Graphite / Paper / OLED,
   accent colour presets + picker, font size, cozy/compact density, round/square avatars, custom CSS) ·
   Account (change password, log out). Settings live in `me.settings` and apply instantly.

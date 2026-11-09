@@ -2,7 +2,7 @@ import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { field, form } from '../ui.js';
-import { inviteCard } from './serverPanels.js';
+import { inviteCard } from './serverPages.js';
 
 // The log in / create account screen. With an invite, it shows the server first and joins after signing in.
 export function showAuth(root, invite) {

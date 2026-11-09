@@ -12,8 +12,9 @@ import { mountRail } from './views/rail.js';
 import { mountSidebar } from './views/sidebar.js';
 import { showChat, closeChat } from './views/chat.js';
 import { showFriends } from './views/friends.js';
-import { openInvite } from './views/serverPanels.js';
+import { openInvite } from './views/serverPages.js';
 import { mountSide } from './views/side.js';
+import { mountPages } from './views/page.js';
 
 const root = document.getElementById('app');
 
@@ -34,7 +35,7 @@ async function showMain(main) {
       return navigate(paths.channel(server.id, server.channels[0].id), { replace: true, panel: document.body.dataset.panel });
     }
     closeChat();
-    return main.replaceChildren(emptyState('No channels', 'This server has no channels yet.'));
+    return main.replaceChildren();
   }
 
   if (route.name === 'dm') {
@@ -64,7 +65,8 @@ async function handleInviteLink(code) {
 function showApp() {
   const rail = h('nav', { class: 'rail', 'aria-label': 'Servers' });
   const sidebar = h('aside', { class: 'sidebar panel' });
-  const column = h('div', { class: 'column panel' });
+  const content = h('div', { class: 'column-content' });
+  const column = h('div', { class: 'column panel' }, content);
   const side = h('aside', { class: 'side panel', hidden: true });
   root.replaceChildren(
     h('div', { class: 'offline-bar', role: 'status' }, 'Connection lost. Reconnecting…'),
@@ -76,9 +78,10 @@ function showApp() {
   mountRail(rail);
   mountSidebar(sidebar);
   mountSide(side);
-  on('route servers dms', () => showMain(column));
+  mountPages(column);
+  on('route servers dms', () => showMain(content));
   on('presence', refreshPresenceDots);
-  showMain(column);
+  showMain(content);
   connect();
 }
 

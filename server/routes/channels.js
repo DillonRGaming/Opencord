@@ -49,6 +49,16 @@ router.get('/:id/messages', (req, res) => {
   res.json(messages.list(channel.id, { before, limit }));
 });
 
+router.get('/:id/pins', (req, res) => {
+  res.json(messages.pinned(access.visibleChannel(req.params.id, req.user.id).id));
+});
+
+router.get('/:id/search', (req, res) => {
+  const channel = access.visibleChannel(req.params.id, req.user.id);
+  const query = text(req.query.q ?? '', 'Search', { min: 1, max: 200 });
+  res.json(messages.search(channel.id, query));
+});
+
 router.post('/:id/messages', (req, res) => {
   const channel = access.visibleChannel(req.params.id, req.user.id);
   const content = text(req.body.content ?? '', 'Message');
@@ -57,12 +67,13 @@ router.post('/:id/messages', (req, res) => {
     fail(400, 'attachmentIds must be a list of ids.');
   }
   if (!content && !attachmentIds.length) fail(400, "You can't send an empty message.");
+  const replyToId = req.body.replyToId == null ? null : text(req.body.replyToId, 'replyToId');
   if (channel.type === 'dm') {
     const [a, b] = channels.dmMemberIds(channel.id);
     if (relationships.eitherBlocked(a, b)) fail(403, "You can't message this user.");
   }
 
-  const json = messages.serialize(messages.create(channel.id, req.user.id, content, [...new Set(attachmentIds)]));
+  const json = messages.serialize(messages.create(channel.id, req.user.id, content, [...new Set(attachmentIds)], replyToId));
   realtime.toChannel(channel, 'message:create', json);
   res.status(201).json(json);
 });
