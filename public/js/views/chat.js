@@ -261,7 +261,7 @@ export function showChat(container, channel, serverId = null) {
   const placeholder = channel.type === 'dm' ? `Message @${channel.recipient.displayName}` : `Message #${channel.name}`;
   const v = {
     channel, serverId, root: container,
-    messages: [], early: [], hasMore: true, ready: false, loading: false, stick: true,
+    messages: [], early: [], hasMore: true, ready: false, loading: false, stick: true, height: 0,
     typing: new Map(),
     top: h('div'),
     list: h('div', { class: 'message-list' }),
@@ -271,12 +271,17 @@ export function showChat(container, channel, serverId = null) {
   v.scroller = h('div', {
     class: 'scroller',
     onscroll: () => {
-      v.stick = v.scroller.scrollHeight - v.scroller.scrollTop - v.scroller.clientHeight < 80;
+      // Only a real scroll changes "stick": when the content just grew, the watcher below handles it.
+      if (v.scroller.scrollHeight === v.height) v.stick = v.height - v.scroller.scrollTop - v.scroller.clientHeight < 80;
       if (v.scroller.scrollTop < 300) loadOlder(v);
     },
   }, v.top, v.list);
   // Images and videos change height once they load; stay at the bottom if we were there.
-  v.resizeWatcher = new ResizeObserver(() => { if (v.stick) v.scroller.scrollTop = v.scroller.scrollHeight; });
+  v.resizeWatcher = new ResizeObserver(() => {
+    v.height = v.scroller.scrollHeight;
+    if (v.stick) v.scroller.scrollTop = v.height;
+  });
+  v.resizeWatcher.observe(v.top);
   v.resizeWatcher.observe(v.list);
 
   let dragDepth = 0;

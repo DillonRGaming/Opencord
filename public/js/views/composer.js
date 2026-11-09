@@ -15,7 +15,7 @@ function autoGrow(textarea) {
 // The message box. Files start uploading as soon as they are added; sending waits for them to finish.
 export function createComposer(channel, placeholder) {
   let uploads = [];
-  let sending = false;
+  let queue = Promise.resolve();
   let lastTyping = 0;
 
   const tray = h('div', { class: 'uploads' });
@@ -51,7 +51,7 @@ export function createComposer(channel, placeholder) {
     for (const file of files) {
       const status = h('span', { class: 'upload-status' }, `0% of ${formatSize(file.size)}`);
       const bar = h('span');
-      const upload = { attachment: null, failed: false };
+      const upload = { attachment: null, failed: false, removed: false };
       upload.el = h('div', { class: 'upload' },
         h('span', { class: 'upload-name', title: file.name }, file.name),
         h('div', { class: 'upload-bar' }, bar), status,
@@ -77,36 +77,38 @@ export function createComposer(channel, placeholder) {
   }
 
   function removeUpload(upload) {
+    upload.removed = true;
     if (!upload.attachment) upload.handle.cancel();
     upload.el.remove();
     uploads = uploads.filter((other) => other !== upload);
   }
 
-  async function send() {
-    if (sending) return;
+  // Sends go out one after another, so typing the next message never waits on the last one.
+  function send() {
     const content = textarea.value.trim();
-    if (!content && !uploads.length) return;
+    const batch = uploads;
+    if (!content && !batch.length) return;
+    textarea.value = '';
+    autoGrow(textarea);
+    uploads = [];
+    lastTyping = 0;
+    queue = queue.then(() => deliver(content, batch));
+  }
 
-    sending = true;
-    el.classList.add('waiting');
+  async function deliver(content, batch) {
     try {
-      await Promise.all(uploads.map((upload) => upload.done));
-      if (uploads.some((upload) => upload.failed)) {
-        toast("A file didn't upload. Remove it or add it again, then send.");
-        return;
-      }
-      const sent = uploads;
-      await api.post(`/api/channels/${channel.id}/messages`, { content, attachmentIds: sent.map((upload) => upload.attachment.id) });
-      textarea.value = '';
-      autoGrow(textarea);
-      lastTyping = 0;
-      for (const upload of sent) upload.el.remove();
-      uploads = uploads.filter((upload) => !sent.includes(upload));
+      await Promise.all(batch.map((upload) => upload.done));
+      const files = batch.filter((upload) => !upload.removed);
+      if (files.some((upload) => upload.failed)) throw new Error("A file didn't upload. Remove it or add it again, then send.");
+      if (!content && !files.length) return;
+      await api.post(`/api/channels/${channel.id}/messages`, { content, attachmentIds: files.map((upload) => upload.attachment.id) });
+      for (const upload of files) upload.el.remove();
     } catch (err) {
+      // Put everything back so nothing typed or uploaded is lost.
       toast(err.message);
-    } finally {
-      sending = false;
-      el.classList.remove('waiting');
+      if (!textarea.value) textarea.value = content;
+      autoGrow(textarea);
+      uploads = [...batch.filter((upload) => !upload.removed), ...uploads];
     }
   }
 

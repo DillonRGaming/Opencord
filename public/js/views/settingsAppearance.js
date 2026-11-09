@@ -4,12 +4,12 @@ import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, THEMES } from '../theme.js';
 import { segmented } from '../ui.js';
 
-// Colours for the little theme previews: rail, sidebar, main.
+// Colours for the little theme previews: backdrop, panel, button.
 const PREVIEW = {
-  dark: ['#111215', '#17181c', '#1d1f24'],
-  midnight: ['#080b14', '#0d1220', '#111829'],
-  oled: ['#000000', '#0a0a0a', '#000000'],
-  light: ['#dfe2e8', '#eceef2', '#ffffff'],
+  light: ['#f4f4f5', '#ffffff', '#26140f'],
+  dark: ['#0f1012', '#18191c', '#f2f2f3'],
+  midnight: ['#070a12', '#0e1422', '#e6ebf7'],
+  oled: ['#000000', '#0d0d0e', '#ffffff'],
 };
 
 function group(label, ...children) {
@@ -53,7 +53,7 @@ export function appearancePage() {
   const saveCss = debounce((customCss) => changeSettings({ customCss }), 300);
   const css = h('textarea', {
     class: 'textarea code', spellcheck: false, value: current.customCss,
-    placeholder: '/* Example */\n.main { background: url(https://…/wallpaper.jpg) center / cover; }',
+    placeholder: '/* Example */\nbody { background: url(https://…/wallpaper.jpg) center / cover; }',
     oninput: () => saveCss(css.value),
   });
 
@@ -64,6 +64,6 @@ export function appearancePage() {
     group('Message spacing', h('div', {}, segmented([['cozy', 'Cozy'], ['compact', 'Compact']], current.density, (density) => changeSettings({ density })))),
     group('Avatar shape', h('div', {}, segmented([['round', 'Round'], ['square', 'Rounded square']], current.avatarShape, (avatarShape) => changeSettings({ avatarShape })))),
     group('Custom CSS', css, h('span', { class: 'field-hint' },
-      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-main, --text and --accent.')),
+      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-app, --bg-panel, --text and --accent.')),
   ];
 }

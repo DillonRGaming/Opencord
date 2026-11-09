@@ -10,12 +10,17 @@ export function renderMarkdown(text) {
   const fragment = document.createDocumentFragment();
   let last = 0;
   for (const match of text.matchAll(BLOCK)) {
-    appendInline(fragment, text.slice(last, match.index));
+    appendInline(fragment, between(text.slice(last, match.index)));
     fragment.append(h('pre', {}, h('code', {}, match[1].replace(/\n$/, ''))));
     last = match.index + match[0].length;
   }
-  appendInline(fragment, text.slice(last));
+  appendInline(fragment, between(text.slice(last)));
   return fragment;
+}
+
+// A code block is already on its own line, so drop the line break that touches it.
+function between(text) {
+  return text.replace(/^\n|\n$/g, '');
 }
 
 function appendInline(parent, text) {

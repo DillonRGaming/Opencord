@@ -3,6 +3,7 @@ import { h } from '../dom.js';
 import { state } from '../store.js';
 import { setMe } from '../actions.js';
 import { attempt, button, field, form, pickFiles, toast } from '../ui.js';
+import { DEFAULTS } from '../theme.js';
 import { profileCard } from './profileCard.js';
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
@@ -14,7 +15,7 @@ export function profilePage() {
   const displayName = h('input', { class: 'input', required: true, maxLength: 32, value: me.displayName });
   const statusText = h('input', { class: 'input', maxLength: 128, value: me.statusText, placeholder: 'What are you up to?' });
   const bio = h('textarea', { class: 'textarea', maxLength: 190, value: me.bio, placeholder: 'A few words about you' });
-  const banner = h('input', { class: 'color-input', type: 'color', value: bannerColor || state.me.settings.accent || '#ff7a59' });
+  const banner = h('input', { class: 'color-input', type: 'color', value: bannerColor || state.me.settings.accent || DEFAULTS.accent });
   const preview = h('div');
 
   // The preview shows what is typed, before it is saved.

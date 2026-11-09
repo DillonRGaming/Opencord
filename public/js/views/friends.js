@@ -85,7 +85,8 @@ function body() {
 }
 
 function render() {
-  if (!root?.isConnected) return;
+  // The chat view shares this container, so only draw while the friends page is the one showing.
+  if (!root?.isConnected || state.route.name !== 'home') return;
   // Don't wipe the username someone is typing because a friend came online.
   if (tab === 'add' && root.querySelector('.add-friend')?.contains(document.activeElement)) return;
   const pending = relationsWith('incoming').length;

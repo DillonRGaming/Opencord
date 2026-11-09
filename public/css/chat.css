@@ -3,14 +3,14 @@
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; position: relative; }
 .chat.dragging::after {
   content: "Drop files to upload"; position: absolute; inset: 0.5rem; z-index: 4; display: grid; place-items: center;
-  border: 2px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-main) 85%, transparent);
+  border: 2px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
   font-weight: 700; font-size: 1.1rem; pointer-events: none;
 }
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
 .message-list { padding-bottom: 1rem; }
 
 .history-start { padding: 2rem 1rem 0.5rem; }
-.history-start h2 { font-size: 1.5rem; overflow-wrap: anywhere; }
+.history-start h2 { font-size: 1.3rem; font-weight: 600; overflow-wrap: anywhere; }
 .history-start p { color: var(--text-muted); }
 .history-loading { padding: 1rem; text-align: center; font-size: 0.85rem; color: var(--text-faint); }
 
@@ -26,7 +26,7 @@
 .message.grouped:hover .gutter-time { display: block; }
 .message-main { flex: 1; min-width: 0; }
 .message-header { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
-.author-name { font-weight: 700; }
+.author-name { font-weight: 600; }
 .author-name:hover { text-decoration: underline; }
 .message-stamp { font-size: 0.72rem; color: var(--text-faint); }
 .message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -54,8 +54,8 @@
 /* --- attachments --- */
 
 .attachments { display: grid; gap: 0.35rem; justify-items: start; margin: 0.3rem 0 0.15rem; }
-.attachment-image { display: block; border-radius: var(--radius-small); overflow: hidden; background: var(--bg-input); cursor: zoom-in; }
-.attachment-image img { display: block; max-width: min(100%, 520px); max-height: 380px; }
+.attachment-image { display: block; max-width: min(100%, 520px); cursor: zoom-in; }
+.attachment-image img { display: block; max-width: 100%; max-height: 380px; border-radius: var(--radius-small); background: var(--bg-input); }
 .attachment-video { display: block; max-width: min(100%, 560px); max-height: 420px; border-radius: var(--radius-small); background: #000; }
 .attachment-card {
   display: flex; align-items: center; gap: 0.75rem; width: min(100%, 440px); padding: 0.65rem 0.75rem;
@@ -73,7 +73,7 @@
 .typing { flex: none; height: 1.4rem; padding: 0 1.1rem; font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .typing strong { color: var(--text); }
 
-.composer { flex: none; margin: 0 1rem; margin-bottom: max(0px, env(safe-area-inset-bottom)); background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
+.composer { flex: none; margin: 0 0.85rem 0.85rem; background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius); }
 .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, var(--border)); }
 .composer-row { display: flex; align-items: flex-end; gap: 0.25rem; padding: 0.35rem; }
 .composer textarea {
@@ -81,7 +81,6 @@
   background: none; border: 0; outline: none; line-height: 1.4;
 }
 .composer .send { color: var(--accent); }
-.composer.waiting .send { opacity: 0.5; }
 
 .uploads { display: flex; gap: 0.5rem; padding: 0.6rem 0.6rem 0.25rem; overflow-x: auto; }
 .uploads:empty { display: none; }
@@ -97,7 +96,7 @@
 
 @media (max-width: 799px) {
   .message { gap: 0.65rem; padding: 0.15rem 0.75rem; }
-  .composer { margin: 0 0.5rem; }
+  .composer { margin: 0 0.5rem 0.5rem; }
   .message-actions { right: 0.5rem; }
 }
 

@@ -2,13 +2,13 @@
    a user's custom CSS can change the whole look. */
 
 :root {
-  --accent: #ff7a59;
-  --accent-text: #101114;
+  --accent: #ee6a3f;
+  --accent-text: #ffffff;
   --font-size: 16px;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --mono: ui-monospace, "JetBrains Mono", "Cascadia Code", Menlo, Consolas, monospace;
   --radius: 14px;
-  --radius-small: 9px;
+  --radius-small: 10px;
   --avatar-radius: 50%;
   --danger: #ef5350;
   --ok: #3ecf8e;
@@ -18,68 +18,76 @@
 [data-avatars="square"] { --avatar-radius: 28%; }
 [data-density="compact"] { --message-gap: 0.35rem; }
 
+[data-theme="light"] {
+  color-scheme: light;
+  --bg-app: #f4f4f5;
+  --dot: rgba(20, 20, 25, 0.07);
+  --bg-panel: #ffffff;
+  --bg-raised: #ffffff;
+  --bg-input: #f6f6f7;
+  --hover: rgba(20, 20, 25, 0.045);
+  --active: rgba(20, 20, 25, 0.08);
+  --border: rgba(20, 20, 25, 0.09);
+  --text: #18181b;
+  --text-muted: #6b6b74;
+  --text-faint: #a1a1aa;
+  --button-bg: #26140f;
+  --button-text: #ffffff;
+  --shadow: 0 10px 40px rgba(20, 20, 25, 0.12);
+}
+
 [data-theme="dark"] {
   color-scheme: dark;
-  --bg-rail: #111215;
-  --bg-side: #17181c;
-  --bg-main: #1d1f24;
-  --bg-raised: #272a31;
-  --bg-input: #2b2e36;
-  --hover: rgba(255, 255, 255, 0.06);
-  --active: rgba(255, 255, 255, 0.1);
+  --bg-app: #0f1012;
+  --dot: rgba(255, 255, 255, 0.045);
+  --bg-panel: #18191c;
+  --bg-raised: #1f2124;
+  --bg-input: #1f2125;
+  --hover: rgba(255, 255, 255, 0.05);
+  --active: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.08);
-  --text: #eceef2;
-  --text-muted: #a0a6b2;
-  --text-faint: #6d7380;
+  --text: #ececef;
+  --text-muted: #a0a0aa;
+  --text-faint: #6c6c76;
+  --button-bg: #f2f2f3;
+  --button-text: #141416;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
 }
 
 [data-theme="midnight"] {
   color-scheme: dark;
-  --bg-rail: #080b14;
-  --bg-side: #0d1220;
-  --bg-main: #111829;
-  --bg-raised: #1a2338;
-  --bg-input: #1c2640;
-  --hover: rgba(140, 170, 255, 0.08);
-  --active: rgba(140, 170, 255, 0.14);
+  --bg-app: #070a12;
+  --dot: rgba(140, 170, 255, 0.06);
+  --bg-panel: #0e1422;
+  --bg-raised: #151d30;
+  --bg-input: #141b2d;
+  --hover: rgba(140, 170, 255, 0.07);
+  --active: rgba(140, 170, 255, 0.13);
   --border: rgba(140, 170, 255, 0.12);
   --text: #e6ebf7;
   --text-muted: #95a1bd;
   --text-faint: #5f6b88;
+  --button-bg: #e6ebf7;
+  --button-text: #0b1020;
   --shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 
 [data-theme="oled"] {
   color-scheme: dark;
-  --bg-rail: #000000;
-  --bg-side: #000000;
-  --bg-main: #000000;
-  --bg-raised: #111112;
-  --bg-input: #141416;
-  --hover: rgba(255, 255, 255, 0.08);
-  --active: rgba(255, 255, 255, 0.13);
-  --border: rgba(255, 255, 255, 0.14);
+  --bg-app: #000000;
+  --dot: transparent;
+  --bg-panel: #000000;
+  --bg-raised: #0d0d0e;
+  --bg-input: #101011;
+  --hover: rgba(255, 255, 255, 0.07);
+  --active: rgba(255, 255, 255, 0.12);
+  --border: rgba(255, 255, 255, 0.15);
   --text: #f2f2f3;
   --text-muted: #9a9ca3;
   --text-faint: #66686f;
-  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
-}
-
-[data-theme="light"] {
-  color-scheme: light;
-  --bg-rail: #dfe2e8;
-  --bg-side: #eceef2;
-  --bg-main: #ffffff;
-  --bg-raised: #ffffff;
-  --bg-input: #eef0f4;
-  --hover: rgba(20, 24, 36, 0.06);
-  --active: rgba(20, 24, 36, 0.1);
-  --border: rgba(20, 24, 36, 0.12);
-  --text: #1b1d22;
-  --text-muted: #5a606c;
-  --text-faint: #8a909c;
-  --shadow: 0 12px 40px rgba(20, 24, 36, 0.18);
+  --button-bg: #ffffff;
+  --button-text: #000000;
+  --shadow: 0 0 0 1px rgba(255, 255, 255, 0.15);
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -90,8 +98,9 @@ body {
   margin: 0;
   font-family: var(--font);
   line-height: 1.4;
+  font-size: 0.94rem;
   color: var(--text);
-  background: var(--bg-main);
+  background: var(--bg-app) radial-gradient(var(--dot) 1px, transparent 1px) 0 0 / 14px 14px;
   overflow: hidden;
   -webkit-text-size-adjust: 100%;
 }
@@ -117,11 +126,11 @@ button:disabled { cursor: default; opacity: 0.55; }
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
   padding: 0.55rem 1rem; border-radius: var(--radius-small);
-  font-weight: 600; font-size: 0.9rem; white-space: nowrap;
+  font-weight: 500; font-size: 0.88rem; white-space: nowrap;
   transition: filter 0.12s, background 0.12s;
 }
-.button.primary { background: var(--accent); color: var(--accent-text); }
-.button.primary:hover:not(:disabled) { filter: brightness(1.08); }
+.button.primary { background: var(--button-bg); color: var(--button-text); }
+.button.primary:hover:not(:disabled) { opacity: 0.88; }
 .button.ghost { background: var(--hover); }
 .button.ghost:hover:not(:disabled) { background: var(--active); }
 .button.danger { background: var(--danger); color: #fff; }
@@ -145,7 +154,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .textarea.code { font-family: var(--mono); font-size: 0.85rem; min-height: 9rem; }
 
 .field { display: grid; gap: 0.35rem; }
-.field-label { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-muted); }
+.field-label { font-size: 0.82rem; font-weight: 500; color: var(--text-muted); }
 .field-hint { font-size: 0.8rem; color: var(--text-faint); }
 
 .form { display: grid; gap: 0.9rem; }
@@ -155,7 +164,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .segmented { display: inline-flex; padding: 3px; gap: 3px; background: var(--bg-input); border-radius: var(--radius-small); }
 .segmented button { padding: 0.4rem 0.9rem; border-radius: 6px; font-size: 0.88rem; font-weight: 600; color: var(--text-muted); }
-.segmented button[aria-pressed="true"] { background: var(--accent); color: var(--accent-text); }
+.segmented button[aria-pressed="true"] { background: var(--bg-raised); color: var(--text); box-shadow: 0 0 0 1px var(--border), 0 1px 2px rgba(0, 0, 0, 0.08); }
 
 .badge {
   display: inline-grid; place-items: center; min-width: 1.15rem; height: 1.15rem; padding: 0 0.3rem;
@@ -168,17 +177,17 @@ button:disabled { cursor: default; opacity: 0.55; }
 .avatar-face {
   display: grid; place-items: center; width: 100%; height: 100%;
   border-radius: var(--avatar-radius); object-fit: cover;
-  color: #fff; font-weight: 700; font-size: calc(var(--size) * 0.42); user-select: none;
+  color: #fff; font-weight: 600; font-size: calc(var(--size) * 0.42); user-select: none;
 }
 .presence {
   position: absolute; right: -2px; bottom: -2px; width: 30%; height: 30%; min-width: 10px; min-height: 10px;
-  border-radius: 50%; background: var(--text-faint); border: 2px solid var(--bg-side);
+  border-radius: 50%; background: var(--text-faint); border: 2px solid var(--bg-panel);
 }
 .presence.online { background: var(--ok); }
 
 .server-icon {
   display: grid; place-items: center; width: var(--size); height: var(--size); flex: none; overflow: hidden;
-  border-radius: 32%; background: var(--bg-raised); color: var(--text);
-  font-weight: 700; font-size: calc(var(--size) * 0.3); user-select: none;
+  border-radius: 11px; background: var(--bg-input); color: var(--text-muted); box-shadow: inset 0 0 0 1px var(--border);
+  font-weight: 600; font-size: calc(var(--size) * 0.3); user-select: none;
 }
 .server-icon img { width: 100%; height: 100%; object-fit: cover; }
