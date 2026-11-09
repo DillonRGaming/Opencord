@@ -38,11 +38,11 @@ export function showAuth(root, invite) {
     const login = mode === 'login';
     const username = input('Username', {
       name: 'username', autocomplete: 'username', required: true, maxLength: 32, autocapitalize: 'none', spellcheck: false,
-    }, (v) => USERNAME.test(v.trim()), !login && 'Letters, numbers, _ and . (2–32)');
+    }, (v) => USERNAME.test(v.trim()));
     const password = input('Password', {
       name: 'password', type: 'password', required: true, minLength: login ? 1 : 8,
       autocomplete: login ? 'current-password' : 'new-password',
-    }, (v) => v.length >= (login ? 1 : 8), !login && 'At least 8 characters');
+    }, (v) => v.length >= (login ? 1 : 8));
 
     const error = h('p', { class: 'form-error', role: 'alert' });
     const submit = h('button', { type: 'submit', class: 'auth-submit' }, login ? 'Log in' : 'Create account', icon('arrowRight', 18));
