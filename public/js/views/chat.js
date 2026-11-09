@@ -3,10 +3,9 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, emit, isUnread, isOwner, markRead } from '../store.js';
 import { attempt, avatar, iconButton, toast } from '../ui.js';
-import { confirmDialog } from './modals.js';
 import { createComposer } from './composer.js';
 import { messageRow } from './message.js';
-import { showMembers } from './members.js';
+import { membersShown, toggleMembers } from './side.js';
 import { openProfile } from './profile.js';
 
 const PAGE = 50;
@@ -23,16 +22,22 @@ function header(channel, serverId) {
   if (channel.type === 'dm') {
     const { recipient } = channel;
     return h('header', { class: 'main-header' }, back,
-      h('button', { type: 'button', class: 'main-title', onclick: (event) => openProfile(recipient, event.currentTarget) },
+      h('button', { type: 'button', class: 'main-title', onclick: () => openProfile(recipient) },
         avatar(recipient, { size: 28, presence: true }), h('span', {}, recipient.displayName)));
   }
   return h('header', { class: 'main-header' }, back,
     h('div', { class: 'main-title' }, icon('hash', 16), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
-    iconButton('users', 'Members', () => {
-      const phone = matchMedia('(max-width: 799px)').matches;
-      document.body.classList.toggle(phone ? 'members-open' : 'members-closed');
-    }));
+    membersButton());
+}
+
+function membersButton() {
+  const el = iconButton('users', 'Members', () => {
+    toggleMembers();
+    el.setAttribute('aria-pressed', String(membersShown()));
+  });
+  el.setAttribute('aria-pressed', String(membersShown()));
+  return el;
 }
 
 function historyStart(channel) {
@@ -49,7 +54,7 @@ function rowFor(v, index) {
     canDelete: v.serverId && isOwner(v.serverId),
     onEdit: startEdit,
     onDelete: deleteMessage,
-    onProfile: (user, anchor) => openProfile(user, anchor, { serverId: v.serverId }),
+    onProfile: (user) => openProfile(user, { serverId: v.serverId }),
   });
 }
 
@@ -161,14 +166,8 @@ function startEdit(message, row) {
   textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }
 
-async function deleteMessage(message) {
-  const sure = await confirmDialog({
-    title: 'Delete message?',
-    text: message.content.slice(0, 200) || 'This message and its files will be removed for everyone.',
-    confirmLabel: 'Delete',
-    danger: true,
-  });
-  if (sure) attempt(() => api.del(`/api/messages/${message.id}`));
+function deleteMessage(message) {
+  return api.del(`/api/messages/${message.id}`);
 }
 
 function drawTyping(v) {
@@ -306,10 +305,7 @@ export function showChat(container, channel, serverId = null) {
     },
   }, v.scroller, v.typingEl, v.composer.el);
 
-  const members = serverId && h('aside', { class: 'members', 'aria-label': 'Members' });
-  document.body.classList.remove('members-open');
-  container.replaceChildren(header(channel, serverId), h('div', { class: 'main-body' }, chat, members));
-  if (members) showMembers(members, serverId);
+  container.replaceChildren(header(channel, serverId), chat);
 
   view = v;
   drawTop(v);

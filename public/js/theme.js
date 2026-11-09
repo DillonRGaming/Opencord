@@ -2,8 +2,8 @@
 // devices) and are mirrored in localStorage so the page doesn't flash the wrong theme while loading.
 
 export const DEFAULTS = {
-  theme: 'light',
-  accent: '#ee6a3f',
+  theme: 'moss',
+  accent: '#a9c79a',
   fontSize: 16,
   density: 'cozy',
   avatarShape: 'round',
@@ -11,13 +11,16 @@ export const DEFAULTS = {
 };
 
 export const THEMES = [
-  { id: 'light', name: 'Light' },
-  { id: 'dark', name: 'Dark' },
-  { id: 'midnight', name: 'Midnight' },
+  { id: 'moss', name: 'Moss' },
+  { id: 'graphite', name: 'Graphite' },
+  { id: 'paper', name: 'Paper' },
   { id: 'oled', name: 'OLED' },
 ];
 
-export const ACCENTS = ['#ee6a3f', '#f5a524', '#3ecf8e', '#22b8cf', '#4c8dff', '#9b6dff', '#f0619a', '#8b95a7'];
+// Themes that were renamed, so settings saved before keep working.
+const RENAMED = { light: 'paper', dark: 'graphite', midnight: 'moss' };
+
+export const ACCENTS = ['#a9c79a', '#d6bb84', '#e0a07e', '#e3a3a3', '#d6a8c8', '#c8cf9e', '#b9bdb5'];
 
 const CACHE_KEY = 'oc_appearance';
 
@@ -32,7 +35,8 @@ export function apply(settings) {
   const s = { ...DEFAULTS, ...settings };
   const root = document.documentElement;
   const accent = /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : DEFAULTS.accent;
-  root.dataset.theme = THEMES.some((t) => t.id === s.theme) ? s.theme : DEFAULTS.theme;
+  const themeId = RENAMED[s.theme] || s.theme;
+  root.dataset.theme = THEMES.some((t) => t.id === themeId) ? themeId : DEFAULTS.theme;
   root.dataset.density = s.density === 'compact' ? 'compact' : 'cozy';
   root.dataset.avatars = s.avatarShape === 'square' ? 'square' : 'round';
   root.style.setProperty('--accent', accent);

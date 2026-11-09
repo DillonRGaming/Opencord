@@ -2,8 +2,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, relationsWith } from '../store.js';
 import * as actions from '../actions.js';
-import { attempt, avatar, button, field, form, iconButton } from '../ui.js';
-import { confirmDialog } from './modals.js';
+import { attempt, avatar, button, confirmButton, field, form, iconButton } from '../ui.js';
 import { openProfile } from './profile.js';
 
 const TABS = [['online', 'Online'], ['all', 'All'], ['pending', 'Pending'], ['blocked', 'Blocked'], ['add', 'Add Friend']];
@@ -11,21 +10,14 @@ const TABS = [['online', 'Online'], ['all', 'All'], ['pending', 'Pending'], ['bl
 let tab = 'online';
 let root = null;
 
-async function removeFriend(user) {
-  const sure = await confirmDialog({
-    title: `Remove ${user.displayName}?`,
-    text: 'They will be removed from your friends. You can add them again later.',
-    confirmLabel: 'Remove friend',
-    danger: true,
-  });
-  if (sure) attempt(() => actions.removeRelation(user.id));
-}
-
 function rowButtons({ user, status }) {
   if (status === 'friend') {
     return [
       iconButton('message', 'Message', () => attempt(() => actions.openDm(user.id))),
-      iconButton('x', 'Remove friend', () => removeFriend(user), 'danger'),
+      confirmButton({
+        label: 'Remove friend', confirmLabel: 'Remove', face: icon('x'), className: 'icon-button danger',
+        onConfirm: () => actions.removeRelation(user.id),
+      }),
     ];
   }
   if (status === 'incoming') {
@@ -43,7 +35,7 @@ const SUBTITLE = { incoming: 'Wants to be your friend', outgoing: 'Request sent'
 function row(relation) {
   const { user, status } = relation;
   return h('div', { class: 'friend' },
-    h('button', { type: 'button', class: 'friend-who', onclick: (event) => openProfile(user, event.currentTarget) },
+    h('button', { type: 'button', class: 'friend-who', onclick: () => openProfile(user) },
       avatar(user, { size: 38, presence: status === 'friend' }),
       h('span', { class: 'friend-names' }, h('strong', {}, user.displayName),
         h('span', {}, SUBTITLE[status] || user.statusText || `@${user.username}`))),

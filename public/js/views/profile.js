@@ -1,60 +1,57 @@
 import * as api from '../api.js';
-import { h } from '../dom.js';
-import { state, isOwner } from '../store.js';
+import { state, on, isOwner } from '../store.js';
 import * as actions from '../actions.js';
-import { attempt, button } from '../ui.js';
-import { confirmDialog, onEscape, place } from './modals.js';
+import { attempt, button, confirmButton } from '../ui.js';
 import { profileCard } from './profileCard.js';
+import { openPanel, refreshPanel } from './side.js';
 import { openSettings } from './settings.js';
 
-function friendButton(user, close) {
+// The profile showing in the side panel right now, if any.
+let showing = null;
+
+function friendButton(user) {
   const status = state.relationships.get(user.id)?.status;
-  const run = (action) => () => { close(); attempt(action); };
-  if (status === 'friend') return button('Remove friend', run(() => actions.removeRelation(user.id)), 'ghost small');
+  const run = (action) => () => attempt(action);
+  if (status === 'friend') {
+    return confirmButton({ label: 'Remove friend', confirmLabel: 'Click again to remove', onConfirm: () => actions.removeRelation(user.id) });
+  }
   if (status === 'incoming') return button('Accept request', run(() => actions.acceptFriend(user.id)), 'ghost small');
   if (status === 'outgoing') return button('Cancel request', run(() => actions.removeRelation(user.id)), 'ghost small');
   if (status === 'blocked') return null;
   return button('Add friend', run(() => actions.sendFriendRequest(user.username)), 'ghost small');
 }
 
-async function kick(user, serverId) {
-  const sure = await confirmDialog({
-    title: `Kick ${user.displayName}?`,
-    text: 'They can join again with an invite link.',
-    confirmLabel: 'Kick',
-    danger: true,
-  });
-  if (sure) attempt(() => api.del(`/api/servers/${serverId}/members/${user.id}`));
-}
-
 function buttonsFor(user, serverId, close) {
   if (user.id === state.me.id) return [button('Edit profile', () => { close(); openSettings(); }, 'primary small')];
   const blocked = state.relationships.get(user.id)?.status === 'blocked';
-  const run = (action) => () => { close(); attempt(action); };
   return [
-    !blocked && button('Message', run(() => actions.openDm(user.id)), 'primary small'),
-    friendButton(user, close),
+    !blocked && button('Message', () => attempt(() => actions.openDm(user.id)), 'primary small'),
+    friendButton(user),
     blocked
-      ? button('Unblock', run(() => actions.removeRelation(user.id)), 'ghost small')
-      : button('Block', run(() => actions.blockUser(user.id)), 'ghost small'),
-    serverId && isOwner(serverId) && button('Kick', () => { close(); kick(user, serverId); }, 'danger small'),
+      ? button('Unblock', () => attempt(() => actions.removeRelation(user.id)), 'ghost small')
+      : confirmButton({ label: 'Block', confirmLabel: 'Click again to block', onConfirm: () => actions.blockUser(user.id) }),
+    serverId && isOwner(serverId) && confirmButton({
+      label: 'Kick', confirmLabel: 'Click again to kick',
+      onConfirm: async () => {
+        await api.del(`/api/servers/${serverId}/members/${user.id}`);
+        close();
+      },
+    }),
   ].filter(Boolean);
 }
 
-// Opens next to whatever was clicked. `serverId` adds the Kick button for the owner.
-export function openProfile(user, anchor, { serverId } = {}) {
-  const fresh = state.users.get(user.id) || user;
-  const popout = h('div', { class: 'popout', onmousedown: (event) => { if (event.target === popout) close(); } });
-  const release = onEscape(() => close());
-  const onDown = (event) => { if (!popout.contains(event.target)) close(); };
-  function close() {
-    release();
-    document.removeEventListener('mousedown', onDown, true);
-    popout.remove();
-  }
-
-  popout.append(profileCard(fresh, buttonsFor(fresh, serverId, close)));
-  document.getElementById('layers').append(popout);
-  if (matchMedia('(min-width: 800px)').matches) place(popout, anchor, 'beside');
-  setTimeout(() => document.addEventListener('mousedown', onDown, true));
+// Shows someone's profile in the side panel. `serverId` adds the Kick button for the server's owner.
+export function openProfile(user, { serverId } = {}) {
+  showing = { userId: user.id, serverId };
+  const panel = openPanel({
+    title: 'Profile',
+    onClose: () => { showing = null; },
+    build: () => {
+      const fresh = state.users.get(user.id) || user;
+      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()));
+    },
+  });
 }
+
+// Keep the buttons and presence right while the profile is open.
+on('relationships users presence', () => { if (showing) refreshPanel(); });

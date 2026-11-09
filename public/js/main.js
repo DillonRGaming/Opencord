@@ -12,7 +12,8 @@ import { mountRail } from './views/rail.js';
 import { mountSidebar } from './views/sidebar.js';
 import { showChat, closeChat } from './views/chat.js';
 import { showFriends } from './views/friends.js';
-import { openInvite } from './views/serverModals.js';
+import { openInvite } from './views/serverPanels.js';
+import { mountSide } from './views/side.js';
 
 const root = document.getElementById('app');
 
@@ -62,20 +63,22 @@ async function handleInviteLink(code) {
 
 function showApp() {
   const rail = h('nav', { class: 'rail', 'aria-label': 'Servers' });
-  const sidebar = h('aside', { class: 'sidebar' });
-  const main = h('main', { class: 'main' });
+  const sidebar = h('aside', { class: 'sidebar panel' });
+  const column = h('div', { class: 'column panel' });
+  const side = h('aside', { class: 'side panel', hidden: true });
   root.replaceChildren(
     h('div', { class: 'offline-bar', role: 'status' }, 'Connection lost. Reconnecting…'),
-    h('div', { class: 'app' }, rail, sidebar, main));
+    h('div', { class: 'app' }, rail, sidebar, h('main', { class: 'main' }, column, side)));
 
   const invite = state.route.name === 'invite' && state.route.code;
   if (invite) handleInviteLink(invite);
 
   mountRail(rail);
   mountSidebar(sidebar);
-  on('route servers dms', () => showMain(main));
+  mountSide(side);
+  on('route servers dms', () => showMain(column));
   on('presence', refreshPresenceDots);
-  showMain(main);
+  showMain(column);
   connect();
 }
 

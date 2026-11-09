@@ -3,7 +3,7 @@ import { icon } from '../icons.js';
 import { state, on, isUnread, hasUnread, relationsWith } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { serverIcon } from '../ui.js';
-import { openAddServer } from './serverModals.js';
+import { openAddServer } from './serverPanels.js';
 import { openSettings } from './settings.js';
 
 // Remembers which channel was open in each server, so clicking its icon goes back there.
@@ -31,15 +31,15 @@ export function mountRail(el) {
       item({
         active: route.name !== 'server', unread: homeUnread, label: 'Friends and direct messages',
         onclick: () => navigate(paths.home(), { panel: 'nav' }),
-      }, h('span', { class: 'rail-button home' }, icon('logo', 24))),
+      }, h('span', { class: 'rail-button' }, icon('message', 20))),
       h('span', { class: 'rail-divider' }),
       ...[...state.servers.values()].map((server) => item({
         active: route.serverId === server.id, unread: hasUnread(server), label: server.name,
         onclick: () => openServer(server),
-      }, serverIcon(server, 42))),
+      }, serverIcon(server, 44))),
       item({ label: 'Add a server', onclick: openAddServer }, h('span', { class: 'rail-button add' }, icon('plus', 20))),
       h('span', { class: 'rail-spacer' }),
-      item({ label: 'Settings', onclick: () => openSettings() }, h('span', { class: 'rail-button rail-settings' }, icon('settings', 20))),
+      item({ label: 'Settings', onclick: () => openSettings() }, h('span', { class: 'rail-button' }, icon('settings', 20))),
     );
   }
 

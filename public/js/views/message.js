@@ -1,8 +1,8 @@
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { renderMarkdown, formatDay, formatSize, formatStamp, formatTime, sameDay } from '../format.js';
-import { avatar, iconButton } from '../ui.js';
-import { openLightbox } from './modals.js';
+import { avatar, confirmButton, iconButton } from '../ui.js';
+import { openLightbox } from './lightbox.js';
 
 const GROUP_MS = 7 * 60 * 1000;
 const LONG_MESSAGE = 3000;
@@ -19,7 +19,7 @@ function attachmentView(attachment) {
   if (kind === 'audio') {
     return h('div', { class: 'attachment-card audio' }, info, h('audio', { src: url, controls: true, preload: 'none' }));
   }
-  return h('div', { class: 'attachment-card' }, icon('file', 28), info,
+  return h('div', { class: 'attachment-card' }, icon('file', 26), info,
     h('a', { class: 'icon-button', href: url, download: name, title: 'Download', 'aria-label': `Download ${name}` }, icon('download')));
 }
 
@@ -38,16 +38,19 @@ function contentView(message) {
 }
 
 // One message. `previous` is the message above it (decides the day divider and whether the header repeats).
-// handlers: { canDelete, onEdit(message, row), onDelete(message), onProfile(user, anchor) }
+// handlers: { canDelete, onEdit(message, row), onDelete(message), onProfile(user) }
 export function messageRow(message, previous, mine, handlers) {
   const newDay = !previous || !sameDay(previous.createdAt, message.createdAt);
   const grouped = !newDay && previous.author.id === message.author.id && message.createdAt - previous.createdAt < GROUP_MS;
   const { author } = message;
-  const profile = (event) => handlers.onProfile(author, event.currentTarget);
+  const profile = () => handlers.onProfile(author);
 
   const actions = [
     mine && iconButton('pencil', 'Edit', () => handlers.onEdit(message, row)),
-    (mine || handlers.canDelete) && iconButton('trash', 'Delete', () => handlers.onDelete(message), 'danger'),
+    (mine || handlers.canDelete) && confirmButton({
+      label: 'Delete', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+      onConfirm: () => handlers.onDelete(message),
+    }),
   ].filter(Boolean);
 
   const row = h('div', { class: 'message-row', dataset: { id: message.id } },
@@ -58,9 +61,9 @@ export function messageRow(message, previous, mine, handlers) {
         if (!event.target.closest('button, a, video, audio, textarea')) event.currentTarget.classList.toggle('selected');
       },
     },
+    h('button', { type: 'button', class: 'message-avatar', onclick: profile, 'aria-label': `${author.displayName}'s profile` },
+      avatar(author, { size: 36 })),
     h('div', { class: 'message-header' },
-      h('button', { type: 'button', class: 'message-avatar', onclick: profile, 'aria-label': `${author.displayName}'s profile` },
-        avatar(author, { size: 30 })),
       h('button', { type: 'button', class: 'author-name', onclick: profile }, author.displayName),
       h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt))),
     h('div', { class: 'message-main' },

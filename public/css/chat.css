@@ -2,104 +2,109 @@
 
 .chat { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; position: relative; }
 .chat.dragging::after {
-  content: "Drop files to upload"; position: absolute; inset: 0.5rem; z-index: 4; display: grid; place-items: center;
-  border: 2px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-panel) 85%, transparent);
-  font-weight: 700; font-size: 1.1rem; pointer-events: none;
+  content: "Drop files to upload"; position: absolute; inset: 0.75rem; z-index: 4; display: grid; place-items: center;
+  border: 2px dashed var(--accent); border-radius: var(--radius); background: color-mix(in srgb, var(--bg-panel) 88%, transparent);
+  font-weight: 600; font-size: 1.05rem; pointer-events: none;
 }
 .scroller { flex: 1; min-height: 0; overflow-y: auto; overflow-anchor: none; }
-.message-list { padding-bottom: 1rem; }
+.message-list { padding-bottom: 0.75rem; }
 
-.history-start { padding: 2rem 24px 0.5rem; }
-.history-start h2 { font-size: 1.3rem; font-weight: 500; overflow-wrap: anywhere; }
+.history-start { padding: 2rem 28px 0.5rem; }
+.history-start h2 { font-size: 1.4rem; font-weight: 600; overflow-wrap: anywhere; }
 .history-start p { color: var(--text-muted); }
 .history-loading { padding: 1rem; text-align: center; font-size: 0.85rem; color: var(--text-faint); }
 
 .day-divider {
-  margin: 1rem 24px 0; padding: 7px; border-radius: var(--radius-small); background: var(--bg-input);
-  text-align: center; font-size: 0.66rem; letter-spacing: 0.16em; text-transform: uppercase; color: var(--text-muted);
+  display: flex; align-items: center; gap: 12px; margin: 1.1rem 28px 0;
+  font-size: 0.75rem; font-weight: 500; color: var(--text-faint);
 }
+.day-divider::before, .day-divider::after { content: ""; flex: 1; height: 1px; background: var(--border); }
 
-/* Avatar, name and time share one line; the text sits underneath. */
-.message { position: relative; margin-top: var(--message-gap); padding: 2px 24px; }
+/* Avatar on the left; name and time on the first line, the text underneath. */
+.message {
+  position: relative; display: grid; grid-template-columns: 36px minmax(0, 1fr); column-gap: 12px;
+  margin-top: var(--message-gap); padding: 3px 28px;
+}
 .message.grouped { margin-top: 0; }
 .message:hover, .message.selected { background: var(--hover); }
-.message-header { display: flex; align-items: center; gap: 10px; margin-bottom: 5px; }
-.message.grouped .message-header { display: none; }
-.message-avatar { border-radius: 9px; }
-.message-avatar .avatar-face { border-radius: 9px; }
-.author-name { min-width: 0; font-size: 1rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.message-avatar { grid-row: 1 / span 2; align-self: start; margin-top: 2px; border-radius: var(--avatar-radius); }
+.message.grouped .message-avatar, .message.grouped .message-header { display: none; }
+.message-header, .message-main { grid-column: 2; }
+.message-header { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.author-name { min-width: 0; font-size: 0.94rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .author-name:hover { text-decoration: underline; }
-.message-stamp { margin-left: auto; flex: none; font-size: 0.78rem; color: var(--text-muted); }
-.message-main { min-width: 0; padding-left: 6px; }
-.message-content { white-space: pre-wrap; overflow-wrap: anywhere; }
+.message-stamp { flex: none; font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+.message-main { min-width: 0; }
+.message-content { white-space: pre-wrap; overflow-wrap: anywhere; color: color-mix(in srgb, var(--text) 90%, var(--bg-panel)); line-height: 1.55; }
 .message-content.collapsed { max-height: 16rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
 .message-content code { padding: 0.1em 0.35em; border-radius: 5px; background: var(--bg-input); font-family: var(--mono); font-size: 0.88em; }
-.message-content pre { margin: 0.3rem 0; padding: 0.7rem 0.85rem; border: 1px solid var(--border); border-radius: var(--radius-small); background: var(--bg-input); overflow-x: auto; white-space: pre; }
+.message-content pre { margin: 0.35rem 0; padding: 0.75rem 0.9rem; border-radius: var(--radius-small); background: var(--bg-input); overflow-x: auto; white-space: pre; }
 .message-content pre code { padding: 0; background: none; }
-.message-edited { margin-left: 0.3rem; font-size: 0.68rem; color: var(--text-faint); }
-.show-more { margin-top: 0.2rem; color: var(--accent); font-size: 0.85rem; font-weight: 600; }
+.message-edited { margin-left: 0.3rem; font-size: 0.7rem; color: var(--text-faint); }
+.show-more { margin-top: 0.2rem; color: var(--accent-ink); font-size: 0.85rem; font-weight: 500; }
 
 .message-actions {
-  position: absolute; top: -0.5rem; right: 84px; z-index: 1; display: none; padding: 2px;
-  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-small);
+  position: absolute; top: -0.9rem; right: 24px; z-index: 1; display: none; padding: 3px;
+  background: var(--bg-raised); border-radius: var(--radius-small);
 }
-.message:hover .message-actions, .message.selected .message-actions { display: flex; }
-.message-actions .icon-button { width: 1.9rem; height: 1.9rem; }
+.message:hover .message-actions, .message.selected .message-actions, .message-actions:has(.armed) { display: flex; }
+.message-actions .icon-button { width: 2rem; height: 2rem; }
 
 .message-edit { display: grid; gap: 0.3rem; margin: 0.2rem 0; }
 .message-edit small { color: var(--text-faint); font-size: 0.75rem; }
 
+[data-density="compact"] .message { grid-template-columns: minmax(0, 1fr); }
 [data-density="compact"] .message-avatar { display: none; }
-[data-density="compact"] .message-header { margin-bottom: 0; }
+[data-density="compact"] .message-header, [data-density="compact"] .message-main { grid-column: 1; }
 
 /* --- attachments --- */
 
-.attachments { display: grid; gap: 0.35rem; justify-items: start; margin: 0.3rem 0 0.15rem; }
+.attachments { display: grid; gap: 0.4rem; justify-items: start; margin: 0.4rem 0 0.15rem; }
 .attachment-image { display: block; max-width: min(100%, 520px); cursor: zoom-in; }
-.attachment-image img { display: block; max-width: 100%; max-height: 380px; border-radius: var(--radius-small); background: var(--bg-input); }
-.attachment-video { display: block; max-width: min(100%, 560px); max-height: 420px; border-radius: var(--radius-small); background: #000; }
+.attachment-image img { display: block; max-width: 100%; max-height: 380px; border-radius: var(--radius); background: var(--bg-input); }
+.attachment-video { display: block; max-width: min(100%, 560px); max-height: 420px; border-radius: var(--radius); background: #000; }
 .attachment-card {
-  display: flex; align-items: center; gap: 0.75rem; width: min(100%, 440px); padding: 0.65rem 0.75rem;
-  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius-small);
+  display: flex; align-items: center; gap: 0.75rem; width: min(100%, 440px); padding: 0.7rem 0.8rem;
+  background: var(--bg-raised); border-radius: var(--radius);
 }
 .attachment-card.audio { display: grid; gap: 0.5rem; }
 .attachment-card audio { width: 100%; height: 2.4rem; }
 .attachment-card > .icon { color: var(--accent); }
 .attachment-info { flex: 1; min-width: 0; }
-.attachment-info a, .attachment-info strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.attachment-info span { font-size: 0.78rem; color: var(--text-faint); }
+.attachment-info a, .attachment-info strong { display: block; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attachment-info span { font-family: var(--mono); font-size: 0.75rem; color: var(--text-faint); }
 
 /* --- typing + composer --- */
 
-.typing { flex: none; height: 1.4rem; padding: 0 30px; font-size: 0.78rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.typing strong { color: var(--text); }
+.typing { flex: none; height: 1.4rem; padding: 0 32px; font-size: 0.78rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.typing strong { color: var(--text-muted); font-weight: 500; }
 
-.composer { flex: none; margin: 0 24px 20px; background: var(--bg-input); border-radius: var(--radius-small); }
-.composer-row { display: flex; align-items: flex-end; gap: 0.25rem; padding: 0.35rem; }
-.composer-row > .avatar { margin: 0 6px 7px 8px; }
+.composer { flex: none; margin: 0 20px 18px; background: var(--bg-input); border-radius: 14px; }
+.composer-row { display: flex; align-items: flex-end; gap: 0.25rem; padding: 7px; }
 .composer textarea {
-  flex: 1; min-width: 0; max-height: 45vh; padding: 0.45rem 0.35rem; resize: none;
-  background: none; border: 0; outline: none; line-height: 1.4;
+  flex: 1; min-width: 0; max-height: 45vh; padding: 0.5rem 0.25rem; resize: none;
+  background: none; border: 0; outline: none; line-height: 1.4; font-size: 0.96rem;
 }
-.composer .send:hover { color: var(--accent); }
+.composer textarea::placeholder { color: var(--text-faint); }
+.composer .send { background: var(--accent); color: var(--accent-text); }
+.composer .send:hover { background: var(--accent); color: var(--accent-text); opacity: 0.88; }
 
-.uploads { display: flex; gap: 0.5rem; padding: 0.6rem 0.6rem 0.25rem; overflow-x: auto; }
+.uploads { display: flex; gap: 0.5rem; padding: 0.6rem 0.6rem 0.1rem; overflow-x: auto; }
 .uploads:empty { display: none; }
-.upload { position: relative; display: grid; gap: 0.3rem; width: 190px; flex: none; padding: 0.55rem 0.65rem; background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--radius-small); }
-.upload-name { padding-right: 1.5rem; font-size: 0.85rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.upload-status { font-size: 0.72rem; color: var(--text-faint); }
-.upload.failed { border-color: var(--danger); }
+.upload { position: relative; display: grid; gap: 0.35rem; width: 200px; flex: none; padding: 0.6rem 0.7rem; background: var(--bg-panel); border-radius: var(--radius-small); }
+.upload-name { padding-right: 1.5rem; font-size: 0.85rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upload-status { font-family: var(--mono); font-size: 0.72rem; color: var(--text-faint); }
 .upload.failed .upload-status { color: var(--danger); }
 .upload-bar { height: 4px; border-radius: 4px; background: var(--active); overflow: hidden; }
 .upload-bar span { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.15s; }
-.upload.done .upload-bar span { background: var(--ok); }
-.upload .icon-button { position: absolute; top: 0.2rem; right: 0.2rem; width: 1.5rem; height: 1.5rem; }
+.upload.failed .upload-bar span { background: var(--danger); }
+.upload .icon-button { position: absolute; top: 0.25rem; right: 0.25rem; width: 1.6rem; height: 1.6rem; }
 
 @media (max-width: 799px) {
-  .message { padding: 2px 12px; }
-  .history-start { padding: 1.5rem 12px 0.5rem; }
-  .day-divider { margin: 1rem 12px 0; }
+  .message { padding: 3px 14px; }
+  .history-start { padding: 1.5rem 14px 0.5rem; }
+  .day-divider { margin: 1rem 14px 0; }
   .typing { padding: 0 18px; }
-  .composer { margin: 0 12px 12px; }
-  .message-actions { right: 64px; }
+  .composer { margin: 0 10px 10px; }
+  .message-actions { right: 12px; }
 }

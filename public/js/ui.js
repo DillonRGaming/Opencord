@@ -3,7 +3,8 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { state } from './store.js';
 
-const AVATAR_COLORS = ['#e8684a', '#d99a1c', '#35a873', '#1d9bb3', '#3d78e0', '#8459e0', '#d54c88', '#6e7a8f'];
+// Soft, light faces with dark letters. No blues.
+const AVATAR_COLORS = ['#e1c9a2', '#b9cfae', '#d8bfc4', '#d6dbd3', '#cdbfdc', '#e3b49c', '#c9cf9e', '#a9cbbb'];
 
 function colorFor(id) {
   let hash = 0;
@@ -46,6 +47,34 @@ export function iconButton(name, label, onclick, extraClass = '') {
 
 export function button(label, onclick, kind = 'primary') {
   return h('button', { class: `button ${kind}`, type: 'button', onclick }, label);
+}
+
+// Used instead of an "Are you sure?" dialog: the first click turns the button into "<confirmLabel>",
+// a second click within a few seconds runs `onConfirm`. `face` is what it shows before that (text or an icon).
+export function confirmButton({ label, confirmLabel, onConfirm, face = label, className = 'button danger small' }) {
+  let timer = null;
+  const el = h('button', {
+    type: 'button', class: className, title: label, 'aria-label': label,
+    onclick: () => {
+      if (!timer) {
+        el.classList.add('armed');
+        el.replaceChildren(confirmLabel);
+        el.setAttribute('aria-label', confirmLabel);
+        timer = setTimeout(disarm, 4000);
+        return;
+      }
+      disarm();
+      attempt(onConfirm);
+    },
+  }, face);
+  function disarm() {
+    clearTimeout(timer);
+    timer = null;
+    el.classList.remove('armed');
+    el.replaceChildren(...[face].flat());
+    el.setAttribute('aria-label', label);
+  }
+  return el;
 }
 
 export function toast(message, kind = 'error') {

@@ -3,22 +3,20 @@ import { h } from '../dom.js';
 import { state, emit, upsertChannel } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { joinInvite, parseInviteCode } from '../actions.js';
-import { button, copyText, field, form, segmented, serverIcon, toast } from '../ui.js';
-import { openModal } from './modals.js';
+import { button, confirmButton, copyText, field, form, segmented, serverIcon, toast } from '../ui.js';
+import { openPanel } from './side.js';
 
 export function inviteCard(invite) {
   const count = invite.server.memberCount;
-  return h('div', { class: 'invite-card' }, serverIcon(invite.server, 56),
+  return h('div', { class: 'invite-card' }, serverIcon(invite.server, 52),
     h('span', {}, h('strong', {}, invite.server.name), h('span', {}, `${count} member${count === 1 ? '' : 's'}`)));
 }
 
 // The + button on the rail: make a new server, or join one from an invite.
 export function openAddServer() {
   const body = h('div', { class: 'form' });
-  const modal = openModal({
-    title: 'Add a server',
-    content: [segmented([['create', 'Create my own'], ['join', 'Join with an invite']], 'create', show), body],
-  });
+  const switcher = segmented([['create', 'Create'], ['join', 'Join with invite']], 'create', show);
+  const panel = openPanel({ title: 'Add a server', build: () => [switcher, body] });
 
   function show(mode) {
     body.replaceChildren(mode === 'create' ? createForm() : joinForm());
@@ -33,7 +31,7 @@ export function openAddServer() {
         const server = await api.post('/api/servers', { name: name.value });
         state.servers.set(server.id, server);
         emit('servers');
-        modal.close();
+        panel.close();
         navigate(paths.channel(server.id, server.channels[0].id));
       },
     }, field('Server name', name));
@@ -48,7 +46,7 @@ export function openAddServer() {
       onSubmit: async () => {
         preview.replaceChildren();
         const invite = await api.get(`/api/invites/${encodeURIComponent(parseInviteCode(link.value))}`);
-        preview.replaceChildren(invitePreview(invite, modal.close));
+        preview.replaceChildren(invitePreview(invite, panel.close));
       },
     }, field('Invite link or code', link)), preview);
   }
@@ -66,73 +64,62 @@ function invitePreview(invite, done) {
       toast(err.message);
       join.disabled = false;
     }
-  });
-  return h('div', { class: 'form' }, inviteCard(invite), h('div', { class: 'form-actions' }, join));
+  }, 'accent wide');
+  return h('div', { class: 'form' }, inviteCard(invite), join);
 }
 
 // Shown when a logged-in user opens an /invite/<code> link.
 export function openInvite(invite) {
-  const modal = openModal({ title: "You've been invited", content: invitePreview(invite, () => modal.close()) });
+  const panel = openPanel({ title: "You've been invited", build: () => invitePreview(invite, () => panel.close()) });
 }
 
 export async function openInviteLink(server) {
   const invite = await api.post(`/api/servers/${server.id}/invites`);
   const link = h('input', { class: 'input', readOnly: true, value: `${location.origin}/invite/${invite.code}`, onfocus: () => link.select() });
-  const copy = button('Copy', async () => {
+  const copy = button('Copy link', async () => {
     await copyText(link.value);
     copy.textContent = 'Copied';
-    setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
-  });
-  openModal({
-    title: `Invite people to ${server.name}`,
-    content: [
-      h('p', { class: 'modal-text' }, 'Send this link to a friend. Anyone with the link can join.'),
-      h('div', { class: 'row' }, link, copy),
-    ],
+    setTimeout(() => { copy.textContent = 'Copy link'; }, 1500);
+  }, 'primary wide');
+  openPanel({
+    title: `Invite to ${server.name}`,
+    build: () => [h('p', { class: 'note' }, 'Send this link to a friend. Anyone with the link can join.'), link, copy],
   });
 }
 
 // Create a channel (no `channel`) or edit / delete one. Owner only.
-export function openChannelModal(server, channel) {
+export function openChannelPanel(server, channel) {
   const name = h('input', { class: 'input', required: true, maxLength: 100, value: channel?.name || '' });
   const topic = h('input', { class: 'input', maxLength: 1024, value: channel?.topic || '' });
-  const modal = openModal({
-    title: channel ? `Edit #${channel.name}` : 'Create a channel',
-    content: [
-      form({
-        submitLabel: channel ? 'Save' : 'Create channel',
-        onSubmit: async () => {
-          if (channel) {
-            await api.patch(`/api/channels/${channel.id}`, { name: name.value, topic: topic.value });
-          } else {
-            const created = await api.post(`/api/servers/${server.id}/channels`, { name: name.value });
-            upsertChannel(created);
-            navigate(paths.channel(server.id, created.id));
-          }
-          modal.close();
-        },
-      }, field('Channel name', name), channel && field('Topic', topic)),
-      channel && h('div', { class: 'modal-section' },
-        h('p', { class: 'modal-text' }, 'Deleting a channel removes all of its messages and files for everyone.'),
-        h('div', {}, deleteChannelButton(channel, () => modal.close()))),
+  const editor = form({
+    submitLabel: channel ? 'Save' : 'Create channel',
+    onSubmit: async () => {
+      if (channel) {
+        await api.patch(`/api/channels/${channel.id}`, { name: name.value, topic: topic.value });
+        panel.close();
+        return;
+      }
+      const created = await api.post(`/api/servers/${server.id}/channels`, { name: name.value });
+      upsertChannel(created);
+      panel.close();
+      navigate(paths.channel(server.id, created.id));
+    },
+  }, field('Channel name', name), channel && field('Topic', topic));
+
+  const panel = openPanel({
+    title: channel ? `Edit #${channel.name}` : 'New channel',
+    build: () => [
+      editor,
+      channel && h('div', { class: 'section' },
+        h('h3', {}, 'Delete channel'),
+        h('p', { class: 'note' }, 'Removes all of its messages and files for everyone.'),
+        h('div', {}, confirmButton({
+          label: 'Delete channel', confirmLabel: 'Click again to delete',
+          onConfirm: async () => {
+            await api.del(`/api/channels/${channel.id}`);
+            panel.close();
+          },
+        }))),
     ],
   });
-}
-
-function deleteChannelButton(channel, done) {
-  let armed = false;
-  const el = button('Delete channel', async () => {
-    if (!armed) {
-      armed = true;
-      el.textContent = 'Click again to delete';
-      return;
-    }
-    try {
-      await api.del(`/api/channels/${channel.id}`);
-      done();
-    } catch (err) {
-      toast(err.message);
-    }
-  }, 'danger small');
-  return el;
 }

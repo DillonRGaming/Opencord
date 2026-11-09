@@ -4,12 +4,12 @@ import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, THEMES } from '../theme.js';
 import { segmented } from '../ui.js';
 
-// Colours for the little theme previews: sidebar, chat, text.
+// Colours for the little theme previews: background, panel, raised.
 const PREVIEW = {
-  light: ['#ebedf0', '#f5f6f8', '#2a2d34'],
-  dark: ['#1d1e22', '#232428', '#eeeef0'],
-  midnight: ['#0c111d', '#111727', '#e6ebf7'],
-  oled: ['#050506', '#0a0a0b', '#f2f2f3'],
+  moss: ['#111411', '#161a17', '#1f2620'],
+  graphite: ['#121211', '#1a1a19', '#252523'],
+  paper: ['#e9e5db', '#f6f3ec', '#fdfbf7'],
+  oled: ['#000000', '#0b0b0b', '#171717'],
 };
 
 function group(label, ...children) {
@@ -31,8 +31,9 @@ export function appearancePage() {
   const themes = choices(THEMES, (theme) => h('button', {
     type: 'button', class: 'theme-card',
     onclick: () => { themes.press(theme); changeSettings({ theme: theme.id }); },
-  }, h('span', { class: 'theme-swatch' }, PREVIEW[theme.id].map((color) => h('span', { style: { background: color } }))), theme.name));
-  themes.press(THEMES.find((theme) => theme.id === current.theme));
+  }, h('span', { class: 'theme-swatch', style: { background: PREVIEW[theme.id][0] } },
+    PREVIEW[theme.id].slice(1).map((color) => h('span', { style: { background: color } }))), theme.name));
+  themes.press(THEMES.find((theme) => theme.id === document.documentElement.dataset.theme));
 
   const picker = h('input', {
     class: 'color-input', type: 'color', value: current.accent, title: 'Pick any colour',
@@ -64,6 +65,6 @@ export function appearancePage() {
     group('Message spacing', h('div', {}, segmented([['cozy', 'Cozy'], ['compact', 'Compact']], current.density, (density) => changeSettings({ density })))),
     group('Avatar shape', h('div', {}, segmented([['round', 'Round'], ['square', 'Rounded square']], current.avatarShape, (avatarShape) => changeSettings({ avatarShape })))),
     group('Custom CSS', css, h('span', { class: 'field-hint' },
-      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-side, --bg-panel, --text and --accent.')),
+      'Applies only to you, on every device you log in on. Colours are CSS variables such as --bg-app, --bg-panel, --text and --accent.')),
   ];
 }

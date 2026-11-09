@@ -1,14 +1,19 @@
 import { h } from '../dom.js';
+import { on } from '../store.js';
 import { iconButton } from '../ui.js';
-import { onEscape } from './modals.js';
+import { onEscape } from '../escape.js';
 import { profilePage } from './settingsProfile.js';
 import { appearancePage } from './settingsAppearance.js';
 import { accountPage } from './settingsAccount.js';
 
 const PAGES = [['profile', 'My Profile', profilePage], ['appearance', 'Appearance', appearancePage], ['account', 'Account', accountPage]];
 
-// The full-screen settings view.
+let close = null;
+
+// Settings take the place of the sidebar and chat (the server rail stays). Going anywhere closes them.
 export function openSettings(start = 'profile') {
+  close?.();
+  const app = document.querySelector('.app');
   const content = h('div', { class: 'settings-content' });
   const tabs = PAGES.map(([id, label, build]) => h('button', {
     type: 'button', class: 'nav-item', dataset: { id },
@@ -18,15 +23,21 @@ export function openSettings(start = 'profile') {
     },
   }, label));
 
+  const screen = h('section', { class: 'settings', 'aria-label': 'Settings' },
+    h('nav', { class: 'settings-nav panel' }, h('h2', {}, 'Settings'), tabs),
+    h('div', { class: 'settings-page panel' }, iconButton('x', 'Close settings', () => close(), 'settings-close'), content));
+
   const release = onEscape(() => close());
-  function close() {
+  close = () => {
     release();
     screen.remove();
-  }
+    app.classList.remove('settings-open');
+    close = null;
+  };
 
-  const screen = h('div', { class: 'settings', role: 'dialog', 'aria-label': 'Settings' },
-    h('nav', { class: 'settings-nav' }, h('h2', {}, 'Settings'), tabs),
-    h('div', { class: 'settings-page' }, iconButton('x', 'Close settings', close, 'settings-close'), content));
-  document.getElementById('layers').append(screen);
+  app.classList.add('settings-open');
+  app.append(screen);
   tabs.find((tab) => tab.dataset.id === start).click();
 }
+
+on('route', () => close?.());

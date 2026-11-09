@@ -13,7 +13,7 @@ function memberRow(member, online) {
   const { user } = member;
   return h('button', {
     type: 'button', class: `nav-item member${online ? '' : ' offline'}`,
-    onclick: (event) => openProfile(user, event.currentTarget, { serverId }),
+    onclick: () => openProfile(user, { serverId }),
   }, avatar(user, { size: 36, presence: true }),
   h('span', { class: 'nav-label' }, user.displayName,
     h('span', { class: 'nav-sub' }, user.statusText || (online ? 'Online' : 'Offline'))),
@@ -23,7 +23,7 @@ function memberRow(member, online) {
 function group(title, members, online) {
   if (!members.length) return [];
   return [
-    h('div', { class: 'sidebar-heading' }, title, h('span', { class: 'heading-count' }, members.length)),
+    h('div', { class: 'sidebar-heading' }, `${title} — ${members.length}`),
     ...members.map((m) => memberRow(m, online)),
   ];
 }

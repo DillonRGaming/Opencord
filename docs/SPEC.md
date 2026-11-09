@@ -235,12 +235,14 @@ Mobile (<800px): one column at a time with a back button.
 - Composer: Enter sends (sends are queued, so quick messages go out in order), Shift+Enter newline, attach button, drag & drop, paste files. Each file uploads in
   8 MiB chunks with a progress bar (XHR for progress), resumes after network errors; send waits for uploads.
 - Unread: channel/DM bold when `lastMessageId > readStates[id]`; ack when viewing; server icon pill.
-- Profile popout on clicking a name/avatar: banner colour, avatar, names, status, bio, Message / Add Friend,
-  Kick (owner).
-- Settings (full screen): My Profile (avatar incl. animated GIF, display name, status, bio, banner colour,
-  live preview) · Appearance (theme Light (default) / Dark / Midnight / OLED, accent colour presets + picker,
-  font size, cozy/compact density, round/square avatars, custom CSS) · Account (change password, log out).
-  Settings live in `me.settings` and apply instantly.
-- Server settings (owner): name, icon, create invite link, delete server. Invite modal with copy button
-  (`location.origin + '/invite/' + code`). Join modal accepts a full link or a code and previews first.
+- No pop-up dialogs. A side panel on the right shows the member list, or whatever was opened instead:
+  a profile (banner colour, avatar, names, status, bio, Message / Add Friend, Kick for the owner), an
+  invite link with a copy button (`location.origin + '/invite/' + code`), add/join server (accepts a full
+  link or a code and previews first), channel editor, server settings (owner: name, icon, delete).
+  Destructive actions need a second click on the same button instead of an "are you sure?" box.
+- Look: rounded flat panels on a darker ground, Geist / Geist Mono, no shadows or glows, no blues.
+- Settings (replace the sidebar and chat, rail stays): My Profile (avatar incl. animated GIF, display name,
+  status, bio, banner colour, live preview) · Appearance (theme Moss (default) / Graphite / Paper / OLED,
+  accent colour presets + picker, font size, cozy/compact density, round/square avatars, custom CSS) ·
+  Account (change password, log out). Settings live in `me.settings` and apply instantly.
 - Reconnect: when the socket reconnects, re-fetch bootstrap and the open channel.
