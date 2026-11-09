@@ -232,7 +232,7 @@ results). Logo: the "Open O", a speech bubble with a sharp bottom-left corner wh
 Geist / Geist Mono, sage accent used sparingly, no shadows, glows or blues, no empty-state filler text.
 Mobile (<800px): one column at a time with a back button.
 
-- Auth screens: log in / create account. `/invite/<code>` shows the invite while logged out and joins after login.
+- Auth screens: full screen, form on the left (serif title, inputs that show a check when valid), art panel with the logo and "No limits. Send anything." on the right (hidden on phones). Log in / create account. `/invite/<code>` shows the invite while logged out and joins after login.
 - Friends page: the add-a-friend box is always at the top; tabs Online / All / Pending / Blocked filter the list.
 - Chat: grouped messages (same author within 7 min), day dividers, load older on scroll up, auto-scroll when
   near the bottom, typing indicator, long messages (>3000 chars) collapsed with "Show more", light markdown
