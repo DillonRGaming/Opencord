@@ -2,3 +2,4 @@ node_modules/
 *.gdb
 *.log
 .env
+run-html/
