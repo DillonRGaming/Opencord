@@ -3,11 +3,10 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, isUnread, isOwner, sortedDms, relationsWith } from '../store.js';
 import { navigate, paths } from '../router.js';
-import { attempt, avatar, iconButton } from '../ui.js';
+import { attempt, avatar, iconButton, serverIcon } from '../ui.js';
 import { confirmDialog, openMenu } from './modals.js';
 import { openChannelModal, openInviteLink } from './serverModals.js';
 import { openServerSettings } from './serverSettings.js';
-import { openSettings } from './settings.js';
 import { openProfile } from './profile.js';
 
 function navItem({ active, unread, onclick }, ...children) {
@@ -23,7 +22,7 @@ function homeList() {
     h('div', { class: 'sidebar-scroll' },
       navItem({ active: route.name === 'home', onclick: () => navigate(paths.home()) },
         icon('users'), h('span', { class: 'nav-label' }, 'Friends'), pending > 0 && h('span', { class: 'badge' }, pending)),
-      h('div', { class: 'sidebar-heading' }, 'Direct messages'),
+      h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Direct messages')),
       dms.length === 0 && h('p', { class: 'sidebar-empty' }, 'No conversations yet. Add a friend and say hi.'),
       dms.map((dm) => navItem({
         active: route.channelId === dm.id, unread: isUnread(dm), onclick: () => navigate(paths.dm(dm.id)),
@@ -59,14 +58,14 @@ function serverList(server) {
   const channels = [...server.channels].sort((a, b) => a.position - b.position || (a.id < b.id ? -1 : 1));
   return [
     h('button', { type: 'button', class: 'sidebar-header', title: 'Server menu', onclick: (event) => serverMenu(server, event.currentTarget) },
-      h('span', { class: 'sidebar-title' }, server.name), icon('chevronDown', 18)),
+      serverIcon(server, 36), h('span', { class: 'sidebar-title' }, server.name), icon('chevronDown', 18)),
     h('div', { class: 'sidebar-scroll' },
-      h('div', { class: 'sidebar-heading' }, 'Text channels',
+      h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Channels'),
         owner && iconButton('plus', 'Create channel', () => openChannelModal(server))),
       channels.map((channel) => navItem({
         active: route.channelId === channel.id, unread: isUnread(channel),
         onclick: () => navigate(paths.channel(server.id, channel.id)),
-      }, icon('hash', 18), h('span', { class: 'nav-label' }, channel.name),
+      }, icon('hash', 14), h('span', { class: 'nav-label' }, channel.name),
       owner && h('span', {
         class: 'icon-button', role: 'button', tabIndex: 0, title: 'Edit channel',
         onclick: (event) => { event.stopPropagation(); openChannelModal(server, channel); },
@@ -78,9 +77,8 @@ function userPanel() {
   const { me } = state;
   return h('div', { class: 'user-panel' },
     h('button', { type: 'button', class: 'user-panel-me', title: 'Your profile', onclick: (event) => openProfile(me, event.currentTarget) },
-      avatar(me, { size: 34, presence: true }),
-      h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName), h('span', {}, me.statusText || `@${me.username}`))),
-    iconButton('settings', 'Settings', () => openSettings()));
+      avatar(me, { size: 36, presence: true }),
+      h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName), h('span', {}, me.statusText || `@${me.username}`))));
 }
 
 export function mountSidebar(el) {

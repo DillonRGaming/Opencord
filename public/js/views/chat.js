@@ -27,7 +27,7 @@ function header(channel, serverId) {
         avatar(recipient, { size: 28, presence: true }), h('span', {}, recipient.displayName)));
   }
   return h('header', { class: 'main-header' }, back,
-    h('div', { class: 'main-title' }, icon('hash'), h('span', {}, channel.name)),
+    h('div', { class: 'main-title' }, icon('hash', 16), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
     iconButton('users', 'Members', () => {
       const phone = matchMedia('(max-width: 799px)').matches;
@@ -156,7 +156,7 @@ function startEdit(message, row) {
   const content = main.querySelector('.message-content');
   main.querySelector('.show-more')?.remove();
   if (content) content.replaceWith(editor);
-  else main.querySelector('.message-header').after(editor);
+  else main.prepend(editor);
   textarea.focus();
   textarea.setSelectionRange(textarea.value.length, textarea.value.length);
 }

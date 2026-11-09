@@ -3,7 +3,8 @@ import { h } from '../dom.js';
 import { formatSize } from '../format.js';
 import { sendTyping } from '../realtime.js';
 import { startUpload } from '../upload.js';
-import { iconButton, pickFiles, toast } from '../ui.js';
+import { state } from '../store.js';
+import { avatar, iconButton, pickFiles, toast } from '../ui.js';
 
 const TYPING_EVERY_MS = 3000;
 
@@ -43,8 +44,9 @@ export function createComposer(channel, placeholder) {
   });
   const el = h('div', { class: 'composer' }, tray,
     h('div', { class: 'composer-row' },
-      iconButton('paperclip', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
+      avatar(state.me, { size: 24 }),
       textarea,
+      iconButton('paperclip', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
       iconButton('send', 'Send', () => send(), 'send')));
 
   function addFiles(files) {

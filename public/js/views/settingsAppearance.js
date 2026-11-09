@@ -6,10 +6,10 @@ import { segmented } from '../ui.js';
 
 // Colours for the little theme previews: sidebar, chat, text.
 const PREVIEW = {
-  dark: ['#121214', '#1a1a1e', '#f1f1f3'],
-  midnight: ['#080b14', '#0d1220', '#e6ebf7'],
-  oled: ['#000000', '#060607', '#f2f2f3'],
-  light: ['#f3f3f4', '#fbfbfb', '#1c1c20'],
+  light: ['#ebedf0', '#f5f6f8', '#2a2d34'],
+  dark: ['#1d1e22', '#232428', '#eeeef0'],
+  midnight: ['#0c111d', '#111727', '#e6ebf7'],
+  oled: ['#050506', '#0a0a0b', '#f2f2f3'],
 };
 
 function group(label, ...children) {

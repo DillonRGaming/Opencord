@@ -58,13 +58,12 @@ export function messageRow(message, previous, mine, handlers) {
         if (!event.target.closest('button, a, video, audio, textarea')) event.currentTarget.classList.toggle('selected');
       },
     },
-    h('div', { class: 'message-gutter' }, grouped
-      ? h('span', { class: 'gutter-time' }, formatTime(message.createdAt))
-      : h('button', { type: 'button', onclick: profile, 'aria-label': `${author.displayName}'s profile` }, avatar(author))),
+    h('div', { class: 'message-header' },
+      h('button', { type: 'button', class: 'message-avatar', onclick: profile, 'aria-label': `${author.displayName}'s profile` },
+        avatar(author, { size: 30 })),
+      h('button', { type: 'button', class: 'author-name', onclick: profile }, author.displayName),
+      h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt))),
     h('div', { class: 'message-main' },
-      h('div', { class: 'message-header' },
-        h('button', { type: 'button', class: 'author-name', onclick: profile }, author.displayName),
-        h('time', { class: 'message-stamp' }, formatStamp(message.createdAt))),
       contentView(message),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView))),
     actions.length > 0 && h('div', { class: 'message-actions' }, actions)));

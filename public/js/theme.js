@@ -2,7 +2,7 @@
 // devices) and are mirrored in localStorage so the page doesn't flash the wrong theme while loading.
 
 export const DEFAULTS = {
-  theme: 'dark',
+  theme: 'light',
   accent: '#ee6a3f',
   fontSize: 16,
   density: 'cozy',
@@ -11,10 +11,10 @@ export const DEFAULTS = {
 };
 
 export const THEMES = [
+  { id: 'light', name: 'Light' },
   { id: 'dark', name: 'Dark' },
   { id: 'midnight', name: 'Midnight' },
   { id: 'oled', name: 'OLED' },
-  { id: 'light', name: 'Light' },
 ];
 
 export const ACCENTS = ['#ee6a3f', '#f5a524', '#3ecf8e', '#22b8cf', '#4c8dff', '#9b6dff', '#f0619a', '#8b95a7'];

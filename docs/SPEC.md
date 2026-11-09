@@ -216,11 +216,12 @@ Someone who joins a server starts with every channel marked read.
 
 ## Frontend
 
-Laid out like Discord's current desktop app (the owner asked for this), with Opencord's own name, logo and
-accent colour: flat columns that sit flush, separated by thin borders; the rail and sidebar share the darkest
-shade and the chat is one step lighter. Rail icons are rounded squares with a marker on the left edge (dot =
-unread, full height = open). The user panel is a bordered card floating over the bottom of the rail and sidebar.
-Primary buttons use the accent colour.
+A soft, light take on the Discord layout (the owner picked the reference design), with Opencord's own name,
+logo and accent colour: flat columns told apart by shade — rail darkest, then sidebar, then chat — with a thin
+border only under the header and beside the member list. Round server icons in the rail, with add (dashed) and
+settings (bottom) buttons. Messages put a small rounded-square avatar, the name and the time (right) on one
+line with the text underneath; day dividers are soft bars; the composer is a filled bar with your avatar.
+The member list has a search box (filters by name, in the browser) and marks the server owner.
 server rail (home button, server icons with unread pill, + create/join) · sidebar (DM list + "Friends", or
 channel list with server menu) with a user panel at the bottom · main (chat or friends page) · member list.
 Mobile (<800px): one column at a time with a back button.
@@ -237,7 +238,7 @@ Mobile (<800px): one column at a time with a back button.
 - Profile popout on clicking a name/avatar: banner colour, avatar, names, status, bio, Message / Add Friend,
   Kick (owner).
 - Settings (full screen): My Profile (avatar incl. animated GIF, display name, status, bio, banner colour,
-  live preview) · Appearance (theme Dark (default) / Midnight / OLED / Light, accent colour presets + picker,
+  live preview) · Appearance (theme Light (default) / Dark / Midnight / OLED, accent colour presets + picker,
   font size, cozy/compact density, round/square avatars, custom CSS) · Account (change password, log out).
   Settings live in `me.settings` and apply instantly.
 - Server settings (owner): name, icon, create invite link, delete server. Invite modal with copy button
