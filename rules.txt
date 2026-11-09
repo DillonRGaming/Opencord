@@ -1,0 +1,62 @@
+Acero Rebuild Guide (For AI Assistant)
+This document is a comprehensive guide for rebuilding the Acero application from scratch. The previous iteration of the codebase became unmanageable due to monolithic files, inline HTML generation, duplicated logic, and hardcoded configurations.
+
+Your objective is to build a highly modular, clean, and expandable chat application (similar to Discord).
+
+1. Core Architecture Principles
+When setting up this project, adhere strictly to these principles:
+- No Monolithic Files: Under no circumstances should backend routes, socket events, or frontend UI components be stuffed into massive files.
+- Strict Separation of Concerns: Keep business logic, database queries, API routing, and frontend rendering completely isolated from each other.
+- Hardcoded Configs Allowed: For testing purposes, environment variables like API URLs (e.g., https://willis-transported-placidly.ngrok-free.dev) SHOULD be hardcoded. No .env file is required at this stage.
+- Modular Expandability: Design the app so adding a new feature (like a new channel type, a new setting, or a new tool) only requires plugging in a new module, not modifying 1000 lines of core logic.
+
+2. Backend Strategy (Node.js + Express + Socket.IO)
+Structure
+Create a dedicated server folder with the following isolated directories:
+- /routes: Establish separate Express routers for auth.js, users.js, servers.js.
+- /sockets: Divide Socket.IO event handlers logically (e.g., MessageHandler.js, ServerHandler.js, FriendHandler.js). Pass the io instance to these handlers.
+- /services or /controllers: Abstract the business logic away from the routes/sockets.
+
+Database Requirements (granitedb.js)
+The user relies on a custom key-value store called granitedb.js.
+- CRITICAL FLAW TO AVOID: The old codebase retrieved the entire database into memory (Object.values(db.memoryState)) and used array filtering to find relationships or messages. This is highly inefficient.
+- SOLUTION: Implement dedicated data access objects (e.g., UserDB.js, MessageDB.js). If staying with GraniteDB, build helper functions to index relationships (e.g., storing a list of message IDs per channel) to prevent full-table scans. Let the user know if caching or a more relational approach is needed.
+
+Configuration
+- Create a config.js with hardcoded values (e.g., API URL: https://willis-transported-placidly.ngrok-free.dev).
+- Implement proper CORS handling and ensure custom headers like ngrok-skip-browser-warning are supported globally where necessary.
+
+3. Frontend Strategy (HTML/CSS/JS)
+Framework / Architecture
+- Avoid string-based HTML rendering: Constructing DOM nodes using innerHTML = '<div...>' scales terribly and breaks syntax highlighting.
+- Vanilla JS Focus: The project must not use any external frontend frameworks (e.g., no React, Vue, or Svelte). Use standard Vanilla JavaScript.
+- Enforce a strict Component Model: Create JavaScript classes/modules that .render() HTMLElements via document.createElement(), or use Native Web Components. Mount these to a single #app root in a stripped-down index.html.
+
+State Management
+- Never scatter state across global variables (e.g., let activeChatId = null, currentContext = 'dms';).
+- Implement a centralized state store. Whether using Redux, Vuex, or a custom PubSub Vanilla JS class, ensure UI components react to state changes instead of manually re-rendering the whole UI on every socket event.
+
+Routing / Views
+- The old app hid/showed 15 different panels using CSS display: none.
+- Implement a true client-side router or a view-manager class that unmounts inactive views to save DOM memory and complexity.
+
+4. UI/UX and Design System (CSS)
+Modularity
+- Do not write one massive style.css.
+- Break styles down: /css/variables.css, /css/layout.css, /css/components/buttons.css, etc.
+
+Theming & Variables
+- Define a cohesive color palette using CSS Custom Properties (:root).
+- Use a simple, consistent accent color (e.g., #eaf99a or a vibrant alternative) across all active states, primary buttons, and focus rings.
+- Ensure standard spacing variables (--spacing-sm, --spacing-md) and border radii (--radius-md) are used everywhere instead of hardcoded pixel values.
+- Support Dark Mode natively.
+
+Consistency
+- Ensure all buttons share a .btn base class.
+- Ensure all inputs share a .form-input base class.
+- Standardize the layout of modal popups and context menus so they are easily reusable.
+
+5. Development Checklist & Final Notes
+- Readability is King: Write self-documenting code. Separate complex operations into smaller, named helper functions.
+- Websockets (ws): Keep real-time communication clean. Authenticate sockets upon connection and attach the user session to the socket object.
+- Security: Hash passwords (bcrypt). Use JWTs for authentication. Never send password hashes to the client. Validate all inputs on the server before interacting with the database.
