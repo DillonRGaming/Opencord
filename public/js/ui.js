@@ -20,10 +20,7 @@ export function avatar(user, { size = 40, presence = false } = {}) {
   const face = user.avatar
     ? h('img', { class: 'avatar-face', src: user.avatar, alt: '', draggable: false })
     : h('span', { class: 'avatar-face', style: { background: colorFor(user.id) } }, initials(user.displayName));
-  const dot = presence && h('span', {
-    class: `presence${state.online.has(user.id) ? ' online' : ''}`,
-    dataset: { presence: user.id },
-  });
+  const dot = presence && h('span', { class: `presence ${statusOf(user)}`, dataset: { presence: user.id } });
   return h('span', { class: 'avatar', style: { '--size': `${size}px` } }, face, dot);
 }
 
@@ -34,10 +31,24 @@ export function serverIcon(server, size = 48) {
   return h('span', { class: 'server-icon', style: { '--size': `${size}px` } }, face);
 }
 
+// 'online' / 'idle' / 'dnd' / 'offline' for a dot. Bots are always online; my own dot shows what I picked.
+export function statusOf(user) {
+  if (user.bot) return 'online';
+  if (user.id === state.me?.id) {
+    const mine = state.me.presence || 'online';
+    return mine === 'invisible' ? 'offline' : mine === 'online' ? (state.statuses.get(user.id) || 'online') : mine;
+  }
+  if (!state.online.has(user.id)) return 'offline';
+  return state.statuses.get(user.id) || 'online';
+}
+
+export const STATUS_LABELS = { online: 'Online', idle: 'Idle', dnd: 'Do not disturb', offline: 'Offline', invisible: 'Invisible' };
+
 // Presence dots are updated in place, so views don't need to re-render when someone comes online.
 export function refreshPresenceDots() {
   for (const dot of document.querySelectorAll('[data-presence]')) {
-    dot.classList.toggle('online', state.online.has(dot.dataset.presence));
+    const user = state.users.get(dot.dataset.presence) || { id: dot.dataset.presence };
+    dot.className = `presence ${statusOf(user)}`;
   }
 }
 
@@ -149,4 +160,20 @@ export function segmented(options, current, onChange) {
     },
   }, label)));
   return el;
+}
+
+// Settings pages are built from these: a card per topic, and rows of "label … control" inside it.
+export function settingsCard(title, ...children) {
+  return h('section', { class: 'settings-card' }, title && h('h2', { class: 'settings-card-title' }, title), children);
+}
+
+export function settingRow(label, control) {
+  return h('div', { class: 'setting-row' }, h('span', { class: 'setting-label' }, label), h('div', { class: 'setting-control' }, control));
+}
+
+// The top card of a settings-style page: a big picture, a name, a line under it, and actions on the right.
+export function settingsHero(picture, title, meta, ...actions) {
+  return h('section', { class: 'settings-card settings-hero' }, picture,
+    h('div', { class: 'settings-hero-text' }, h('div', { class: 'settings-hero-title' }, title), meta && h('div', { class: 'settings-hero-meta' }, meta)),
+    actions.length > 0 && h('div', { class: 'settings-hero-actions' }, actions));
 }

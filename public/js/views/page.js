@@ -32,7 +32,7 @@ export function openPage({ title, content, actions, onClose }) {
   column.classList.add('page-open');
   document.body.dataset.panel = 'main';
   el.querySelector('.page-content input:not([readonly]):not([type="color"]), .page-content textarea')?.focus();
-  return { close: () => { if (current === mine) closePage(); } };
+  return { el, close: () => { if (current === mine) closePage(); } };
 }
 
 export function closePage() {

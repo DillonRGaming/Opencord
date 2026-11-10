@@ -1,4 +1,5 @@
 const express = require('express');
+const notifications = require('../models/notifications');
 const config = require('../config');
 const auth = require('../lib/auth');
 const storage = require('../lib/storage');
@@ -29,6 +30,8 @@ router.get('/bootstrap', (req, res) => {
     dms: channels.dmsForUser(me.id),
     readStates: channels.readStates(me.id),
     online: [me.id, ...users.audienceIds(me.id)].filter(realtime.isOnline),
+    statuses: Object.fromEntries([me.id, ...users.audienceIds(me.id)].map((id) => [id, realtime.statusOf(id)]).filter(([, s]) => s !== 'offline')),
+    unreadNotifications: notifications.unreadCount(me.id),
   });
 });
 
@@ -37,8 +40,12 @@ router.get('/users/@me', (req, res) => {
 });
 
 router.patch('/users/@me', (req, res) => {
-  const { displayName, bio, statusText, bannerColor, settings } = req.body;
+  const { displayName, bio, statusText, bannerColor, settings, presence } = req.body;
   const fields = {};
+  if (presence !== undefined) {
+    if (!['online', 'idle', 'dnd', 'invisible'].includes(presence)) fail(400, 'Status must be online, idle, dnd or invisible.');
+    fields.presence = presence;
+  }
   if (displayName !== undefined) fields.displayName = text(displayName, 'Display name', { min: 1, max: 32 });
   if (bio !== undefined) fields.bio = text(bio, 'Bio', { max: 190 });
   if (statusText !== undefined) fields.statusText = text(statusText, 'Status', { max: 128 });
@@ -53,6 +60,7 @@ router.patch('/users/@me', (req, res) => {
   }
   const user = users.update(req.user.id, fields);
   announce(user);
+  if (presence !== undefined) realtime.announcePresence(user.id);
   res.json(users.toMe(user));
 });
 

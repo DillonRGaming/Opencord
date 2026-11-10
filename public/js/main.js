@@ -15,6 +15,7 @@ import { showFriends } from './views/friends.js';
 import { openInvite } from './views/serverPages.js';
 import { mountSide } from './views/side.js';
 import { mountPages } from './views/page.js';
+import { showVoice, closeVoiceView } from './views/voiceView.js';
 
 const root = document.getElementById('app');
 
@@ -25,14 +26,22 @@ function emptyState(title, text) {
 // Decides what the main column shows for the current address.
 async function showMain(main) {
   const { route } = state;
+  const server = route.name === 'server' && state.servers.get(route.serverId);
+  const voiceChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'voice');
+  if (voiceChannel) {
+    closeChat();
+    return showVoice(main, voiceChannel, server.id);
+  }
+  closeVoiceView();
 
   if (route.name === 'server') {
     const server = state.servers.get(route.serverId);
     if (!server) return navigate(paths.home(), { replace: true, panel: 'nav' });
-    const channel = server.channels.find((c) => c.id === route.channelId);
+    const channel = server.channels.find((c) => c.id === route.channelId && c.kind === 'text');
     if (channel) return showChat(main, channel, server.id);
-    if (server.channels.length) {
-      return navigate(paths.channel(server.id, server.channels[0].id), { replace: true, panel: document.body.dataset.panel });
+    const first = [...server.channels].filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position)[0];
+    if (first) {
+      return navigate(paths.channel(server.id, first.id), { replace: true, panel: document.body.dataset.panel });
     }
     closeChat();
     return main.replaceChildren();
@@ -108,6 +117,22 @@ async function boot() {
   // From here on, a 401 means the session ended somewhere else: go back to the login screen.
   api.setUnauthorizedHandler(() => location.reload());
   showApp();
+  emit('notifications');
 }
 
 boot();
+
+// Mentions and #channel links inside messages.
+document.addEventListener('click', async (event) => {
+  const mention = event.target.closest('.mention[data-user-id]');
+  if (mention) {
+    const user = state.users.get(mention.dataset.userId);
+    if (user) (await import('./views/profile.js')).openProfile(user, { serverId: state.route.serverId });
+    return;
+  }
+  const routed = event.target.closest('a[data-route]');
+  if (routed && !event.ctrlKey && !event.metaKey) {
+    event.preventDefault();
+    navigate(new URL(routed.href).pathname);
+  }
+});

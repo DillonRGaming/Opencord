@@ -2,10 +2,14 @@
    a user's custom CSS can change the whole look. Flat on purpose: no shadows, no glows. */
 
 :root {
-  --accent: #a9c79a;
+  --accent: #a99bf0;
   --accent-text: #141814;
   --font-size: 16px;
-  --font: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --font: var(--font-geist);
+  --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
+  --line-height: 1.45;
+  --sidebar-width: 240px;
+  --font-geist: "Geist", system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
   --serif: "Instrument Serif", Georgia, serif;
   --mono: "Geist Mono", ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
   --radius-panel: 16px;
@@ -18,6 +22,14 @@
 
 [data-avatars="square"] { --avatar-radius: 30%; }
 [data-density="compact"] { --message-gap: 0.3rem; }
+[data-line-height="tight"] { --line-height: 1.3; }
+[data-line-height="relaxed"] { --line-height: 1.65; }
+[data-corners="sharp"] { --radius-panel: 6px; --radius: 5px; --radius-small: 4px; }
+[data-corners="round"] { --radius-panel: 24px; --radius: 18px; --radius-small: 14px; }
+[data-spacing="tight"] { --gap: 4px; }
+[data-spacing="roomy"] { --gap: 18px; }
+[data-chat-avatars="false"] .message-avatar { display: none; }
+[data-motion="reduced"] *, [data-motion="reduced"] *::before, [data-motion="reduced"] *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
 
 /* --accent-ink is the accent when it is used as text colour (links); light themes darken it to stay readable. */
 
@@ -91,12 +103,14 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
+html[data-contrast="high"] { --text-muted: var(--text); --text-faint: color-mix(in srgb, var(--text) 80%, transparent); --border: color-mix(in srgb, var(--text) 30%, transparent); }
+
 html { font-size: var(--font-size); }
 
 body {
   margin: 0;
   font-family: var(--font);
-  line-height: 1.45;
+  line-height: var(--line-height);
   font-size: 0.94rem;
   color: var(--text);
   background: var(--bg-app);
@@ -205,3 +219,11 @@ button:disabled { cursor: default; opacity: 0.55; }
   font-weight: 600; font-size: calc(var(--size) * 0.32); user-select: none;
 }
 .server-icon img { width: 100%; height: 100%; object-fit: cover; }
+.presence.online { background: var(--ok); }
+.presence.idle { background: #f0b232; }
+.presence.idle::after { content: ""; position: absolute; top: 12%; left: 12%; width: 45%; height: 45%; border-radius: 50%; background: var(--presence-ring, var(--bg-panel)); }
+.presence.dnd { background: #f23f43; }
+.presence.dnd::after { content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 22%; transform: translateY(-50%); border-radius: 2px; background: var(--presence-ring, var(--bg-panel)); }
+.presence.offline { background: var(--text-faint); }
+.presence.offline::after { content: ""; position: absolute; inset: 25%; border-radius: 50%; background: var(--presence-ring, var(--bg-panel)); }
+.presence { overflow: hidden; }

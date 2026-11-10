@@ -41,5 +41,5 @@ export const get = (url) => request('GET', url);
 export const post = (url, body = {}) => request('POST', url, body);
 export const patch = (url, body) => request('PATCH', url, body);
 export const put = (url, body = {}) => request('PUT', url, body);
-export const del = (url) => request('DELETE', url);
+export const del = (url, body) => request('DELETE', url, body);
 export const putFile = (url, file) => request('PUT', url, file, true);

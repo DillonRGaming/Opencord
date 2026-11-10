@@ -10,11 +10,12 @@ function toUser(row) {
     bannerColor: row.banner_color,
     bio: row.bio,
     statusText: row.status_text,
+    bot: Boolean(row.is_bot),
   };
 }
 
 function toMe(row) {
-  return { ...toUser(row), settings: JSON.parse(row.settings), createdAt: row.created_at };
+  return { ...toUser(row), settings: JSON.parse(row.settings), createdAt: row.created_at, presence: row.presence || 'online' };
 }
 
 function create({ username, displayName, passwordHash }) {
@@ -47,6 +48,7 @@ const COLUMNS = {
   settings: 'settings',
   avatar: 'avatar',
   passwordHash: 'password_hash',
+  presence: 'presence',
 };
 
 function update(id, fields) {

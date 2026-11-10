@@ -1,7 +1,9 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, emit, isUnread, isOwner, markRead } from '../store.js';
+import { groupFace } from './sidebar.js';
+import { ensureMembers } from './members.js';
+import { state, on, emit, isUnread, canModerate, markRead, dmName } from '../store.js';
 import { attempt, avatar, copyText, iconButton, toast } from '../ui.js';
 import { createComposer } from './composer.js';
 import { messageCard, messageRow } from './message.js';
@@ -24,6 +26,12 @@ function header(channel, serverId) {
     iconButton('pin', 'Pinned messages', () => showPins(channel)),
     serverId && membersButton(),
   ];
+  if (channel.kind === 'group') {
+    return h('header', { class: 'main-header' }, back,
+      h('button', { type: 'button', class: 'main-title', onclick: async () => (await import('./groups.js')).openGroupSettings(channel) },
+        groupFace(channel, 28), h('span', {}, dmName(channel))),
+      h('div', { class: 'main-topic' }, `${channel.recipients.length + 1} members`), tools);
+  }
   if (channel.type === 'dm') {
     const { recipient } = channel;
     return h('header', { class: 'main-header' }, back,
@@ -89,6 +97,12 @@ function membersButton() {
 }
 
 function historyStart(channel) {
+  if (channel.kind === 'group') {
+    return h('header', { class: 'main-header' }, back,
+      h('button', { type: 'button', class: 'main-title', onclick: async () => (await import('./groups.js')).openGroupSettings(channel) },
+        groupFace(channel, 28), h('span', {}, dmName(channel))),
+      h('div', { class: 'main-topic' }, `${channel.recipients.length + 1} members`), tools);
+  }
   if (channel.type === 'dm') {
     const { recipient } = channel;
     return h('div', { class: 'history-start' }, avatar(recipient, { size: 64 }),
@@ -101,13 +115,15 @@ function historyStart(channel) {
 function rowFor(v, index) {
   const message = v.messages[index];
   return messageRow(message, v.messages[index - 1], isMine(message), {
-    canDelete: v.serverId && isOwner(v.serverId),
+    canDelete: v.serverId && canModerate(v.serverId),
+    serverId: v.serverId,
     onEdit: startEdit,
     onDelete: deleteMessage,
     onProfile: (user) => openProfile(user, { serverId: v.serverId }),
     onReply: (m) => v.composer.replyTo(m),
     onReact: react,
     onPin: (m) => attempt(() => (m.pinned ? api.del : api.put)(`/api/messages/${m.id}/pin`)),
+    onVote: (m, option) => api.put(`/api/messages/${m.id}/poll/${option}`),
     onCopy: async (m) => { await copyText(m.content); toast('Copied.', 'ok'); },
     onJump: jumpTo,
   });
@@ -326,8 +342,9 @@ export function showChat(container, channel, serverId = null) {
     return;
   }
   closeChat();
+  if (serverId) ensureMembers(serverId);
 
-  const placeholder = channel.type === 'dm' ? `Message @${channel.recipient.displayName}` : `Message #${channel.name}`;
+  const placeholder = channel.type === 'dm' ? `Message ${channel.kind === 'group' ? dmName(channel) : `@${channel.recipient.displayName}`}` : `Message #${channel.name}`;
   const v = {
     channel, serverId, root: container,
     messages: [], early: [], hasMore: true, ready: false, loading: false, stick: true, height: 0,
@@ -336,6 +353,9 @@ export function showChat(container, channel, serverId = null) {
     list: h('div', { class: 'message-list' }),
     typingEl: h('div', { class: 'typing', role: 'status' }),
   };
+  const myMember = serverId && state.members.get(serverId)?.find((m) => m.user.id === state.me.id);
+  const timedOut = myMember?.timeoutUntil && myMember.timeoutUntil > Date.now() && !canModerate(serverId);
+  const locked = (channel.readOnly && !canModerate(serverId)) || timedOut;
   v.composer = createComposer(channel, placeholder, { onEditLast: () => editLast(v) });
   v.scroller = h('div', {
     class: 'scroller',
@@ -373,7 +393,11 @@ export function showChat(container, channel, serverId = null) {
       chat.classList.remove('dragging');
       v.composer.addFiles([...event.dataTransfer.files]);
     },
-  }, v.scroller, v.typingEl, v.composer.el);
+  }, v.scroller, v.typingEl, locked
+    ? h('div', { class: 'composer-locked' }, icon(timedOut ? 'clock' : 'lock', 16), timedOut
+      ? `You are timed out until ${new Date(myMember.timeoutUntil).toLocaleString()}.`
+      : 'Only admins and the owner can post in this channel.')
+    : v.composer.el);
 
   container.replaceChildren(header(channel, serverId), chat);
 

@@ -5,20 +5,43 @@ const access = require('../lib/access');
 const { fail, text } = require('../lib/http');
 const servers = require('../models/servers');
 const channels = require('../models/channels');
+const users = require('../models/users');
+const emojis = require('../models/emojis');
+const audit = require('../models/audit');
 const attachments = require('../models/attachments');
 const realtime = require('../realtime');
+const bots = require('../lib/bots');
 
 const router = express.Router();
 const rawImage = express.raw({ type: () => true, limit: config.maxImageBytes });
+const rawEmoji = express.raw({ type: () => true, limit: 512 * 1024 });
 
 const serverName = (value) => text(value, 'Server name', { min: 1, max: 100 });
 const channelName = (value) => text(value, 'Channel name', { min: 1, max: 100 }).toLowerCase().replace(/\s+/g, '-');
-const withPresence = (member) => ({ ...member, online: realtime.isOnline(member.user.id) });
+const categoryName = (value) => text(value, 'Category name', { min: 1, max: 100 });
+const withPresence = (member) => ({ ...member, online: realtime.isOnline(member.user.id), status: realtime.statusOf(member.user.id) });
+const HEX = /^#[0-9a-f]{6}$/i;
+const KINDS = ['text', 'voice', 'category'];
+const MAX_EMOJIS = 100;
+const TIMEOUTS = [60, 300, 600, 3600, 86400, 7 * 86400]; // seconds
 
 function announce(server) {
   const json = servers.toServer(server);
   realtime.toServer(server.id, 'server:update', json);
   return json;
+}
+
+function userName(userId) {
+  const user = users.get(userId);
+  return user ? `@${user.username}` : userId;
+}
+
+// Admins can't act on the owner or on other admins; only the owner can.
+function canActOn(server, actorId, targetId) {
+  if (targetId === actorId) fail(400, "You can't do that to yourself.");
+  const target = servers.roleOf(server.id, targetId);
+  if (target === 'owner') fail(403, "You can't do that to the owner.");
+  if (target === 'admin' && server.owner_id !== actorId) fail(403, 'Only the owner can do that to an admin.');
 }
 
 router.post('/', (req, res) => {
@@ -30,19 +53,44 @@ router.post('/', (req, res) => {
 });
 
 router.patch('/:id', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const fields = {};
+  const changed = [];
+  if (req.body.name !== undefined) { fields.name = serverName(req.body.name); changed.push(`name → ${fields.name}`); }
+  if (req.body.description !== undefined) { fields.description = text(req.body.description, 'Description', { max: 500 }); changed.push('description'); }
+  if (req.body.bannerColor !== undefined) {
+    if (req.body.bannerColor !== null && !HEX.test(req.body.bannerColor)) fail(400, 'Banner colour must look like #a1b2c3.');
+    fields.bannerColor = req.body.bannerColor;
+    changed.push('banner colour');
+  }
+  const json = announce(servers.update(server.id, fields));
+  if (changed.length) audit.log(server.id, req.user.id, 'server.update', server.name, changed.join(', '));
+  res.json(json);
+});
+
+// Hand the server to another member. The old owner stays on as an admin.
+router.post('/:id/owner', (req, res) => {
   const server = access.ownedServer(req.params.id, req.user.id);
-  res.json(announce(servers.update(server.id, { name: serverName(req.body.name) })));
+  const userId = text(req.body.userId, 'userId');
+  if (userId === req.user.id) fail(400, 'You already own this server.');
+  if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
+  servers.setRole(server.id, req.user.id, 'admin');
+  const json = announce(servers.update(server.id, { ownerId: userId }));
+  audit.log(server.id, req.user.id, 'server.transfer', userName(userId));
+  realtime.toServer(server.id, 'member:update', { serverId: server.id, member: servers.member(server.id, req.user.id) });
+  res.json(json);
 });
 
 function setIcon(req, res, file) {
-  const server = access.ownedServer(req.params.id, req.user.id);
+  const server = access.modServer(req.params.id, req.user.id);
   const updated = servers.update(server.id, { icon: file });
   if (server.icon) storage.remove(`icons/${server.icon}`);
+  audit.log(server.id, req.user.id, file ? 'server.icon' : 'server.icon_remove', server.name);
   res.json(announce(updated));
 }
 
 router.put('/:id/icon', rawImage, (req, res) => {
-  access.ownedServer(req.params.id, req.user.id);
+  access.modServer(req.params.id, req.user.id);
   setIcon(req, res, storage.saveImage('icons', req.body));
 });
 
@@ -53,12 +101,15 @@ router.delete('/:id/icon', (req, res) => {
 router.delete('/:id', (req, res) => {
   const server = access.ownedServer(req.params.id, req.user.id);
   const files = attachments.pathsForServer(server.id);
+  const emojiFiles = emojis.forServer(server.id).map((e) => `emojis/${emojis.get(e.id).file}`);
   servers.remove(server.id);
-  storage.remove(...files, server.icon && `icons/${server.icon}`);
+  storage.remove(...files, ...emojiFiles, server.icon && `icons/${server.icon}`);
   realtime.toServer(server.id, 'server:delete', { id: server.id });
   realtime.closeServer(server.id);
   res.sendStatus(204);
 });
+
+// --- members, roles, kicks, bans, timeouts ---
 
 router.get('/:id/members', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
@@ -72,31 +123,251 @@ function removeMember(server, userId) {
   realtime.toServer(server.id, 'member:remove', { serverId: server.id, userId });
 }
 
+function memberChanged(server, userId) {
+  realtime.toServer(server.id, 'member:update', { serverId: server.id, member: withPresence(servers.member(server.id, userId)) });
+}
+
 router.delete('/:id/members/@me', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
-  if (server.owner_id === req.user.id) fail(400, "The owner can't leave. Delete the server instead.");
+  if (server.owner_id === req.user.id) fail(400, "The owner can't leave. Delete the server or hand it to someone first.");
   removeMember(server, req.user.id);
+  audit.log(server.id, req.user.id, 'member.leave', userName(req.user.id));
   res.sendStatus(204);
 });
 
 router.delete('/:id/members/:userId', (req, res) => {
-  const server = access.ownedServer(req.params.id, req.user.id);
-  if (req.params.userId === req.user.id) fail(400, "You can't kick yourself.");
-  if (!servers.isMember(server.id, req.params.userId)) fail(404, 'That user is not in this server.');
-  removeMember(server, req.params.userId);
+  const server = access.modServer(req.params.id, req.user.id);
+  const { userId } = req.params;
+  if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
+  canActOn(server, req.user.id, userId);
+  removeMember(server, userId);
+  audit.log(server.id, req.user.id, 'member.kick', userName(userId), text(req.body?.reason ?? '', 'Reason', { max: 500 }));
   res.sendStatus(204);
 });
 
-router.post('/:id/invites', (req, res) => {
-  const server = access.memberServer(req.params.id, req.user.id);
-  res.status(201).json(servers.toInvite(servers.createInvite(server.id, req.user.id), server));
+router.put('/:id/members/:userId/role', (req, res) => {
+  const server = access.ownedServer(req.params.id, req.user.id);
+  const { userId } = req.params;
+  const role = req.body.role;
+  if (!['admin', 'member'].includes(role)) fail(400, 'Role must be admin or member.');
+  if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
+  if (userId === server.owner_id) fail(400, 'The owner is always in charge.');
+  servers.setRole(server.id, userId, role);
+  memberChanged(server, userId);
+  announce(servers.get(server.id));
+  audit.log(server.id, req.user.id, role === 'admin' ? 'member.admin_add' : 'member.admin_remove', userName(userId));
+  res.json(servers.member(server.id, userId));
 });
 
+router.put('/:id/members/:userId/timeout', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const { userId } = req.params;
+  if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
+  canActOn(server, req.user.id, userId);
+  const seconds = req.body.seconds;
+  if (seconds !== 0 && !TIMEOUTS.includes(seconds)) fail(400, 'That timeout length is not one of the choices.');
+  const until = seconds ? Date.now() + seconds * 1000 : null;
+  servers.setMemberTimeout(server.id, userId, until);
+  memberChanged(server, userId);
+  audit.log(server.id, req.user.id, seconds ? 'member.timeout' : 'member.timeout_remove', userName(userId),
+    [seconds && `for ${seconds >= 86400 ? `${seconds / 86400}d` : seconds >= 3600 ? `${seconds / 3600}h` : `${seconds / 60}m`}`, req.body.reason].filter(Boolean).join(' · '));
+  res.json(servers.member(server.id, userId));
+});
+
+router.get('/:id/bans', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  res.json(servers.bans(server.id));
+});
+
+router.put('/:id/bans/:userId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const { userId } = req.params;
+  if (!users.get(userId)) fail(404, 'User not found.');
+  if (servers.isMember(server.id, userId)) canActOn(server, req.user.id, userId);
+  else if (userId === req.user.id) fail(400, "You can't ban yourself.");
+  const reason = text(req.body.reason ?? '', 'Reason', { max: 500 });
+  servers.ban(server.id, userId, reason);
+  if (servers.isMember(server.id, userId)) removeMember(server, userId);
+  audit.log(server.id, req.user.id, 'member.ban', userName(userId), reason);
+  res.sendStatus(204);
+});
+
+router.delete('/:id/bans/:userId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  if (!servers.unban(server.id, req.params.userId)) fail(404, 'That user is not banned.');
+  audit.log(server.id, req.user.id, 'member.unban', userName(req.params.userId));
+  res.sendStatus(204);
+});
+
+// --- invites ---
+
+const INVITE_EXPIRY = [0, 3600, 86400, 7 * 86400, 30 * 86400]; // seconds, 0 = never
+
+router.post('/:id/invites', (req, res) => {
+  const server = access.memberServer(req.params.id, req.user.id);
+  const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
+  if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');
+  const expiresIn = req.body.expiresIn ?? 0;
+  if (!INVITE_EXPIRY.includes(expiresIn)) fail(400, 'That expiry is not one of the choices.');
+  const code = servers.createInvite(server.id, req.user.id, { maxUses, expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null });
+  audit.log(server.id, req.user.id, 'invite.create', code);
+  res.status(201).json(servers.toInvite(code, server));
+});
+
+router.get('/:id/invites', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  res.json(servers.invites(server.id));
+});
+
+router.delete('/:id/invites/:code', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  if (!servers.removeInvite(server.id, req.params.code)) fail(404, 'Invite not found.');
+  audit.log(server.id, req.user.id, 'invite.delete', req.params.code);
+  res.sendStatus(204);
+});
+
+// --- channels and categories ---
+
 router.post('/:id/channels', (req, res) => {
-  const server = access.ownedServer(req.params.id, req.user.id);
-  const json = channels.toChannel(channels.create(server.id, channelName(req.body.name)));
+  const server = access.modServer(req.params.id, req.user.id);
+  const kind = req.body.kind ?? 'text';
+  if (!KINDS.includes(kind)) fail(400, 'Channel kind must be text, voice or category.');
+  const name = kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
+  let parentId = null;
+  if (req.body.parentId && kind !== 'category') {
+    const parent = channels.get(req.body.parentId);
+    if (!parent || parent.server_id !== server.id || parent.kind !== 'category') fail(400, 'That category is not in this server.');
+    parentId = parent.id;
+  }
+  const json = channels.toChannel(channels.create(server.id, name, { kind, parentId }));
   realtime.toServer(server.id, 'channel:create', json);
+  audit.log(server.id, req.user.id, `${kind === 'category' ? 'category' : 'channel'}.create`, kind === 'category' ? name : `#${name}`, kind);
   res.status(201).json(json);
 });
 
-module.exports = { router, channelName, withPresence };
+// Channel order and categories at once: [{ id, parentId }] top to bottom.
+router.put('/:id/channels/order', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const items = req.body.items ?? (req.body.ids || []).map((id) => ({ id }));
+  if (!Array.isArray(items) || items.some((i) => typeof i?.id !== 'string')) fail(400, 'items must be a list of { id, parentId }.');
+  const own = new Map(channels.forServer(server.id).map((c) => [c.id, c]));
+  for (const item of items) {
+    if (!own.has(item.id) || !('parentId' in item)) continue;
+    const parent = item.parentId && own.get(item.parentId);
+    if (item.parentId && (!parent || parent.kind !== 'category')) fail(400, 'That category is not in this server.');
+    if (own.get(item.id).kind !== 'category') channels.update(item.id, { parentId: item.parentId || null });
+  }
+  channels.reorder(server.id, items.map((i) => i.id));
+  audit.log(server.id, req.user.id, 'channel.reorder', server.name);
+  res.json(announce(servers.get(server.id)));
+});
+
+// --- emoji ---
+
+const emojiName = (value) => {
+  const name = text(value, 'Emoji name', { min: 2, max: 32 }).toLowerCase().replace(/[^a-z0-9_]/g, '_');
+  if (name.length < 2) fail(400, 'Emoji names need at least 2 letters, numbers or underscores.');
+  return name;
+};
+
+router.post('/:id/emojis', rawEmoji, (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const name = emojiName(String(req.query.name || ''));
+  if (emojis.count(server.id) >= MAX_EMOJIS) fail(400, `A server can have up to ${MAX_EMOJIS} emoji.`);
+  if (emojis.nameTaken(server.id, name)) fail(409, `There is already an emoji called :${name}:.`);
+  const file = storage.saveImage('emojis', req.body);
+  const emoji = emojis.toEmoji(emojis.create(server.id, name, file, req.user.id));
+  audit.log(server.id, req.user.id, 'emoji.create', `:${name}:`);
+  announce(servers.get(server.id));
+  res.status(201).json(emoji);
+});
+
+router.patch('/:id/emojis/:emojiId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const emoji = emojis.get(req.params.emojiId);
+  if (!emoji || emoji.server_id !== server.id) fail(404, 'Emoji not found.');
+  const name = emojiName(req.body.name);
+  if (name !== emoji.name && emojis.nameTaken(server.id, name)) fail(409, `There is already an emoji called :${name}:.`);
+  const json = emojis.toEmoji(emojis.rename(emoji.id, name));
+  audit.log(server.id, req.user.id, 'emoji.update', `:${emoji.name}:`, `renamed to :${name}:`);
+  announce(servers.get(server.id));
+  res.json(json);
+});
+
+router.delete('/:id/emojis/:emojiId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const emoji = emojis.get(req.params.emojiId);
+  if (!emoji || emoji.server_id !== server.id) fail(404, 'Emoji not found.');
+  emojis.remove(emoji.id);
+  storage.remove(`emojis/${emoji.file}`);
+  audit.log(server.id, req.user.id, 'emoji.delete', `:${emoji.name}:`);
+  announce(servers.get(server.id));
+  res.sendStatus(204);
+});
+
+// --- bots ---
+
+function serverBot(server, botId) {
+  const bot = bots.get(botId);
+  if (!bot || bot.server_id !== server.id) fail(404, 'Bot not found.');
+  return bot;
+}
+
+router.get('/:id/bots', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  res.json(bots.forServer(server.id));
+});
+
+router.post('/:id/bots', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  if (bots.forServer(server.id).length >= 10) fail(400, 'A server can have up to 10 bots.');
+  const name = text(req.body.name, 'Bot name', { min: 1, max: 32 });
+  const bot = bots.create(server.id, req.user.id, name);
+  const member = withPresence(servers.member(server.id, bot.user_id));
+  realtime.toServer(server.id, 'member:add', { serverId: server.id, member });
+  audit.log(server.id, req.user.id, 'bot.create', name);
+  res.status(201).json(bots.toBot(bot));
+});
+
+router.patch('/:id/bots/:botId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const bot = serverBot(server, req.params.botId);
+  const fields = {};
+  if (req.body.enabled !== undefined) fields.enabled = Boolean(req.body.enabled);
+  if (req.body.admin !== undefined) {
+    bots.setAdmin(bot, Boolean(req.body.admin));
+    realtime.toServer(server.id, 'server:update', servers.toServer(servers.get(server.id)));
+    memberChanged(server, bot.user_id);
+  }
+  if (req.body.program !== undefined) {
+    try { fields.program = bots.validateProgram(req.body.program); } catch (err) { fail(400, err.message); }
+  }
+  if (req.body.name !== undefined) {
+    const user = users.update(bot.user_id, { displayName: text(req.body.name, 'Bot name', { min: 1, max: 32 }) });
+    realtime.toServer(server.id, 'user:update', users.toUser(user));
+  }
+  const updated = bots.update(bot.id, fields);
+  audit.log(server.id, req.user.id, 'bot.update', users.get(bot.user_id).display_name,
+    [fields.program && 'blocks', fields.enabled !== undefined && (fields.enabled ? 'turned on' : 'turned off'), req.body.name && 'name', req.body.admin !== undefined && (req.body.admin ? 'made admin' : 'admin removed')].filter(Boolean).join(', '));
+  res.json(bots.toBot(updated));
+});
+
+router.delete('/:id/bots/:botId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const bot = serverBot(server, req.params.botId);
+  const name = users.get(bot.user_id).display_name;
+  bots.remove(bot);
+  realtime.toServer(server.id, 'member:remove', { serverId: server.id, userId: bot.user_id });
+  audit.log(server.id, req.user.id, 'bot.delete', name);
+  res.sendStatus(204);
+});
+
+// --- audit log ---
+
+router.get('/:id/audit-log', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const before = typeof req.query.before === 'string' ? req.query.before : null;
+  res.json(audit.list(server.id, { before }));
+});
+
+module.exports = { router, channelName, categoryName, withPresence, removeMember };

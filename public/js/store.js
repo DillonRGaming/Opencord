@@ -12,6 +12,9 @@ export const state = {
   users: new Map(), // every user seen so far, for looking up names
   readStates: {}, // channelId → last read message id
   online: new Set(), // user ids
+  statuses: new Map(), // userId → 'online' / 'idle' / 'dnd'
+  unreadNotifications: 0,
+  voice: new Map(), // voice channelId → [{ userId, muted, deafened, speaking }]
   route: { name: 'home' },
 };
 
@@ -22,6 +25,13 @@ export function on(topics, fn) {
     if (!listeners.has(topic)) listeners.set(topic, []);
     listeners.get(topic).push(fn);
   }
+  // Returns a function that stops listening.
+  return () => {
+    for (const topic of topics.split(' ')) {
+      const list = listeners.get(topic);
+      list.splice(list.indexOf(fn), 1);
+    }
+  };
 }
 
 export function emit(topic, payload) {
@@ -36,7 +46,9 @@ export function load(data) {
   state.members.clear();
   state.readStates = data.readStates;
   state.online = new Set(data.online).add(data.me.id);
-  remember(data.me, ...data.relationships.map((r) => r.user), ...data.dms.map((dm) => dm.recipient));
+  state.statuses = new Map(Object.entries(data.statuses || {}));
+  state.unreadNotifications = data.unreadNotifications || 0;
+  remember(data.me, ...data.relationships.map((r) => r.user), ...data.dms.flatMap(dmPeople));
 }
 
 export function remember(...users) {
@@ -48,7 +60,10 @@ export function updateUser(user) {
   remember(user);
   const relation = state.relationships.get(user.id);
   if (relation) relation.user = user;
-  for (const dm of state.dms.values()) if (dm.recipient.id === user.id) dm.recipient = user;
+  for (const dm of state.dms.values()) {
+    if (dm.recipient?.id === user.id) dm.recipient = user;
+    if (dm.recipients) dm.recipients = dm.recipients.map((r) => (r.id === user.id ? user : r));
+  }
   for (const list of state.members.values()) {
     for (const member of list) if (member.user.id === user.id) member.user = user;
   }
@@ -85,6 +100,29 @@ export function relationsWith(status) {
 
 export function isOwner(serverId) {
   return state.servers.get(serverId)?.ownerId === state.me.id;
+}
+
+// Owner or admin.
+export function canModerate(serverId) {
+  const server = state.servers.get(serverId);
+  return Boolean(server) && (server.ownerId === state.me.id || server.adminIds?.includes(state.me.id));
+}
+
+export function roleOf(serverId, userId) {
+  const server = state.servers.get(serverId);
+  if (!server) return null;
+  if (server.ownerId === userId) return 'owner';
+  return server.adminIds?.includes(userId) ? 'admin' : 'member';
+}
+
+// Everyone in a DM apart from me: one person, or a group.
+export function dmPeople(dm) {
+  return dm.recipients || (dm.recipient ? [dm.recipient] : []);
+}
+
+export function dmName(dm) {
+  if (dm.kind !== 'group') return dm.recipient?.displayName || 'Unknown';
+  return dm.name || dmPeople(dm).map((u) => u.displayName).join(', ') || 'Empty group';
 }
 
 export function upsertChannel(channel) {

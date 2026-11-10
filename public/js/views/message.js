@@ -1,9 +1,13 @@
+import { withMenu } from '../contextMenu.js';
+import { openEmojiPicker, emojiFace } from '../emojiPicker.js';
+import { messageMenu, userMenu } from '../menus.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state } from '../store.js';
 import { mentionsMe, renderMarkdown, formatDay, formatSize, formatStamp, formatTime, sameDay } from '../format.js';
 import { avatar, confirmButton, iconButton } from '../ui.js';
 import { openLightbox } from './lightbox.js';
+import { pollView } from './poll.js';
 
 const GROUP_MS = 7 * 60 * 1000;
 const LONG_MESSAGE = 3000;
@@ -12,6 +16,33 @@ const LONG_MESSAGE = 3000;
 const QUICK = ['👍', '❤️', '😂'];
 const EMOJI = ['👍', '👎', '❤️', '😂', '😮', '😢', '😡', '🔥', '🎉', '👀', '💯', '🙏', '👏', '😎', '🤔', '😅',
   '🥲', '🫡', '💀', '✅', '❌', '⭐', '🌮', '🍕', '🎮', '🏆', '💤', '🤝'];
+
+const proxied = (url) => `/media/preview-image?url=${encodeURIComponent(url)}`;
+
+// A link preview card. YouTube cards play in place when clicked.
+function embedView(embed) {
+  if (embed.type === 'image') {
+    return h('button', { type: 'button', class: 'attachment-image embed-image', onclick: () => openLightbox({ url: proxied(embed.image), name: embed.url, kind: 'image' }) },
+      h('img', { src: proxied(embed.image), alt: '', loading: 'lazy' }));
+  }
+  const media = embed.youtube
+    ? h('button', {
+      type: 'button', class: 'embed-video', 'aria-label': `Play ${embed.title || 'video'}`,
+      onclick: (event) => {
+        event.stopPropagation();
+        event.currentTarget.replaceWith(h('iframe', {
+          class: 'embed-player', src: `https://www.youtube-nocookie.com/embed/${encodeURIComponent(embed.youtube)}?autoplay=1`,
+          allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen', allowFullscreen: true, title: embed.title || 'YouTube video',
+        }));
+      },
+    }, h('img', { src: proxied(embed.image), alt: '', loading: 'lazy' }), h('span', { class: 'embed-play' }, icon('play', 26)))
+    : embed.image && h('img', { class: 'embed-thumb', src: proxied(embed.image), alt: '', loading: 'lazy' });
+  return h('div', { class: `embed${embed.youtube ? ' video' : ''}`, style: embed.color ? { '--embed': embed.color } : null },
+    embed.site && h('div', { class: 'embed-site' }, embed.site),
+    embed.title && h('a', { class: 'embed-title', href: embed.url, target: '_blank', rel: 'noopener noreferrer' }, embed.title),
+    embed.description && h('div', { class: 'embed-description' }, embed.description),
+    media);
+}
 
 function attachmentView(attachment) {
   const { kind, name, url, size } = attachment;
@@ -29,10 +60,14 @@ function attachmentView(attachment) {
     h('a', { class: 'icon-button', href: url, download: name, title: 'Download', 'aria-label': `Download ${name}` }, icon('download')));
 }
 
+// Up to 10 emoji and nothing else: shown large, like a sticker.
+const EMOJI_ONLY = /^(?:(?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\uFE0F|\u200D|\p{Emoji_Modifier}|\p{Extended_Pictographic}|\p{Regional_Indicator})*\s*){1,10}$/u;
+
 function contentView(message) {
   if (!message.content) return null;
   const content = h('div', { class: 'message-content' }, renderMarkdown(message.content),
     message.editedAt && h('span', { class: 'message-edited', title: formatStamp(message.editedAt) }, '(edited)'));
+  if (EMOJI_ONLY.test(message.content.trim())) content.classList.add('jumbo');
   if (message.content.length <= LONG_MESSAGE) return content;
 
   content.classList.add('collapsed');
@@ -63,34 +98,11 @@ function reactionsView(message, onReact, openTray) {
     message.reactions.map(({ emoji, userIds }) => {
       const mine = userIds.includes(state.me.id);
       return h('button', {
-        type: 'button', class: `reaction${mine ? ' mine' : ''}`, title: `${nameList(userIds)} reacted with ${emoji}`,
+        type: 'button', class: `reaction${mine ? ' mine' : ''}`, title: `${nameList(userIds)} reacted with ${emoji.startsWith('<') ? `:${emoji.split(':')[1]}:` : emoji}`,
         'aria-pressed': String(mine), onclick: () => onReact(message, emoji, !mine),
-      }, h('span', { class: 'reaction-emoji' }, emoji), h('span', { class: 'reaction-count' }, userIds.length));
+      }, h('span', { class: 'reaction-emoji' }, emojiFace(emoji)), h('span', { class: 'reaction-count' }, userIds.length));
     }),
     h('button', { type: 'button', class: 'reaction add', title: 'Add reaction', 'aria-label': 'Add reaction', onclick: openTray }, icon('smilePlus', 16)));
-}
-
-// A row of emoji that opens under the message (no floating picker). Any short text works too.
-function reactionTray(message, onReact, close) {
-  const custom = h('input', {
-    class: 'input', maxLength: 32, placeholder: 'Or type any emoji or word', 'aria-label': 'Custom reaction',
-    onkeydown: (event) => {
-      if (event.key === 'Escape') { event.stopPropagation(); close(); }
-      if (event.key === 'Enter' && custom.value.trim()) {
-        event.preventDefault();
-        onReact(message, custom.value.trim(), true);
-        close();
-      }
-    },
-  });
-  const tray = h('div', { class: 'reaction-tray' },
-    h('div', { class: 'reaction-grid' }, EMOJI.map((emoji) => h('button', {
-      type: 'button', class: 'tray-emoji', 'aria-label': `React with ${emoji}`,
-      onclick: () => { onReact(message, emoji, true); close(); },
-    }, emoji))),
-    h('div', { class: 'reaction-tray-row' }, custom, iconButton('x', 'Close', close)));
-  setTimeout(() => custom.focus());
-  return tray;
 }
 
 function toolbar(message, row, mine, handlers, openTray) {
@@ -121,16 +133,9 @@ export function messageRow(message, previous, mine, handlers) {
   const { author } = message;
   const profile = () => handlers.onProfile(author);
 
-  let tray = null;
-  const reactionSlot = h('div', {}, reactionsView(message, handlers.onReact, () => openTray()));
-  function closeTray() {
-    tray?.remove();
-    tray = null;
-  }
-  function openTray() {
-    if (tray) return closeTray();
-    tray = reactionTray(message, handlers.onReact, closeTray);
-    reactionSlot.after(tray);
+  const reactionSlot = h('div', {}, reactionsView(message, handlers.onReact, (event) => openTray(event)));
+  function openTray(event) {
+    openEmojiPicker(event.currentTarget, (emoji) => handlers.onReact(message, emoji, true));
   }
 
   const classes = ['message', grouped && 'grouped', message.pinned && 'pinned', mentionsMe(message.content) && 'mentioned'];
@@ -140,6 +145,9 @@ export function messageRow(message, previous, mine, handlers) {
       if (!event.target.closest('button, a, video, audio, textarea, input')) event.currentTarget.classList.toggle('selected');
     },
   });
+  withMenu(body, (event) => (event.target.closest('.message-avatar, .author-name')
+    ? userMenu(author, { serverId: handlers.serverId })
+    : messageMenu(message, mine, handlers, row, EMOJI.slice(0, 6))));
   const row = h('div', { class: 'message-row', dataset: { id: message.id } },
     newDay && h('div', { class: 'day-divider' }, formatDay(message.createdAt)), body);
   body.append(...[
@@ -149,13 +157,15 @@ export function messageRow(message, previous, mine, handlers) {
     grouped && h('time', { class: 'gutter-time', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
     h('div', { class: 'message-header' },
       h('button', { type: 'button', class: 'author-name', onclick: profile }, author.displayName),
+      author.bot && h('span', { class: 'bot-tag' }, 'Bot'),
       h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
       message.pinned && h('span', { class: 'pinned-mark', title: 'Pinned' }, icon('pin', 13))),
     h('div', { class: 'message-main' },
-      contentView(message),
+      message.poll ? pollView(message, handlers.onVote) : contentView(message),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView)),
+      message.embeds?.length > 0 && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
       reactionSlot),
-    toolbar(message, row, mine, handlers, () => openTray()),
+    toolbar(message, row, mine, handlers, (event) => openTray(event)),
   ].filter(Boolean));
   return row;
 }

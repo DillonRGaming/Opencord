@@ -5,6 +5,8 @@ const { fail } = require('../lib/http');
 const channels = require('../models/channels');
 const messages = require('../models/messages');
 const attachments = require('../models/attachments');
+const emojis = require('../models/emojis');
+const previews = require('../lib/previews');
 
 const router = express.Router();
 const IMAGE_FILE = /^[\w-]+\.(png|jpg|gif|webp)$/;
@@ -40,6 +42,23 @@ function imageFolder(folder) {
 }
 
 router.get('/avatars/:file', imageFolder('avatars'));
+
+// Link preview images, fetched by the server so viewers' addresses aren't sent to other sites.
+router.get('/preview-image', async (req, res) => {
+  const url = typeof req.query.url === 'string' ? req.query.url : '';
+  const image = url && await previews.image(url);
+  if (!image) fail(404, 'Image not found.');
+  res.set({ 'Content-Type': image.type, 'Cache-Control': 'private, max-age=86400', 'Content-Security-Policy': "default-src 'none'" });
+  res.send(image.body);
+});
+
+// Custom emoji are addressed by id, so a message keeps working after the emoji is renamed.
+router.get('/emojis/:id', (req, res) => {
+  const emoji = emojis.get(req.params.id);
+  if (!emoji) fail(404, 'Emoji not found.');
+  res.set('Cache-Control', 'private, max-age=86400');
+  res.sendFile(emoji.file, { root: path.join(config.uploadsDir, 'emojis'), cacheControl: false });
+});
 router.get('/icons/:file', imageFolder('icons'));
 
 module.exports = router;

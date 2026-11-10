@@ -22,7 +22,7 @@ module.exports = {
   dbPath: path.join(dataDir, 'opencord.db'),
   uploadsDir,
   tmpDir: path.join(uploadsDir, 'tmp'),
-  uploadFolders: ['avatars', 'icons', 'images', 'videos', 'audio', 'files', 'tmp'],
+  uploadFolders: ['avatars', 'icons', 'emojis', 'images', 'videos', 'audio', 'files', 'tmp'],
 
   sessionMs: 30 * 24 * 60 * 60 * 1000,
   chunkSize: 8 * 1024 * 1024,

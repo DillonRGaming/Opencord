@@ -2,7 +2,7 @@ import * as api from '../api.js';
 import { h } from '../dom.js';
 import { state } from '../store.js';
 import { setMe } from '../actions.js';
-import { attempt, button, field, form, pickFiles, toast } from '../ui.js';
+import { attempt, button, field, form, pickFiles, settingRow, settingsCard, toast } from '../ui.js';
 import { DEFAULTS } from '../theme.js';
 import { profileCard } from './profileCard.js';
 
@@ -52,16 +52,14 @@ export function profilePage() {
       toast('Profile saved.', 'ok');
     },
   },
-  h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Avatar'),
-    h('div', { class: 'row wrap' }, button('Change avatar', changeAvatar, 'ghost'), button('Remove', removeAvatar, 'ghost')),
-    h('span', { class: 'field-hint' }, 'PNG, JPEG, WebP or GIF (animated GIFs work), up to 10 MB.')),
-  field('Display name', displayName),
-  field('Status', statusText),
-  field('About me', bio),
-  h('div', { class: 'field' }, h('span', { class: 'field-label' }, 'Banner colour'),
-    h('div', { class: 'row' }, banner, button('Use accent colour', () => { bannerColor = null; draw(); }, 'ghost small'))));
+  settingsCard('Avatar', settingRow('Profile picture',
+    [button('Change', changeAvatar, 'ghost small'), button('Remove', removeAvatar, 'ghost small')])),
+  settingsCard('About you', field('Display name', displayName), field('Status', statusText), field('About me', bio)),
+  settingsCard('Banner', settingRow('Banner colour',
+    [banner, button('Use accent colour', () => { bannerColor = null; draw(); }, 'ghost small')])));
 
   draw();
+  editor.classList.add('settings-content');
   return [h('div', { class: 'profile-editor' }, editor,
-    h('div', { class: 'settings-group' }, h('span', { class: 'field-label' }, 'Preview'), preview))];
+    h('div', { class: 'profile-preview' }, settingsCard('Preview', preview)))];
 }

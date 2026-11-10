@@ -39,6 +39,7 @@ function serializeAll(rows) {
   const files = attachments.mapByMessageIds(ids);
   const reactions = reactionsByMessage(ids);
   const replies = repliesById(rows.map((row) => row.reply_to_id));
+  const polls = pollsById(ids);
   return rows.map((row) => ({
     id: row.id,
     channelId: row.channel_id,
@@ -49,9 +50,53 @@ function serializeAll(rows) {
     replyTo: row.reply_to_id ? (replies.get(row.reply_to_id) || { id: row.reply_to_id, deleted: true }) : null,
     reactions: [...(reactions.get(row.id) || [])].map(([emoji, userIds]) => ({ emoji, userIds })),
     pinned: row.pinned_at != null,
+    embeds: row.embeds ? JSON.parse(row.embeds) : [],
+    poll: polls.get(row.id) || null,
     editedAt: row.edited_at,
     createdAt: row.created_at,
   }));
+}
+
+// Polls: question, options with the ids of who voted for each, and when it closes.
+function pollsById(ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const list = JSON.stringify(ids);
+  const rows = db.prepare('SELECT * FROM polls WHERE message_id IN (SELECT value FROM json_each(?))').all(list);
+  if (!rows.length) return out;
+  const votes = db.prepare('SELECT * FROM poll_votes WHERE message_id IN (SELECT value FROM json_each(?))').all(list);
+  for (const row of rows) {
+    const options = JSON.parse(row.options).map((text) => ({ text, userIds: [] }));
+    for (const v of votes) if (v.message_id === row.message_id && options[v.option]) options[v.option].userIds.push(v.user_id);
+    out.set(row.message_id, { question: row.question, options, multi: Boolean(row.multi), closesAt: row.closes_at });
+  }
+  return out;
+}
+
+function createPoll(messageId, { question, options, multi, closesAt }) {
+  db.prepare('INSERT INTO polls (message_id, question, options, multi, closes_at) VALUES (?, ?, ?, ?, ?)')
+    .run(messageId, question, JSON.stringify(options), multi ? 1 : 0, closesAt);
+}
+
+function getPoll(messageId) {
+  return db.prepare('SELECT * FROM polls WHERE message_id = ?').get(messageId);
+}
+
+// Clicking an option you picked takes the vote back; on single-choice polls a new pick replaces the old one.
+const vote = db.transaction((messageId, userId, option, multi) => {
+  const had = db.prepare('SELECT 1 FROM poll_votes WHERE message_id = ? AND user_id = ? AND option = ?').get(messageId, userId, option);
+  if (!multi) db.prepare('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ?').run(messageId, userId);
+  if (had) db.prepare('DELETE FROM poll_votes WHERE message_id = ? AND user_id = ? AND option = ?').run(messageId, userId, option);
+  else db.prepare('INSERT INTO poll_votes (message_id, user_id, option) VALUES (?, ?, ?)').run(messageId, userId, option);
+});
+
+function newest(channelId, count) {
+  return db.prepare('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?').all(channelId, count);
+}
+
+function setEmbeds(id, embeds) {
+  db.prepare('UPDATE messages SET embeds = ? WHERE id = ?').run(embeds.length ? JSON.stringify(embeds) : null, id);
+  return get(id);
 }
 
 function serialize(row) {
@@ -125,5 +170,7 @@ const remove = db.transaction((message) => {
 });
 
 module.exports = {
+  serializeAll,
+  createPoll, getPoll, vote, setEmbeds, newest,
   serialize, get, list, create, edit, setPinned, pinned, search, react, unreact, hasAttachments, remove,
 };

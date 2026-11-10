@@ -1,3 +1,5 @@
+import { withMenu } from '../contextMenu.js';
+import { userMenu } from '../menus.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, relationsWith } from '../store.js';
@@ -34,18 +36,32 @@ function rowButtons({ user, status }) {
 
 function row(relation) {
   const { user, status } = relation;
-  return h('div', { class: 'friend' },
+  return withMenu(h('div', { class: 'friend' },
     h('button', { type: 'button', class: 'friend-who', onclick: () => openProfile(user) },
       avatar(user, { size: 40, presence: status === 'friend' }),
       h('span', { class: 'friend-names' }, h('strong', {}, user.displayName),
         h('span', {}, SUBTITLE[status] || user.statusText || `@${user.username}`))),
-    h('div', { class: 'friend-actions' }, rowButtons(relation)));
+    h('div', { class: 'friend-actions' }, rowButtons(relation))), () => userMenu(user));
 }
+
+const EMPTY = {
+  online: ['No friends online', 'Friends show up here when they open Opencord.'],
+  all: ['No friends yet', 'Add someone by their username above.'],
+  pending: ['Nothing pending', 'Friend requests you send or get show up here.'],
+  blocked: ['Nobody blocked', 'People you block show up here.'],
+};
 
 function list(heading, relations) {
   if (!relations.length) return null;
   const byName = (a, b) => a.user.displayName.localeCompare(b.user.displayName);
-  return h('div', { class: 'friend-group' }, h('p', { class: 'page-heading' }, `${heading} — ${relations.length}`), relations.sort(byName).map(row));
+  return h('section', { class: 'settings-card friend-group' },
+    h('h2', { class: 'settings-card-title' }, `${heading} — ${relations.length}`), relations.sort(byName).map(row));
+}
+
+function empty() {
+  const [title, text] = EMPTY[tab];
+  return h('div', { class: 'empty-state' }, h('span', { class: 'empty-icon' }, icon('users', 26)),
+    h('strong', {}, title), h('span', {}, text));
 }
 
 // "Add a friend" sits at the top of the page, always there.
@@ -87,6 +103,11 @@ function body() {
   return [list('Incoming', relationsWith('incoming')), list('Sent', relationsWith('outgoing'))];
 }
 
+function bodyOrEmpty() {
+  const parts = [body()].flat().filter(Boolean);
+  return parts.length ? parts : empty();
+}
+
 function render() {
   // The chat view shares this container, so only draw while the friends page is the one showing.
   if (!root?.isConnected || state.route.name !== 'home') return;
@@ -100,7 +121,7 @@ function render() {
         type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
         onclick: () => { tab = id; render(); },
       }, label, id === 'pending' && pending > 0 && h('span', { class: 'badge' }, pending))))),
-    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, body())));
+    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, bodyOrEmpty())));
 }
 
 on('relationships presence users', render);

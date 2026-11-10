@@ -14,7 +14,7 @@ const realtime = require('./realtime');
 const CSP = [
   "default-src 'self'", "img-src 'self' data: blob: https:", "media-src 'self' blob:",
   "style-src 'self' 'unsafe-inline' https:", "font-src 'self' data: https:", "script-src 'self'",
-  "connect-src 'self'", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'",
+  "connect-src 'self'", "frame-src https://www.youtube-nocookie.com", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'",
 ].join('; ');
 
 storage.ensureFolders();

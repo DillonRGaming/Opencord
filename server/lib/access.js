@@ -22,4 +22,11 @@ function visibleChannel(channelId, userId) {
   return channel;
 }
 
-module.exports = { memberServer, ownedServer, visibleChannel };
+// Owner or admin: moderation, channels, invites, emoji, bots, audit log.
+function modServer(serverId, userId) {
+  const server = memberServer(serverId, userId);
+  if (!['owner', 'admin'].includes(servers.roleOf(serverId, userId))) fail(403, 'Only admins and the owner can do that.');
+  return server;
+}
+
+module.exports = { memberServer, ownedServer, modServer, visibleChannel };

@@ -1,18 +1,38 @@
 // Appearance settings. They live in me.settings on the server (so they follow the account between
 // devices) and are mirrored in localStorage so the page doesn't flash the wrong theme while loading.
 
+import { setClock } from './format.js';
+
 export const DEFAULTS = {
-  theme: 'moss',
-  accent: '#a9c79a',
+  theme: 'graphite',
+  accent: '#a99bf0',
   fontSize: 16,
   density: 'cozy',
   avatarShape: 'round',
+  font: 'geist',
+  lineHeight: 'normal',
+  corners: 'normal',
+  spacing: 'normal',
+  sidebarWidth: 240,
+  chatAvatars: true,
+  clock: 'auto',
+  contrast: 'normal',
+  motion: 'full',
   customCss: '',
 };
 
+export const FONTS = [
+  ['geist', 'Geist', 'var(--font-geist)'],
+  ['system', 'System', 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif'],
+  ['serif', 'Serif', 'Charter, "Iowan Old Style", Georgia, "Noto Serif", serif'],
+  ['mono', 'Mono', 'var(--mono)'],
+  ['rounded', 'Rounded', 'ui-rounded, "SF Pro Rounded", "Nunito", "Varela Round", system-ui, sans-serif'],
+];
+const pick = (value, options, fallback) => (options.includes(value) ? value : fallback);
+
 export const THEMES = [
-  { id: 'moss', name: 'Moss' },
   { id: 'graphite', name: 'Graphite' },
+  { id: 'moss', name: 'Moss' },
   { id: 'paper', name: 'Paper' },
   { id: 'oled', name: 'OLED' },
 ];
@@ -20,7 +40,7 @@ export const THEMES = [
 // Themes that were renamed, so settings saved before keep working.
 const RENAMED = { light: 'paper', dark: 'graphite', midnight: 'moss' };
 
-export const ACCENTS = ['#a9c79a', '#d6bb84', '#e0a07e', '#e3a3a3', '#d6a8c8', '#c8cf9e', '#b9bdb5'];
+export const ACCENTS = ['#a99bf0', '#a9c79a', '#d6bb84', '#e0a07e', '#e3a3a3', '#d6a8c8', '#c8cf9e', '#b9bdb5'];
 
 const CACHE_KEY = 'oc_appearance';
 
@@ -41,6 +61,16 @@ export function apply(settings) {
   root.dataset.avatars = s.avatarShape === 'square' ? 'square' : 'round';
   root.style.setProperty('--accent', accent);
   root.style.setProperty('--accent-text', contrastOn(accent));
+  const font = FONTS.find(([id]) => id === s.font) || FONTS[0];
+  root.style.setProperty('--font', font[2]);
+  root.style.setProperty('--sidebar-width', `${Math.min(Math.max(Number(s.sidebarWidth) || 240, 200), 360)}px`);
+  root.dataset.lineHeight = pick(s.lineHeight, ['tight', 'normal', 'relaxed'], 'normal');
+  root.dataset.corners = pick(s.corners, ['sharp', 'normal', 'round'], 'normal');
+  root.dataset.spacing = pick(s.spacing, ['tight', 'normal', 'roomy'], 'normal');
+  root.dataset.chatAvatars = String(s.chatAvatars !== false);
+  root.dataset.contrast = pick(s.contrast, ['normal', 'high'], 'normal');
+  root.dataset.motion = pick(s.motion, ['full', 'reduced'], 'full');
+  setClock(pick(s.clock, ['auto', '12', '24'], 'auto'));
   root.style.setProperty('--font-size', `${Math.min(Math.max(Number(s.fontSize) || 16, 12), 24)}px`);
   document.getElementById('custom-css').textContent = String(s.customCss || '');
   try {

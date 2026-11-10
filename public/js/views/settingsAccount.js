@@ -3,7 +3,7 @@ import { h } from '../dom.js';
 import { state } from '../store.js';
 import { logout } from '../actions.js';
 import { formatDate } from '../format.js';
-import { button, field, form, toast } from '../ui.js';
+import { avatar, button, field, form, settingRow, settingsCard, settingsHero, toast } from '../ui.js';
 
 export function accountPage() {
   const { me } = state;
@@ -11,8 +11,8 @@ export function accountPage() {
   const next = h('input', { class: 'input', type: 'password', required: true, minLength: 8, maxLength: 200, autocomplete: 'new-password' });
 
   return [
-    h('p', { class: 'note' }, `Logged in as @${me.username}. Account created ${formatDate(me.createdAt)}.`),
-    h('div', { class: 'section' }, h('h3', {}, 'Change password'),
+    settingsHero(avatar(me, { size: 72 }), me.displayName, `@${me.username} · joined ${formatDate(me.createdAt)}`),
+    settingsCard('Password',
       form({
         submitLabel: 'Change password',
         onSubmit: async () => {
@@ -21,8 +21,7 @@ export function accountPage() {
           next.value = '';
           toast('Password changed. Other devices have been logged out.', 'ok');
         },
-      }, field('Current password', current), field('New password', next, 'At least 8 characters.'))),
-    h('div', { class: 'section' }, h('h3', {}, 'Log out'),
-      h('div', {}, button('Log out of this device', logout, 'danger'))),
+      }, field('Current password', current), field('New password', next))),
+    settingsCard('Session', settingRow('Log out of this device', button('Log out', logout, 'danger'))),
   ];
 }

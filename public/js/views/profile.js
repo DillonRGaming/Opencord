@@ -1,5 +1,5 @@
 import * as api from '../api.js';
-import { state, on, isOwner } from '../store.js';
+import { state, on, roleOf } from '../store.js';
 import * as actions from '../actions.js';
 import { attempt, button, confirmButton } from '../ui.js';
 import { profileCard } from './profileCard.js';
@@ -22,7 +22,7 @@ function friendButton(user) {
 }
 
 function buttonsFor(user, serverId, close) {
-  if (user.id === state.me.id) return [button('Edit profile', () => { close(); openSettings(); }, 'primary small')];
+  if (user.id === state.me.id) return [button('Edit profile', () => { close(); openSettings('profile'); }, 'primary small')];
   const blocked = state.relationships.get(user.id)?.status === 'blocked';
   return [
     !blocked && button('Message', () => attempt(() => actions.openDm(user.id)), 'primary small'),
@@ -30,13 +30,8 @@ function buttonsFor(user, serverId, close) {
     blocked
       ? button('Unblock', () => attempt(() => actions.removeRelation(user.id)), 'ghost small')
       : confirmButton({ label: 'Block', confirmLabel: 'Click again to block', onConfirm: () => actions.blockUser(user.id) }),
-    serverId && isOwner(serverId) && confirmButton({
-      label: 'Kick', confirmLabel: 'Click again to kick',
-      onConfirm: async () => {
-        await api.del(`/api/servers/${serverId}/members/${user.id}`);
-        close();
-      },
-    }),
+    serverId && (roleOf(serverId, state.me.id) === 'owner' || (roleOf(serverId, state.me.id) === 'admin' && roleOf(serverId, user.id) === 'member'))
+      && button('Moderate', async (event) => { const { showMenu } = await import('../contextMenu.js'); const { userMenu } = await import('../menus.js'); showMenu(event, userMenu(user, { serverId }).filter((i) => i && (i === '-' || /Time out|Remove timeout|Kick|Ban|admin/i.test(i.label)))); }, 'ghost small'),
   ].filter(Boolean);
 }
 
