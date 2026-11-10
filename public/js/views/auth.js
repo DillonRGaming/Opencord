@@ -23,7 +23,7 @@ function showcase() {
 
 // The log in / create account screen. With an invite, it shows the server first and joins after signing in.
 export function showAuth(root, invite) {
-  let mode = invite ? 'register' : 'login';
+  let mode = 'register';
 
   async function finish() {
     if (!invite) {
