@@ -88,18 +88,22 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .message:has(> .reply-ref) .message-header, .message:has(> .reply-ref) .message-main { grid-row: auto; }
 
 /* Reactions under a message, and the tray that adds one. */
-.reactions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+/* Reactions sit in the same kind of box as the hover toolbar: a bordered bar of small square buttons. */
+.reactions {
+  display: inline-flex; flex-wrap: wrap; align-items: center; gap: 1px; max-width: 100%; margin-top: 6px; padding: 3px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+}
 .reaction {
-  display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 10px 0 8px; border-radius: 999px;
-  background: var(--bg-raised); font-size: 0.82rem; color: var(--text-muted); transition: background 0.12s;
+  display: inline-flex; align-items: center; gap: 5px; height: 32px; min-width: 32px; padding: 0 8px; border-radius: 9px;
+  font-size: 0.82rem; color: var(--text-muted); transition: background 0.12s;
 }
 .reaction:hover { background: var(--active); color: var(--text); }
-.reaction.mine { background: color-mix(in srgb, var(--accent) 22%, var(--bg-raised)); color: var(--text); }
-.reaction.mine:hover { background: color-mix(in srgb, var(--accent) 32%, var(--bg-raised)); }
-.reaction-emoji { font-family: var(--emoji); font-size: 1.15rem; line-height: 1; }
+.reaction.mine { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); }
+.reaction.mine:hover { background: color-mix(in srgb, var(--accent) 32%, transparent); }
+.reaction-emoji { font-family: var(--emoji); font-size: 1.05rem; line-height: 1; }
 .reaction-count { font-weight: 600; font-variant-numeric: tabular-nums; }
-.reaction.add { padding: 0 7px; opacity: 0; }
-.message:hover .reaction.add, .reaction.add:focus-visible { opacity: 1; }
+.reaction.add { justify-content: center; width: 32px; padding: 0; color: var(--text-faint); }
+.reactions .actions-divider { margin: 0 3px; }
 .reaction-tray { display: grid; gap: 8px; max-width: 420px; margin-top: 8px; padding: 10px; border-radius: var(--radius); background: var(--bg-raised); }
 .reaction-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(36px, 1fr)); gap: 2px; }
 .tray-emoji { font-family: var(--emoji); display: grid; place-items: center; height: 36px; border-radius: 9px; font-size: 1.2rem; }
@@ -153,6 +157,19 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .attachment-info a, .attachment-info strong { display: block; font-weight: 500; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attachment-info span { font-family: var(--mono); font-size: 0.75rem; color: var(--text-faint); }
 
+/* Download button in the corner of pictures and videos: on hover with a mouse, always on touch screens. */
+.media { position: relative; display: inline-block; max-width: 100%; }
+.media-download {
+  position: absolute; top: 8px; right: 8px; z-index: 1; width: 34px; height: 34px; border-radius: 9px;
+  background: rgba(0, 0, 0, 0.55); color: #fff; opacity: 0; transition: opacity 0.12s, background 0.12s;
+}
+.media-download:hover { background: rgba(0, 0, 0, 0.75); color: #fff; text-decoration: none; }
+.media:hover .media-download, .media-download:focus-visible { opacity: 1; }
+@media (hover: none) { .media-download { opacity: 1; } }
+.media-download.inline { position: static; opacity: 1; background: none; color: var(--text-muted); }
+.media-download.inline:hover { background: var(--active); color: var(--text); }
+.attachment-card-top { display: flex; align-items: center; gap: 0.5rem; }
+
 /* --- typing + composer --- */
 
 .typing { flex: none; height: 1.4rem; padding: 0 32px; font-size: 0.78rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -170,8 +187,15 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
   background: none; border: 0; outline: none; line-height: 1.4; font-size: 0.96rem;
 }
 .composer textarea::placeholder { color: var(--text-faint); }
-.composer .send { background: var(--accent); color: var(--accent-text); }
-.composer .send:hover { background: var(--accent); color: var(--accent-text); opacity: 0.88; }
+/* Grey like the box until there's something to send, then the accent. */
+.composer .send { background: var(--bg-input); color: var(--text-faint); transition: background 0.15s, color 0.15s; }
+.composer .send:hover { background: var(--active); color: var(--text-muted); }
+.composer.ready .send { background: var(--accent); color: var(--accent-text); }
+.composer.ready .send:hover { background: var(--accent); color: var(--accent-text); opacity: 0.88; }
+.composer.locked { opacity: 0.6; }
+.composer.locked textarea { cursor: not-allowed; }
+.composer.locked textarea::placeholder { color: var(--text-muted); }
+.composer.locked .icon-button { pointer-events: none; }
 
 .uploads { display: flex; gap: 0.5rem; padding: 0.6rem 0.6rem 0.1rem; overflow-x: auto; }
 .uploads:empty { display: none; }
@@ -191,6 +215,15 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
   .typing { padding: 0 18px; }
   .composer { margin: 0 10px 10px; }
   .message-actions { right: 12px; }
+  /* Search is just an icon on a phone; tapping it opens the box across the header. */
+  .main-header { position: relative; }
+  .header-search { flex: none; min-width: 0; width: 2.25rem; height: 2.25rem; margin: 0; padding: 0; justify-content: center; background: none; color: var(--text-muted); }
+  .header-search input { flex: 0; width: 0; }
+  .header-search:focus-within {
+    position: absolute; inset: 8px 8px; z-index: 3; width: auto; height: auto; padding: 0 12px; justify-content: flex-start;
+    background: var(--bg-input); outline: 1px solid var(--text-faint);
+  }
+  .header-search:focus-within input { flex: 1; width: auto; }
 }
 
 .message-content.jumbo { font-family: var(--emoji); font-size: 2.6rem; line-height: 1.2; }
@@ -250,7 +283,17 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
   outline: 2px solid transparent; outline-offset: -2px; transition: outline-color 0.15s;
 }
 .vt:hover { background: color-mix(in srgb, var(--bg-raised) 85%, var(--text)); }
-.vt.speaking { outline-color: #3ba55d; }
+/* The speaking ring is drawn above the video, so it shows on cameras and screens too. */
+.vt { cursor: pointer; }
+.vt::after { content: ""; position: absolute; inset: 0; z-index: 2; border-radius: inherit; box-shadow: inset 0 0 0 3px transparent; pointer-events: none; transition: box-shadow 0.15s; }
+.vt.speaking::after { box-shadow: inset 0 0 0 3px #3ba55d; }
+.vt-label { z-index: 1; pointer-events: none; }
+/* One tile big, the others in a strip underneath. */
+.vc-grid.focused { display: flex; flex-direction: column; gap: 10px; }
+.vc-grid.focused > .vt { flex: 1; min-height: 0; }
+.vc-strip { display: flex; justify-content: center; gap: 10px; flex: none; height: 120px; overflow-x: auto; }
+.vc-strip > .vt { flex: 0 0 auto; width: 200px; height: 100%; }
+.vc-strip .vt-face .avatar { --size: 48px !important; }
 .vt video { position: absolute; inset: 0; width: 100%; height: 100%; max-height: 100%; object-fit: cover; display: none; background: #000; }
 .vt.screen video { object-fit: contain; }
 .vt.mirror video { transform: scaleX(-1); }
@@ -281,6 +324,9 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .voice-view .main-header { background: transparent; }
 @media (max-width: 799px) {
   .vc-grid { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; grid-auto-rows: minmax(160px, 1fr); overflow-y: auto; }
+  .vc-strip { height: 96px; justify-content: flex-start; }
+  .vc-strip > .vt { width: 130px; }
+  .vc-bar { flex-wrap: wrap; }
   .vc-bar { gap: 10px; }
 }
 .voice-view { border-radius: var(--radius-panel); overflow: hidden; }

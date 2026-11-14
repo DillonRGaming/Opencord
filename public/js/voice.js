@@ -16,6 +16,9 @@ export const voice = {
   deafened: false,
   connecting: false,
   video: null, // null, 'camera' or 'screen'
+  facing: 'user', // which camera: 'user' (front) or 'environment' (back)
+  canFlip: false, // more than one camera
+  torch: null, // null when the camera has no light, else whether it's on
 };
 
 let mySocket = null;
@@ -27,6 +30,7 @@ let level = null;
 let speaking = false;
 
 export const localVideoStream = () => localVideo;
+export const isSpeaking = () => speaking && !voice.muted;
 export const peerStream = (userId) => [...peers.values()].find((p) => p.userId === userId)?.stream || null;
 
 function sendState() {
@@ -105,10 +109,11 @@ function watchLevel(stream) {
     const now = Date.now();
     if (avg > 18 && !voice.muted) {
       quietSince = now;
-      if (!speaking) { speaking = true; sendState(); }
+      if (!speaking) { speaking = true; sendState(); emit('voice:speaking'); }
     } else if (speaking && now - quietSince > 350) {
       speaking = false;
       sendState();
+      emit('voice:speaking');
     }
   }, 100);
   level = { context, timer };
@@ -182,18 +187,20 @@ function applyAudio() {
 
 // --- camera and screen share (one video at a time, like a single "video" slot) ---
 
-async function startVideo(kind) {
-  let stream;
-  try {
-    stream = kind === 'screen'
-      ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
-      : await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } } });
-  } catch {
-    if (kind === 'camera') toast('Opencord needs camera access for video. Allow it in your browser and try again.');
-    return;
-  }
-  const track = stream.getVideoTracks()[0];
-  stopVideo(false);
+const CAMERA = { width: { ideal: 1280 }, height: { ideal: 720 } };
+
+async function openCamera(facing, exact = false) {
+  return navigator.mediaDevices.getUserMedia({ video: { ...CAMERA, facingMode: exact ? { exact: facing } : facing } });
+}
+
+async function cameraInfo(track) {
+  const cameras = (await navigator.mediaDevices.enumerateDevices().catch(() => [])).filter((d) => d.kind === 'videoinput');
+  voice.canFlip = cameras.length > 1;
+  voice.torch = track.getCapabilities?.().torch ? false : null;
+}
+
+// Puts a new camera or screen track in the video slot and sends it to everyone.
+function useVideoTrack(track, kind) {
   videoTrack = track;
   localVideo = new MediaStream([track]);
   voice.video = kind;
@@ -202,17 +209,82 @@ async function startVideo(kind) {
     if (entry.videoSender) entry.videoSender.replaceTrack(track);
     else entry.videoSender = entry.pc.addTrack(track, mic);
   }
+}
+
+async function startVideo(kind) {
+  let stream;
+  try {
+    stream = kind === 'screen'
+      ? await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 30 }, audio: false })
+      : await openCamera(voice.facing);
+  } catch {
+    if (kind === 'camera') toast('Opencord needs camera access for video. Allow it in your browser and try again.');
+    return;
+  }
+  const track = stream.getVideoTracks()[0];
+  stopVideo(false);
+  useVideoTrack(track, kind);
+  if (kind === 'camera') {
+    voice.facing = track.getSettings?.().facingMode || voice.facing;
+    await cameraInfo(track);
+  } else {
+    voice.canFlip = false;
+    voice.torch = null;
+  }
   sendState();
   emit('voice');
   emit('voice:media');
 }
 
+// Front ↔ back camera. Phones often can't open both at once, so the old one stops first.
+export async function flipCamera() {
+  if (voice.video !== 'camera' || !videoTrack) return;
+  const next = voice.facing === 'user' ? 'environment' : 'user';
+  const old = videoTrack;
+  old.onended = null;
+  old.stop();
+  let stream = await openCamera(next, true).catch(() => null);
+  if (!stream) {
+    // No facing information (most laptops): just take the next camera in the list.
+    const cameras = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+    const index = cameras.findIndex((d) => d.deviceId === old.getSettings?.().deviceId);
+    const other = cameras[(index + 1) % cameras.length];
+    stream = await navigator.mediaDevices.getUserMedia({ video: { ...CAMERA, deviceId: { exact: other?.deviceId } } }).catch(() => null);
+  }
+  if (!stream) {
+    stream = await openCamera(voice.facing).catch(() => null);
+    if (!stream) { stopVideo(); return; }
+    toast("Couldn't switch camera.");
+  } else {
+    voice.facing = stream.getVideoTracks()[0].getSettings?.().facingMode || next;
+  }
+  useVideoTrack(stream.getVideoTracks()[0], 'camera');
+  await cameraInfo(videoTrack);
+  emit('voice');
+  emit('voice:media');
+}
+
+// The phone's flashlight, when the camera in use has one.
+export async function toggleTorch() {
+  if (voice.torch === null || !videoTrack) return;
+  const on = !voice.torch;
+  try {
+    await videoTrack.applyConstraints({ advanced: [{ torch: on }] });
+    voice.torch = on;
+  } catch {
+    toast("Couldn't turn the light on.");
+  }
+  emit('voice');
+}
+
 function stopVideo(announce = true) {
   if (!videoTrack) return;
+  videoTrack.onended = null;
   videoTrack.stop();
   videoTrack = null;
   localVideo = null;
   voice.video = null;
+  voice.torch = null;
   for (const entry of peers.values()) {
     if (entry.videoSender) {
       entry.pc.removeTrack(entry.videoSender);

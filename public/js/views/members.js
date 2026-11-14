@@ -3,7 +3,7 @@ import { userMenu } from '../menus.js';
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, emit, remember } from '../store.js';
+import { state, on, emit, remember, memberRoles, roleColor } from '../store.js';
 import { avatar, statusOf, STATUS_LABELS } from '../ui.js';
 import { openProfile } from './profile.js';
 
@@ -26,7 +26,7 @@ function memberRow(member, online) {
     type: 'button', class: `nav-item member${online ? '' : ' offline'}`,
     onclick: () => openProfile(user, { serverId }),
   }, avatar(user, { size: 36, presence: true }),
-  h('span', { class: 'nav-label' }, user.displayName,
+  h('span', { class: 'nav-label', style: roleColor(serverId, user.id) ? { color: roleColor(serverId, user.id) } : null }, user.displayName,
     h('span', { class: 'nav-sub' }, user.statusText || STATUS_LABELS[statusOf(user)])),
   memberTag(member)), () => userMenu(user, { serverId }));
 }
@@ -49,7 +49,12 @@ function render() {
   const bots = members.filter((m) => m.user.bot);
   const online = people.filter((m) => state.online.has(m.user.id));
   const offline = people.filter((m) => !state.online.has(m.user.id));
-  list.replaceChildren(...group('Online', online, true), ...group('Bots', bots, true), ...group('Offline', offline, false));
+  // Online people with a "show separately" role are listed under their highest such role.
+  const hoisted = (state.servers.get(serverId)?.roles || []).filter((r) => r.hoist);
+  const topHoist = (m) => memberRoles(serverId, m.user.id).find((r) => r.hoist);
+  const roleGroups = hoisted.flatMap((role) => group(role.name, online.filter((m) => topHoist(m) === role), true));
+  const rest = online.filter((m) => !topHoist(m));
+  list.replaceChildren(...roleGroups, ...group('Online', rest, true), ...group('Bots', bots, true), ...group('Offline', offline, false));
 }
 
 // Loads a server's member list once (mentions, timeouts and the member panel all need it).
@@ -68,7 +73,7 @@ async function load(id) {
   emit('members');
 }
 
-on('members presence users', render);
+on('members presence users servers', render);
 on('reload', () => { if (list?.isConnected) load(serverId); });
 
 export function showMembers(container, id) {

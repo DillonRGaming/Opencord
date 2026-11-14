@@ -43,6 +43,8 @@ function suggestions(channel, trigger, query) {
 function autoGrow(textarea) {
   textarea.style.height = 'auto';
   textarea.style.height = `${textarea.scrollHeight}px`;
+  // The send button lights up once there is something to send.
+  textarea.closest('.composer')?.classList.toggle('ready', Boolean(textarea.value.trim()) || textarea.closest('.composer').querySelector('.upload') !== null);
 }
 
 // The message box. Files start uploading as soon as they are added; sending waits for them to finish.
@@ -66,7 +68,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     suggestBox.replaceChildren(...suggest.items.map((item, i) => h('button', {
       type: 'button', class: `suggest-item${i === suggest.index ? ' active' : ''}`, role: 'option',
       onmousedown: (event) => { event.preventDefault(); suggest.index = i; acceptSuggest(); },
-    }, h('span', { class: 'suggest-face' }, item.face), h('span', { class: 'suggest-label' }, item.label),
+    }, item.face && h('span', { class: 'suggest-face' }, item.face), h('span', { class: 'suggest-label' }, item.label),
     item.tag && h('span', { class: 'suggest-tag' }, item.tag), item.sub && h('span', { class: 'suggest-sub' }, item.sub))));
     suggestBox.classList.toggle('hint', suggest.items.length === 1 && Boolean(suggest.items[0].hint));
   }
@@ -77,7 +79,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     const slash = /^\/(\w*)$/.exec(before);
     if (slash) {
       const items = availableCommands(channel).filter((c) => c.name.startsWith(slash[1].toLowerCase())).map((c) => ({
-        insert: `/${c.name} `, face: '/', label: `/${c.name}`, sub: c.about, tag: c.mod ? 'Admin' : null,
+        insert: `/${c.name} `, label: `/${c.name}`, sub: c.about, tag: c.mod ? 'Admin' : null,
       }));
       if (!items.length) return closeSuggest();
       suggest = { items, index: Math.min(suggest.index, items.length - 1), start: 0 };
@@ -86,7 +88,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     const typed = /^\/(\w+)\s/.exec(textarea.value);
     const command = typed && availableCommands(channel).find((c) => c.name === typed[1].toLowerCase());
     const hint = command && command.usage && !/[@#:][\w.-]*$/.test(before)
-      ? [{ hint: true, face: '/', label: `/${command.name} ${command.usage}`, sub: command.about }] : null;
+      ? [{ hint: true, label: `/${command.name} ${command.usage}`, sub: command.about }] : null;
     const match = /(^|[\s(])([@#:])([\w.-]{0,32})$/.exec(before);
     if (!match) {
       if (!hint) return closeSuggest();
@@ -169,6 +171,21 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
       emojiButton,
       iconButton('send', 'Send', () => send(), 'send')));
 
+  // Locked (timed out, or a read-only channel): the box stays where it is, greyed out, and says why.
+  let locked = null;
+  function setLocked(reason) {
+    if (reason === locked) return;
+    const wasLocked = locked !== null;
+    locked = reason;
+    el.classList.toggle('locked', Boolean(reason));
+    textarea.disabled = Boolean(reason);
+    textarea.placeholder = reason || placeholder;
+    textarea.setAttribute('aria-label', reason || placeholder);
+    for (const button of el.querySelectorAll('.composer-row .icon-button')) button.disabled = Boolean(reason);
+    if (reason) closeSuggest();
+    if (wasLocked && !reason) textarea.placeholder = placeholder;
+  }
+
   function replyTo(message) {
     replying = message;
     replyBar.replaceChildren(...(message ? [
@@ -177,10 +194,11 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
       h('span', { class: 'reply-bar-text' }, message.content),
       iconButton('x', 'Cancel reply', () => replyTo(null)),
     ] : []));
-    if (message) textarea.focus();
+    if (message && !locked) textarea.focus();
   }
 
   function addFiles(files) {
+    if (locked) return;
     for (const file of files) {
       const status = h('span', { class: 'upload-status' }, `0% of ${formatSize(file.size)}`);
       const bar = h('span');
@@ -206,6 +224,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
       uploads.push(upload);
       tray.append(upload.el);
     }
+    autoGrow(textarea);
     textarea.focus();
   }
 
@@ -214,13 +233,14 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     if (!upload.attachment) upload.handle.cancel();
     upload.el.remove();
     uploads = uploads.filter((other) => other !== upload);
+    autoGrow(textarea);
   }
 
   // Sends go out one after another, so typing the next message never waits on the last one.
   async function send() {
     let content = textarea.value.trim();
     const batch = uploads;
-    if (!content && !batch.length) return;
+    if (locked || (!content && !batch.length)) return;
     if (content.startsWith('/') && !batch.length) {
       try {
         const result = await runCommand(channel, content, { openPoll: () => openPoll(channel) });
@@ -255,6 +275,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
         content, replyToId, attachmentIds: files.map((upload) => upload.attachment.id),
       });
       for (const upload of files) upload.el.remove();
+      autoGrow(textarea);
     } catch (err) {
       // Put everything back so nothing typed or uploaded is lost.
       toast(err.message);
@@ -269,5 +290,5 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     for (const upload of uploads) if (!upload.attachment) upload.handle.cancel();
   }
 
-  return { el, addFiles, destroy, replyTo, focus: () => textarea.focus() };
+  return { el, addFiles, destroy, replyTo, setLocked, focus: () => { if (!locked) textarea.focus(); } };
 }

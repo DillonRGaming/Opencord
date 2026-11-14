@@ -141,11 +141,21 @@ button.main-title:hover { background: var(--hover); }
   :root { --gap: 0px; --radius-panel: 0px; }
   .app { grid-template-columns: 64px minmax(0, 1fr); }
   .rail { padding: 10px 0; }
-  body[data-panel="main"] .rail, body[data-panel="main"] .sidebar { display: none; }
-  body[data-panel="main"] .app { grid-template-columns: minmax(0, 1fr); }
-  /* The side panel is fixed over everything, so it must stay visible while the lists are showing. */
+  /* The lists are always there; the main column slides over them from the right (and away again with a
+     swipe). The side panel is fixed over everything. */
   .main { display: contents; }
-  body[data-panel="nav"] .column { display: none; }
+  .column {
+    position: fixed; inset: 0; z-index: 5; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28);
+    transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s;
+  }
+  body[data-panel="nav"] .column {
+    transform: translateX(100%); visibility: hidden;
+    transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s 0.26s;
+  }
+  body.swiping .column { transition: none; visibility: visible; }
+  body.swiping, body.swiping * { user-select: none; }
+  .side { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
+  body.swiping .side { transition: none; }
   .sidebar { border-left: 1px solid var(--border); }
   .back-button { display: inline-grid; margin-left: -8px; }
   .main-topic { display: none; }
@@ -195,3 +205,22 @@ body:has(.page-open) .side:has(> .side-body.members) { display: none; }
 .vp-button.leave { background: var(--danger); color: #fff; }
 .vp-button.leave:hover { filter: brightness(1.1); }
 body:has(.voice-view) .side:has(> .side-body.members) { display: none; }
+
+/* In a call: a thin green ring round your own picture, solid while you talk. */
+.avatar.in-call .avatar-face { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 3.5px color-mix(in srgb, var(--ok) 45%, transparent); transition: box-shadow 0.15s; }
+.avatar.in-call.speaking .avatar-face { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--ok); }
+.in-call-text { color: var(--ok); }
+.user-panel .leave-call { color: var(--text-faint); }
+.user-panel .leave-call:hover { color: var(--danger); }
+
+/* The server banner at the top of the channel list, with the server name on a shade along its bottom. */
+.server-banner {
+  display: flex; align-items: flex-end; flex: none; height: 132px; margin: -8px -8px 6px;
+  border-radius: var(--radius-panel) var(--radius-panel) 0 0; background-size: cover; background-position: center; overflow: hidden;
+}
+.server-banner .sidebar-header {
+  min-height: 48px; padding: 18px 18px 10px; border-radius: 0; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
+}
+.server-banner .sidebar-header > .icon { color: #fff; }
+button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover, .server-banner .sidebar-header[aria-expanded="true"] { background: linear-gradient(transparent, rgba(0, 0, 0, 0.7)); }

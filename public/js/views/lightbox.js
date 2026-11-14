@@ -5,7 +5,9 @@ import { onEscape } from '../escape.js';
 export function openLightbox(attachment) {
   const box = h('div', { class: 'lightbox', onclick: (event) => { if (event.target.tagName !== 'A') close(); } },
     h('img', { src: attachment.url, alt: attachment.name }),
-    h('a', { href: attachment.url, target: '_blank', rel: 'noopener' }, 'Open original'));
+    h('div', { class: 'lightbox-links' },
+      h('a', { href: attachment.url, download: attachment.name || '' }, 'Download'),
+      h('a', { href: attachment.url, target: '_blank', rel: 'noopener' }, 'Open original')));
   const release = onEscape(() => close());
   function close() {
     release();

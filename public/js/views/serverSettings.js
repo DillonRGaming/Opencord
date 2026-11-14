@@ -11,6 +11,8 @@ import {
 } from '../ui.js';
 import { openChannelPage } from './serverPages.js';
 import { openSectionedPage } from './settings.js';
+import { rolesSection, memberRoleButton } from './roles.js';
+import { roleColor } from '../store.js';
 
 const EXPIRY = [[0, 'Never'], [3600, '1 hour'], [86400, '1 day'], [7 * 86400, '7 days'], [30 * 86400, '30 days']];
 const MAX_USES = [[0, 'No limit'], [1, '1'], [5, '5'], [10, '10'], [25, '25'], [100, '100']];
@@ -41,6 +43,15 @@ export function openServerSettings(server) {
       if (file) await attempt(async () => { await api.putFile(`/api/servers/${id}/icon`, file); redraw(); });
     };
     const removeIcon = () => attempt(async () => { await api.del(`/api/servers/${id}/icon`); redraw(); });
+    const changeBanner = async () => {
+      const [file] = await pickFiles({ accept: 'image/png,image/jpeg,image/gif,image/webp' });
+      if (file) await attempt(async () => { await api.putFile(`/api/servers/${id}/banner`, file); redraw(); });
+    };
+    const removeBanner = () => attempt(async () => { await api.del(`/api/servers/${id}/banner`); redraw(); });
+    const bannerPreview = h('button', {
+      type: 'button', class: 'banner-preview', title: 'Change banner', onclick: changeBanner,
+      style: { backgroundColor: s.bannerColor || 'var(--bg-panel)', backgroundImage: s.banner ? `url("${s.banner}")` : null },
+    }, !s.banner && h('span', {}, icon('image', 20), 'Upload a banner'));
 
     return [
       settingsHero(serverIcon(s, 72), s.name, `${s.channels.length} channel${s.channels.length === 1 ? '' : 's'} · created ${formatDate(s.createdAt)}`,
@@ -53,6 +64,9 @@ export function openServerSettings(server) {
         },
       }, field('Server name', name), field('Description', description),
       settingRow('Banner colour', [banner, button('Clear', () => { bannerColor = null; banner.value = '#3a3a37'; }, 'ghost small')]))),
+      settingsCard('Banner', bannerPreview,
+        h('div', { class: 'button-row' }, button(s.banner ? 'Change banner' : 'Upload banner', changeBanner, 'ghost small'),
+          s.banner && button('Remove', removeBanner, 'ghost small'))),
     ];
   }
 
@@ -146,13 +160,14 @@ export function openServerSettings(server) {
         const outranks = !owner && user.id !== state.me.id && (iAmOwner || role === 'member');
         return h('div', { class: 'manage-row' },
           avatar(user, { size: 36, presence: true }),
-          h('span', { class: 'manage-main' }, h('strong', {}, user.displayName,
+          h('span', { class: 'manage-main' }, h('strong', { style: roleColor(id, user.id) ? { color: roleColor(id, user.id) } : null }, user.displayName,
             user.bot ? h('span', { class: 'member-tag bot' }, 'Bot') : role !== 'member' && h('span', { class: 'member-tag' }, role === 'owner' ? 'Owner' : 'Admin')),
             h('span', {}, [`@${user.username}`, `joined ${formatDate(joinedAt)}`, timeoutUntil && `timed out until ${formatStamp(timeoutUntil)}`].filter(Boolean).join(' · '))),
-          !owner && h('span', { class: 'manage-actions' },
-            iAmOwner && !user.bot && iconButton('shield', role === 'admin' ? 'Remove admin' : 'Make admin',
+          h('span', { class: 'manage-actions' },
+            memberRoleButton(id, user),
+            !owner && iAmOwner && !user.bot && iconButton('shield', role === 'admin' ? 'Remove admin' : 'Make admin',
               () => attempt(() => api.put(`/api/servers/${id}/members/${user.id}/role`, { role: role === 'admin' ? 'member' : 'admin' })), role === 'admin' ? 'on' : ''),
-            iAmOwner && !user.bot && confirmButton({
+            !owner && iAmOwner && !user.bot && confirmButton({
               label: 'Make owner', confirmLabel: 'Hand over', face: icon('crown'), className: 'icon-button',
               onConfirm: async () => { await api.post(`/api/servers/${id}/owner`, { userId: user.id }); page.close(); toast(`${user.displayName} owns the server now.`, 'ok'); },
             }),
@@ -217,6 +232,9 @@ export function openServerSettings(server) {
   // --- Audit log ---
   const ACTIONS = {
     'server.update': ['settings', 'changed the server'], 'server.icon': ['image', 'changed the server icon'], 'server.icon_remove': ['image', 'removed the server icon'],
+    'server.banner': ['image', 'changed the server banner'], 'server.banner_remove': ['image', 'removed the server banner'],
+    'role.create': ['tag', 'created the role'], 'role.update': ['tag', 'changed the role'], 'role.delete': ['tag', 'deleted the role'],
+    'role.give': ['tag', 'gave a role to'], 'role.take': ['tag', 'took a role from'],
     'server.transfer': ['crown', 'handed the server to'], 'member.join': ['userPlus', 'joined'], 'member.leave': ['logout', 'left'],
     'member.kick': ['logout', 'kicked'], 'member.ban': ['ban', 'banned'], 'member.unban': ['ban', 'unbanned'],
     'member.timeout': ['clock', 'timed out'], 'member.timeout_remove': ['clock', 'removed the timeout on'],
@@ -295,7 +313,7 @@ export function openServerSettings(server) {
     groups: [
       [server.name, [['overview', 'Overview', overview, 'name icon description banner'], ['channels', 'Channels', channels, 'order slowmode topic category voice'],
         ['emoji', 'Emoji', emoji, 'custom emoji sticker'], ['invites', 'Invites', invites, 'link code']]],
-      ['People', [['members', 'Members', members, 'kick ban owner admin timeout'], ['bans', 'Bans', bans, 'unban']]],
+      ['People', [['roles', 'Roles', () => rolesSection(id), 'roles colour color hoist permissions'], ['members', 'Members', members, 'kick ban owner admin timeout roles'], ['bans', 'Bans', bans, 'unban']]],
       ['Tools', [['bots', 'Bot builder', bots, 'bot blocks scratch automation'], ['audit', 'Audit log', auditLog, 'history log actions']]],
       server.ownerId === state.me.id && ['', [['delete', 'Delete server', remove, 'remove danger']]],
     ].filter(Boolean),

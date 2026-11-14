@@ -3,6 +3,7 @@ import { on } from '../store.js';
 import { iconButton } from '../ui.js';
 import { onEscape } from '../escape.js';
 import { closePanel } from './side.js';
+import { pushLayer, leaveLayer, currentLayers } from '../router.js';
 
 // Full pages in the main column (settings, add a server, invite people…). The chat underneath is only
 // hidden, not closed, so a half-typed message or a running upload survives. Going anywhere closes the page.
@@ -20,13 +21,14 @@ export function openPage({ title, content, actions, onClose }) {
   closePanel();
   const el = h('section', { class: 'page-view', 'aria-label': title },
     h('header', { class: 'main-header' },
-      iconButton('back', 'Back', () => closePage(), 'page-back'),
+      iconButton('back', 'Back', () => dismissPage(), 'page-back'),
       h('h1', { class: 'main-title' }, title),
       actions,
       h('span', { class: 'main-spacer' }),
-      iconButton('x', 'Close', () => closePage())),
+      iconButton('x', 'Close', () => dismissPage())),
     h('div', { class: 'page-scroll' }, h('div', { class: 'page-content' }, content)));
-  const mine = { el, onClose, release: onEscape(() => closePage()) };
+  const mine = { el, onClose, release: onEscape(() => dismissPage()) };
+  pushLayer('page');
   current = mine;
   column.append(el);
   column.classList.add('page-open');
@@ -45,4 +47,10 @@ export function closePage() {
   onClose?.();
 }
 
+// The back arrow, the close button and Escape: through history on a phone, so the entry it added goes too.
+export function dismissPage() {
+  leaveLayer('page', closePage);
+}
+
 on('route', () => closePage());
+on('layers', () => { if (current && !currentLayers().includes('page')) closePage(); });

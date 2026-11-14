@@ -3,9 +3,9 @@ import { openEmojiPicker, emojiFace } from '../emojiPicker.js';
 import { messageMenu, userMenu } from '../menus.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state } from '../store.js';
+import { state, roleColor } from '../store.js';
 import { mentionsMe, renderMarkdown, formatDay, formatSize, formatStamp, formatTime, sameDay } from '../format.js';
-import { avatar, confirmButton, iconButton } from '../ui.js';
+import { attempt, avatar, iconButton } from '../ui.js';
 import { openLightbox } from './lightbox.js';
 import { pollView } from './poll.js';
 
@@ -22,8 +22,8 @@ const proxied = (url) => `/media/preview-image?url=${encodeURIComponent(url)}`;
 // A link preview card. YouTube cards play in place when clicked.
 function embedView(embed) {
   if (embed.type === 'image') {
-    return h('button', { type: 'button', class: 'attachment-image embed-image', onclick: () => openLightbox({ url: proxied(embed.image), name: embed.url, kind: 'image' }) },
-      h('img', { src: proxied(embed.image), alt: '', loading: 'lazy' }));
+    return withDownload(h('button', { type: 'button', class: 'attachment-image embed-image', onclick: () => openLightbox({ url: proxied(embed.image), name: embed.url, kind: 'image' }) },
+      h('img', { src: proxied(embed.image), alt: '', loading: 'lazy' })), proxied(embed.image), embed.url.split('/').pop().split('?')[0] || 'image');
   }
   const media = embed.youtube
     ? h('button', {
@@ -44,17 +44,26 @@ function embedView(embed) {
     media);
 }
 
+const downloadButton = (url, name, extra = '') => h('a', {
+  class: `icon-button media-download ${extra}`, href: url, download: name || '', title: 'Download', 'aria-label': `Download ${name || 'file'}`,
+  onclick: (event) => event.stopPropagation(),
+}, icon('download', 18));
+
+// A picture or video with a download button in its corner.
+const withDownload = (media, url, name) => h('div', { class: 'media' }, media, downloadButton(url, name));
+
 function attachmentView(attachment) {
   const { kind, name, url, size } = attachment;
   if (kind === 'image') {
-    return h('button', { type: 'button', class: 'attachment-image', title: name, onclick: () => openLightbox(attachment) },
-      h('img', { src: url, alt: name, loading: 'lazy' }));
+    return withDownload(h('button', { type: 'button', class: 'attachment-image', title: name, onclick: () => openLightbox(attachment) },
+      h('img', { src: url, alt: name, loading: 'lazy' })), url, name);
   }
-  if (kind === 'video') return h('video', { class: 'attachment-video', src: url, controls: true, preload: 'metadata', playsInline: true });
+  if (kind === 'video') return withDownload(h('video', { class: 'attachment-video', src: url, controls: true, preload: 'metadata', playsInline: true }), url, name);
 
   const info = h('div', { class: 'attachment-info' }, h('a', { href: url, download: name, title: name }, name), h('span', {}, formatSize(size)));
   if (kind === 'audio') {
-    return h('div', { class: 'attachment-card audio' }, info, h('audio', { src: url, controls: true, preload: 'none' }));
+    return h('div', { class: 'attachment-card audio' }, h('div', { class: 'attachment-card-top' }, info, downloadButton(url, name, 'inline')),
+      h('audio', { src: url, controls: true, preload: 'none' }));
   }
   return h('div', { class: 'attachment-card' }, h('span', { class: 'attachment-icon' }, icon('file', 22)), info,
     h('a', { class: 'icon-button', href: url, download: name, title: 'Download', 'aria-label': `Download ${name}` }, icon('download')));
@@ -102,6 +111,7 @@ function reactionsView(message, onReact, openTray) {
         'aria-pressed': String(mine), onclick: () => onReact(message, emoji, !mine),
       }, h('span', { class: 'reaction-emoji' }, emojiFace(emoji)), h('span', { class: 'reaction-count' }, userIds.length));
     }),
+    h('span', { class: 'actions-divider' }),
     h('button', { type: 'button', class: 'reaction add', title: 'Add reaction', 'aria-label': 'Add reaction', onclick: openTray }, icon('smilePlus', 16)));
 }
 
@@ -118,10 +128,7 @@ function toolbar(message, row, mine, handlers, openTray) {
     iconButton('pin', message.pinned ? 'Unpin' : 'Pin', () => handlers.onPin(message), message.pinned ? 'on' : ''),
     message.content && iconButton('copy', 'Copy text', () => handlers.onCopy(message)),
     mine && iconButton('pencil', 'Edit', () => handlers.onEdit(message, row)),
-    (mine || handlers.canDelete) && confirmButton({
-      label: 'Delete', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
-      onConfirm: () => handlers.onDelete(message),
-    }));
+    (mine || handlers.canDelete) && iconButton('trash', 'Delete', () => attempt(() => handlers.onDelete(message)), 'danger'));
 }
 
 // One message. `previous` is the message above it (decides the day divider and whether the header repeats).
@@ -156,7 +163,10 @@ export function messageRow(message, previous, mine, handlers) {
       avatar(author, { size: 36 })),
     grouped && h('time', { class: 'gutter-time', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
     h('div', { class: 'message-header' },
-      h('button', { type: 'button', class: 'author-name', onclick: profile }, author.displayName),
+      h('button', {
+        type: 'button', class: 'author-name', onclick: profile, dataset: { userId: author.id },
+        style: roleColor(handlers.serverId, author.id) ? { color: roleColor(handlers.serverId, author.id) } : null,
+      }, author.displayName),
       author.bot && h('span', { class: 'bot-tag' }, 'Bot'),
       h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
       message.pinned && h('span', { class: 'pinned-mark', title: 'Pinned' }, icon('pin', 13))),

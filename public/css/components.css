@@ -20,18 +20,23 @@
 .lightbox { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; gap: 0.5rem; padding: 1.5rem; background: rgba(8, 10, 8, 0.92); grid-template-rows: 1fr auto; }
 .lightbox img { max-width: 100%; max-height: 100%; min-height: 0; object-fit: contain; border-radius: var(--radius-small); }
 .lightbox a { color: #e4e8e2; font-size: 0.9rem; }
+.lightbox-links { display: flex; gap: 1.25rem; }
 
 /* --- profile card (side panel and settings preview) --- */
 
 .profile-card { --presence-ring: var(--bg-panel); }
 .profile-body { display: grid; gap: 0.85rem; }
 .profile-banner { height: 84px; border-radius: var(--radius); background: var(--bg-raised); }
+.profile-top { display: flex; align-items: flex-start; gap: 0.75rem; min-width: 0; }
 .profile-card .avatar { margin: -52px 0 0 14px; }
 .profile-card .avatar-face { outline: 5px solid var(--bg-panel); }
-.profile-card .presence { width: 22%; height: 22%; right: 3px; bottom: 3px; border-width: 3px; }
+.profile-card .presence { width: 26%; height: 26%; right: 1px; bottom: 1px; border-width: 4px; }
 .profile-names strong { display: block; font-size: 1.25rem; font-weight: 600; overflow-wrap: anywhere; }
 .profile-names span { font-family: var(--mono); font-size: 0.82rem; color: var(--text-faint); }
-.profile-status { font-size: 0.92rem; overflow-wrap: anywhere; }
+.profile-status {
+  flex: 1; min-width: 0; padding-top: 0.35rem; font-size: 0.86rem; color: var(--text-faint);
+  overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
 .profile-bio { padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .profile-actions .button.primary { flex: 1; }
@@ -168,7 +173,6 @@
   .page-back { display: inline-grid; }
   .page-content, .friends-page { padding: 1rem 1rem 3rem; }
   .profile-editor { grid-template-columns: minmax(0, 1fr); }
-  .header-search { display: none; }
 }
 .card .button.ghost { background: var(--bg-panel); }
 
@@ -312,7 +316,8 @@
 .setting-row { flex-wrap: wrap; }
 
 /* --- notifications --- */
-.notifications-tools { display: flex; justify-content: flex-end; padding-bottom: 0.5rem; }
+.notifications-tools { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; padding-bottom: 0.5rem; }
+.notifications-tools .segmented { min-width: 0; }
 .notification-list { display: grid; gap: 4px; }
 .notification { display: flex; align-items: flex-start; gap: 0.5rem; padding: 0.4rem; border-radius: var(--radius); }
 .notification:hover { background: var(--hover); }
@@ -496,3 +501,40 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .bot-tag { margin-left: 0; vertical-align: middle; align-self: center; }
 .menu-dot { position: relative; right: auto; bottom: auto; flex: none; width: 12px; height: 12px; min-width: 12px; min-height: 12px; border: 0; --presence-ring: var(--bg-raised); order: -1; }
 .menu-item:has(.menu-dot) { justify-content: flex-start; gap: 0.6rem; }
+
+/* Server settings: the banner preview. */
+.banner-preview {
+  display: grid; place-items: center; width: 100%; max-width: 420px; aspect-ratio: 16 / 7; border-radius: var(--radius);
+  background-size: cover; background-position: center; color: var(--text-faint); border: 1px dashed var(--border);
+}
+.banner-preview span { display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.88rem; }
+.banner-preview:hover { border-color: var(--text-faint); }
+.button-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+/* --- roles --- */
+.role-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; }
+.menu-swatch { width: 12px; height: 12px; flex: none; border-radius: 50%; order: -1; }
+.profile-roles { display: grid; gap: 0.45rem; }
+.profile-roles-title { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.role-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.role-chip {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 8px;
+  background: var(--bg-raised); font-size: 0.8rem; font-weight: 500; color: var(--text);
+}
+.role-chip-x { display: grid; place-items: center; width: 18px; height: 18px; margin-right: -4px; border-radius: 5px; color: var(--text-faint); }
+.role-chip-x:hover { background: var(--active); color: var(--text); }
+.role-chip.add { width: 26px; justify-content: center; padding: 0; color: var(--text-muted); }
+.role-chip.add:hover { background: var(--active); color: var(--text); }
+.role-list { display: grid; gap: 8px; }
+.role-row { display: grid; gap: 0.75rem; padding: 0.75rem 0.9rem; border-radius: var(--radius); background: var(--bg-panel); border-left: 3px solid var(--role, var(--border)); }
+.role-row-head { display: flex; align-items: center; gap: 0.6rem; min-width: 0; }
+.role-row-head .inline-input { flex: 1; min-width: 0; font-weight: 600; color: var(--role, var(--text)); }
+.role-count { flex: none; font-size: 0.78rem; color: var(--text-faint); }
+.role-row-body { display: grid; gap: 0.75rem; }
+.role-row-body .setting-row { flex-wrap: wrap; padding-top: 0.75rem; border-top: 1px solid var(--border); }
+.role-row-body .setting-control { min-width: 0; flex-wrap: wrap; justify-content: flex-start; }
+.role-row-head .manage-actions { flex: none; }
+.role-colors { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.role-color { width: 22px; height: 22px; border-radius: 50%; }
+.role-color:hover { outline: 2px solid var(--text-faint); outline-offset: 1px; }
+.muted { color: var(--text-muted); font-size: 0.88rem; }

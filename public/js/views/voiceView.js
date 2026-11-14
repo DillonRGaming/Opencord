@@ -1,15 +1,17 @@
 // The main area for a voice channel: a grid of tiles (camera, screen or avatar on a colour) and the
 // call controls along the bottom, or a "join" screen when you're not in the call yet.
 import { h } from '../dom.js';
+import { showNav } from '../router.js';
 import { icon } from '../icons.js';
 import { state, on } from '../store.js';
 import { avatar, iconButton } from '../ui.js';
 import {
   voice, joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleCamera, toggleScreen, localVideoStream, peerStream,
+  flipCamera, toggleTorch, isSpeaking,
 } from '../voice.js';
 import { openProfile } from './profile.js';
 
-let view = null; // { root, channel, serverId, tiles: Map(userId → tile) }
+let view = null; // { root, channel, serverId, tiles: Map(userId → tile), focus: userId shown big, or null }
 
 function videoFor(person) {
   if (person.userId === state.me.id) return voice.video ? localVideoStream() : null;
@@ -18,12 +20,25 @@ function videoFor(person) {
   return stream?.getVideoTracks().some((t) => t.readyState === 'live') ? stream : null;
 }
 
+// Clicking a tile shows it big with the others in a strip underneath; clicking it again goes back to the grid.
+function toggleFocus(userId) {
+  view.focus = view.focus === userId ? null : userId;
+  render();
+}
+
 function tile(person) {
   const user = state.users.get(person.userId) || { id: person.userId, displayName: 'Someone', username: '' };
   const video = h('video', { autoplay: true, playsInline: true, muted: true });
   const face = h('div', { class: 'vt-face' }, avatar(user, { size: 96 }));
-  const el = h('button', { type: 'button', class: 'vt', onclick: () => openProfile(user) }, face, video);
-  return { el, video, face, user, stream: null };
+  const status = h('span', { class: 'vt-status' });
+  const label = h('div', { class: 'vt-label' }, h('span', { class: 'vt-name' }, status, user.displayName));
+  const el = h('div', {
+    class: 'vt', role: 'button', tabIndex: 0, 'aria-label': user.displayName,
+    onclick: () => toggleFocus(person.userId),
+    onkeydown: (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleFocus(person.userId); } },
+    oncontextmenu: (event) => { event.preventDefault(); openProfile(user); },
+  }, face, video, label);
+  return { el, video, face, status, user, stream: null };
 }
 
 function updateTile(t, person) {
@@ -31,14 +46,17 @@ function updateTile(t, person) {
   if (stream !== t.stream) {
     t.stream = stream;
     t.video.srcObject = stream;
-    if (stream) t.video.play().catch(() => {});
   }
+  if (stream && t.video.paused) t.video.play().catch(() => {});
   const me = person.userId === state.me.id;
+  const speaking = me ? isSpeaking() : Boolean(person.speaking) && !person.muted;
   t.el.classList.toggle('has-video', Boolean(stream));
   t.el.classList.toggle('screen', Boolean(stream) && (me ? voice.video === 'screen' : person.screen));
-  t.el.classList.toggle('mirror', Boolean(stream) && me && voice.video === 'camera');
-  t.el.classList.toggle('speaking', Boolean(person.speaking) && !person.muted);
-  t.el.title = t.user.displayName;
+  t.el.classList.toggle('mirror', Boolean(stream) && me && voice.video === 'camera' && voice.facing !== 'environment');
+  t.el.classList.toggle('speaking', speaking);
+  t.el.classList.toggle('focus', view.focus === person.userId);
+  t.status.replaceChildren(icon(person.deafened ? 'headphonesOff' : person.muted ? 'micOff' : 'mic', 13));
+  t.el.title = `${t.user.displayName} · click to ${view.focus === person.userId ? 'go back to the grid' : 'make big'}`;
 }
 
 function controls() {
@@ -48,6 +66,8 @@ function controls() {
     button(voice.video === 'camera' ? 'video' : 'videoOff', voice.video === 'camera' ? 'Turn camera off' : 'Turn camera on', toggleCamera, voice.video === 'camera' ? 'on' : ''),
     button(voice.deafened ? 'headphonesOff' : 'headphones', voice.deafened ? 'Undeafen' : 'Deafen', toggleDeafen, voice.deafened ? 'off' : ''),
     button('monitor', voice.video === 'screen' ? 'Stop sharing' : 'Share your screen', toggleScreen, voice.video === 'screen' ? 'on' : ''),
+    voice.video === 'camera' && voice.canFlip && button('flipCamera', 'Switch camera', flipCamera),
+    voice.video === 'camera' && voice.torch !== null && button(voice.torch ? 'flashlight' : 'flashlightOff', voice.torch ? 'Turn light off' : 'Turn light on', toggleTorch, voice.torch ? 'on' : ''),
     button('phoneOff', 'Leave call', leaveVoice, 'leave'));
 }
 
@@ -57,7 +77,7 @@ function render() {
   const people = state.voice.get(channel.id) || [];
   const inCall = voice.channelId === channel.id && !voice.connecting;
   const header = h('header', { class: 'main-header' },
-    iconButton('back', 'Back', () => { document.body.dataset.panel = 'nav'; }, 'back-button'),
+    iconButton('back', 'Back', () => showNav(), 'back-button'),
     h('div', { class: 'main-title' }, icon('volume', 18), h('span', {}, channel.name)),
     h('div', { class: 'main-spacer' }));
 
@@ -78,7 +98,7 @@ function render() {
   let grid = view.root.querySelector('.vc-grid');
   if (!grid) {
     grid = h('div', { class: 'vc-grid' });
-    view.root.replaceChildren(h('div', { class: 'vc-call' }, iconButton('back', 'Back', () => { document.body.dataset.panel = 'nav'; }, 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls()));
+    view.root.replaceChildren(h('div', { class: 'vc-call' }, iconButton('back', 'Back', () => showNav(), 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls()));
   } else {
     view.root.querySelector('.vc-bar').replaceWith(controls());
   }
@@ -93,14 +113,29 @@ function render() {
     updateTile(t, person);
   }
   for (const [userId, t] of view.tiles) if (!seen.has(userId)) { t.el.remove(); view.tiles.delete(userId); }
+  if (view.focus && !seen.has(view.focus)) view.focus = null;
   const ordered = people.map((p) => view.tiles.get(p.userId).el);
-  if (ordered.some((el, i) => grid.children[i] !== el)) grid.replaceChildren(...ordered);
-  const cols = Math.ceil(Math.sqrt(Math.max(people.length, 1)));
-  grid.style.setProperty('--cols', cols);
-  grid.style.setProperty('--rows', Math.ceil(Math.max(people.length, 1) / cols));
+  if (view.focus) {
+    // One big tile, the rest in a strip along the bottom.
+    const big = view.tiles.get(view.focus).el;
+    const rest = ordered.filter((el) => el !== big);
+    let strip = grid.querySelector(':scope > .vc-strip');
+    if (!strip) strip = h('div', { class: 'vc-strip' });
+    grid.classList.add('focused');
+    if (grid.firstChild !== big || grid.children[1] !== (rest.length ? strip : undefined)) grid.replaceChildren(big, ...(rest.length ? [strip] : []));
+    if (rest.some((el, i) => strip.children[i] !== el) || strip.children.length !== rest.length) strip.replaceChildren(...rest);
+  } else {
+    grid.classList.remove('focused');
+    if (ordered.length !== grid.children.length || ordered.some((el, i) => grid.children[i] !== el)) grid.replaceChildren(...ordered);
+    const cols = Math.ceil(Math.sqrt(Math.max(people.length, 1)));
+    grid.style.setProperty('--cols', cols);
+    grid.style.setProperty('--rows', Math.ceil(Math.max(people.length, 1) / cols));
+  }
+  // Moving a video in the page can pause it.
+  for (const t of view.tiles.values()) if (t.stream && t.video.paused) t.video.play().catch(() => {});
 }
 
-on('voice voice:media users', render);
+on('voice voice:media voice:speaking users', render);
 
 export function closeVoiceView() {
   view = null;
@@ -109,7 +144,7 @@ export function closeVoiceView() {
 export function showVoice(container, channel, serverId) {
   const root = h('section', { class: 'chat voice-view', 'aria-label': channel.name });
   container.replaceChildren(root);
-  if (view?.channel.id !== channel.id) view = { channel, serverId, tiles: new Map() };
+  if (view?.channel.id !== channel.id) view = { channel, serverId, tiles: new Map(), focus: null };
   view.root = root;
   view.channel = channel;
   view.tiles.clear();

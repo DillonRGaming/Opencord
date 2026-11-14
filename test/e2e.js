@@ -328,6 +328,35 @@ async function run() {
   await bob.call('GET', '/api/users/@me');
   ok('change password logs out other sessions');
 
+  // --- roles and the server banner ---
+  const withBanner = await alice.call('PUT', `/api/servers/${server.id}/banner`, png);
+  assert.match(withBanner.banner, /^\/media\/icons\//);
+  await bob.expect(403, 'PUT', `/api/servers/${server.id}/banner`, png);
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/roles`, { name: 'Sneaky' });
+  const mods = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Mods', color: '#e3a3a3', admin: true });
+  const fans = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Fans', hoist: true });
+  await alice.expect(400, 'POST', `/api/servers/${server.id}/roles`, { name: 'Bad', color: 'red' });
+  wait = nextEvent(bSock, 'member:update', (e) => e.member.user.id === bob.me.id && e.member.roleIds.includes(fans.id));
+  await alice.call('PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${fans.id}`);
+  await wait;
+  await bob.expect(403, 'PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${mods.id}`);
+  await alice.call('PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${mods.id}`);
+  let bootstrapServer = (await bob.call('GET', '/api/bootstrap')).servers.find((s) => s.id === server.id);
+  assert.ok(bootstrapServer.adminIds.includes(bob.me.id), 'an admin role makes you an admin');
+  assert.deepEqual(bootstrapServer.roles.map((r) => r.name), ['Fans', 'Mods']);
+  // Bob is an admin now (through the role) but still can't touch roles with admin powers.
+  await bob.expect(403, 'PATCH', `/api/servers/${server.id}/roles/${mods.id}`, { name: 'Mine' });
+  await bob.call('PATCH', `/api/servers/${server.id}/roles/${fans.id}`, { color: '#a9c79a' });
+  await alice.call('PUT', `/api/servers/${server.id}/roles/order`, { ids: [mods.id, fans.id] });
+  const bobMember = (await alice.call('GET', `/api/servers/${server.id}/members`)).find((m) => m.user.id === bob.me.id);
+  assert.deepEqual(bobMember.roleIds, [mods.id, fans.id]);
+  await alice.call('DELETE', `/api/servers/${server.id}/roles/${mods.id}`);
+  bootstrapServer = (await bob.call('GET', '/api/bootstrap')).servers.find((s) => s.id === server.id);
+  assert.ok(!bootstrapServer.adminIds.includes(bob.me.id), 'deleting the role takes the powers away');
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/roles`, { name: 'Again' });
+  await alice.call('DELETE', `/api/servers/${server.id}/banner`);
+  ok('roles: create, colour, hoist, admin powers, order, assign, delete; server banner');
+
   // --- server icon, rename, kick, leave ---
   wait = nextEvent(bSock, 'server:update');
   const withIcon = await alice.call('PUT', `/api/servers/${server.id}/icon`, png);

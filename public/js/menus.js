@@ -129,7 +129,7 @@ export function messageMenu(message, mine, handlers, row, quick) {
     { label: 'Copy message link', icon: 'link', onClick: () => copy(`${location.origin}${location.pathname}#${message.id}`, 'Link') },
     { label: 'Copy message ID', icon: 'copy', onClick: () => copy(message.id, 'Message ID') },
     (mine || handlers.canDelete) && '-',
-    (mine || handlers.canDelete) && { label: 'Delete message', icon: 'trash', danger: true, confirm: true, onClick: () => handlers.onDelete(message) },
+    (mine || handlers.canDelete) && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => attempt(() => handlers.onDelete(message)) },
   ];
 }
 

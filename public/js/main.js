@@ -16,6 +16,7 @@ import { openInvite } from './views/serverPages.js';
 import { mountSide } from './views/side.js';
 import { mountPages } from './views/page.js';
 import { showVoice, closeVoiceView } from './views/voiceView.js';
+import { startGestures } from './gestures.js';
 
 const root = document.getElementById('app');
 
@@ -91,6 +92,7 @@ function showApp() {
   on('route servers dms', () => showMain(content));
   on('presence', refreshPresenceDots);
   showMain(content);
+  startGestures();
   connect();
 }
 

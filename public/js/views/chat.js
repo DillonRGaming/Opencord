@@ -1,13 +1,14 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
+import { showNav } from '../router.js';
 import { icon } from '../icons.js';
 import { groupFace } from './sidebar.js';
 import { ensureMembers } from './members.js';
-import { state, on, emit, isUnread, canModerate, markRead, dmName } from '../store.js';
+import { state, on, emit, isUnread, canModerate, markRead, dmName, roleColor } from '../store.js';
 import { attempt, avatar, copyText, iconButton, toast } from '../ui.js';
 import { createComposer } from './composer.js';
 import { messageCard, messageRow } from './message.js';
-import { membersShown, openPanel, toggleMembers } from './side.js';
+import { membersShown, openPanel, toggleMembers, dismissPanel } from './side.js';
 import { openProfile } from './profile.js';
 
 const PAGE = 50;
@@ -20,7 +21,7 @@ const isMine = (message) => message.author.id === state.me.id;
 const nameOf = (userId) => state.users.get(userId)?.displayName || 'Someone';
 
 function header(channel, serverId) {
-  const back = iconButton('back', 'Back', () => { document.body.dataset.panel = 'nav'; }, 'back-button');
+  const back = iconButton('back', 'Back', () => showNav(), 'back-button');
   const tools = [
     searchBox(channel),
     iconButton('pin', 'Pinned messages', () => showPins(channel)),
@@ -76,15 +77,40 @@ function showSearch(channel, query) {
   resultsPanel(`“${query}”`, () => api.get(`/api/channels/${channel.id}/search?q=${encodeURIComponent(query)}`));
 }
 
-// Scroll to a message if it's loaded and flash it.
-function jumpTo(id) {
-  const row = view && findRow(view, id);
-  if (!row) return toast('That message is further back. Scroll up to load it.');
-  row.scrollIntoView({ block: 'center', behavior: 'smooth' });
+// Scroll to a message and flash it, loading older pages until it's there.
+async function jumpTo(id) {
+  const v = view;
+  if (!v) return;
+  // On a phone the panel covers the chat: get it out of the way first.
+  if (matchMedia('(max-width: 799px)').matches) dismissPanel();
+  let row = findRow(v, id);
+  for (let tries = 0; !row && tries < 200 && view === v; tries += 1) {
+    if (!v.ready || v.loading) {
+      await new Promise((resolve) => { setTimeout(resolve, 60); });
+    } else if (v.hasMore && v.messages.length && id < v.messages[0].id) {
+      await loadOlder(v);
+    } else {
+      break;
+    }
+    row = findRow(v, id);
+  }
+  if (!row) {
+    toast("Couldn't find that message. It may have been deleted.");
+    return;
+  }
+  v.stick = false;
+  row.scrollIntoView({ block: 'center' });
   const message = row.querySelector('.message');
   message.classList.remove('flash');
   requestAnimationFrame(() => message.classList.add('flash'));
-  return undefined;
+}
+
+// Used by notifications: open happens elsewhere, this waits for that chat to show and jumps.
+export async function jumpToMessage(channelId, id) {
+  for (let tries = 0; tries < 100 && view?.channel.id !== channelId; tries += 1) {
+    await new Promise((resolve) => { setTimeout(resolve, 50); });
+  }
+  if (view?.channel.id === channelId) jumpTo(id);
 }
 
 function membersButton() {
@@ -98,10 +124,8 @@ function membersButton() {
 
 function historyStart(channel) {
   if (channel.kind === 'group') {
-    return h('header', { class: 'main-header' }, back,
-      h('button', { type: 'button', class: 'main-title', onclick: async () => (await import('./groups.js')).openGroupSettings(channel) },
-        groupFace(channel, 28), h('span', {}, dmName(channel))),
-      h('div', { class: 'main-topic' }, `${channel.recipients.length + 1} members`), tools);
+    return h('div', { class: 'history-start' }, groupFace(channel, 64),
+      h('h2', {}, dmName(channel)), h('p', {}, `The start of this group with ${channel.recipients.length + 1} members.`));
   }
   if (channel.type === 'dm') {
     const { recipient } = channel;
@@ -155,7 +179,8 @@ function scrollToBottom(v) {
 // Mark the channel read, but only if the person can actually see it.
 function ack(v) {
   const { channel } = v;
-  if (document.hidden || !v.root.offsetParent || !isUnread(channel)) return;
+  const behindLists = document.body.dataset.panel === 'nav' && matchMedia('(max-width: 799px)').matches;
+  if (document.hidden || !v.root.offsetParent || behindLists || !isUnread(channel)) return;
   const messageId = channel.lastMessageId;
   markRead(channel.id, messageId);
   emit('unread');
@@ -326,8 +351,44 @@ on('reload', () => {
 });
 
 document.addEventListener('visibilitychange', () => { if (view?.root.isConnected) ack(view); });
+on('panel', () => { if (view?.root.isConnected) ack(view); });
+
+// "1m 20s", "3h 5m", "2d 4h": how long a timeout has left.
+function timeLeft(ms) {
+  const s = Math.max(1, Math.ceil(ms / 1000));
+  const parts = [[86400, 'd'], [3600, 'h'], [60, 'm'], [1, 's']].map(([size, unit]) => [Math.floor(s / size) % ({ d: Infinity, h: 24, m: 60, s: 60 }[unit]), unit]);
+  const first = parts.findIndex(([n]) => n > 0);
+  return parts.slice(first, first + 2).filter(([n]) => n > 0).map(([n, unit]) => `${n}${unit}`).join(' ');
+}
+
+// Timed out or a read-only channel: grey the message box out and say why in it. A timeout counts down.
+function updateLock(v) {
+  clearTimeout(v.lockTimer);
+  const { channel, serverId } = v;
+  const mod = serverId && canModerate(serverId);
+  const me = serverId && state.members.get(serverId)?.find((m) => m.user.id === state.me.id);
+  const left = me?.timeoutUntil ? me.timeoutUntil - Date.now() : 0;
+  if (left > 0 && !mod) {
+    v.composer.setLocked(`You are timed out for ${timeLeft(left)}`);
+    v.lockTimer = setTimeout(() => { if (view === v) updateLock(v); }, left > 120000 ? 30000 : 1000);
+  } else if (channel.readOnly && !mod) {
+    v.composer.setLocked('Only admins and the owner can post in this channel');
+  } else {
+    v.composer.setLocked(null);
+  }
+}
+
+on('members servers', () => {
+  if (!view?.root.isConnected) return;
+  updateLock(view);
+  // Roles changed: recolour names in place rather than redrawing every message.
+  if (view.serverId) {
+    for (const name of view.list.querySelectorAll('.author-name[data-user-id]')) name.style.color = roleColor(view.serverId, name.dataset.userId) || '';
+  }
+});
 
 export function closeChat() {
+  if (view) clearTimeout(view.lockTimer);
   view?.composer.destroy();
   view?.resizeWatcher.disconnect();
   view = null;
@@ -338,6 +399,7 @@ export function showChat(container, channel, serverId = null) {
     // Same chat (for example a phone coming back from the channel list): keep it, refresh the header.
     view.channel = channel;
     view.root.querySelector('.main-header').replaceWith(header(channel, serverId));
+    updateLock(view);
     ack(view);
     return;
   }
@@ -353,9 +415,6 @@ export function showChat(container, channel, serverId = null) {
     list: h('div', { class: 'message-list' }),
     typingEl: h('div', { class: 'typing', role: 'status' }),
   };
-  const myMember = serverId && state.members.get(serverId)?.find((m) => m.user.id === state.me.id);
-  const timedOut = myMember?.timeoutUntil && myMember.timeoutUntil > Date.now() && !canModerate(serverId);
-  const locked = (channel.readOnly && !canModerate(serverId)) || timedOut;
   v.composer = createComposer(channel, placeholder, { onEditLast: () => editLast(v) });
   v.scroller = h('div', {
     class: 'scroller',
@@ -393,15 +452,12 @@ export function showChat(container, channel, serverId = null) {
       chat.classList.remove('dragging');
       v.composer.addFiles([...event.dataTransfer.files]);
     },
-  }, v.scroller, v.typingEl, locked
-    ? h('div', { class: 'composer-locked' }, icon(timedOut ? 'clock' : 'lock', 16), timedOut
-      ? `You are timed out until ${new Date(myMember.timeoutUntil).toLocaleString()}.`
-      : 'Only admins and the owner can post in this channel.')
-    : v.composer.el);
+  }, v.scroller, v.typingEl, v.composer.el);
 
   container.replaceChildren(header(channel, serverId), chat);
 
   view = v;
+  updateLock(v);
   drawTop(v);
   loadLatest(v);
   if (matchMedia('(min-width: 800px)').matches) v.composer.focus();

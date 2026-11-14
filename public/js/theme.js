@@ -59,11 +59,14 @@ export function apply(settings) {
   root.dataset.theme = THEMES.some((t) => t.id === themeId) ? themeId : DEFAULTS.theme;
   root.dataset.density = s.density === 'compact' ? 'compact' : 'cozy';
   root.dataset.avatars = s.avatarShape === 'square' ? 'square' : 'round';
-  root.style.setProperty('--accent', accent);
-  root.style.setProperty('--accent-text', contrastOn(accent));
   const font = FONTS.find(([id]) => id === s.font) || FONTS[0];
-  root.style.setProperty('--font', font[2]);
-  root.style.setProperty('--sidebar-width', `${Math.min(Math.max(Number(s.sidebarWidth) || 240, 200), 360)}px`);
+  const vars = {
+    '--accent': accent,
+    '--accent-text': contrastOn(accent),
+    '--font': font[2],
+    '--sidebar-width': `${Math.min(Math.max(Number(s.sidebarWidth) || 240, 200), 360)}px`,
+    '--font-size': `${Math.min(Math.max(Number(s.fontSize) || 16, 12), 24)}px`,
+  };
   root.dataset.lineHeight = pick(s.lineHeight, ['tight', 'normal', 'relaxed'], 'normal');
   root.dataset.corners = pick(s.corners, ['sharp', 'normal', 'round'], 'normal');
   root.dataset.spacing = pick(s.spacing, ['tight', 'normal', 'roomy'], 'normal');
@@ -71,7 +74,9 @@ export function apply(settings) {
   root.dataset.contrast = pick(s.contrast, ['normal', 'high'], 'normal');
   root.dataset.motion = pick(s.motion, ['full', 'reduced'], 'full');
   setClock(pick(s.clock, ['auto', '12', '24'], 'auto'));
-  root.style.setProperty('--font-size', `${Math.min(Math.max(Number(s.fontSize) || 16, 12), 24)}px`);
+  // In the app's layer (not inline styles), so custom CSS can still override them.
+  document.getElementById('theme-vars').textContent = `@layer app { :root:root:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} } }`;
+  for (const name of Object.keys(vars)) root.style.removeProperty(name);
   document.getElementById('custom-css').textContent = String(s.customCss || '');
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(s));

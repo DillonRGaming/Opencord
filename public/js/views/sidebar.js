@@ -7,7 +7,7 @@ import { icon } from '../icons.js';
 import { state, on, isUnread, canModerate, sortedDms, relationsWith, dmName, dmPeople } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { attempt, avatar, confirmButton, iconButton } from '../ui.js';
-import { voice } from '../voice.js';
+import { voice, isSpeaking, leaveVoice } from '../voice.js';
 import { openChannelPage, openInviteLink } from './serverPages.js';
 import { openServerSettings } from './serverSettings.js';
 import { openProfile } from './profile.js';
@@ -187,11 +187,17 @@ function serverList(server) {
     return [header, shown.map((c) => channelRow(server, c))];
   };
 
+  const head = withMenu(h('button', {
+    type: 'button', class: 'sidebar-header', 'aria-expanded': String(open),
+    onclick: () => { actionsFor = open ? null : server.id; redraw(); },
+  }, h('span', { class: 'sidebar-title' }, server.name), icon('chevronDown', 18)), () => serverMenu(server));
+  // The banner (a picture, or just the banner colour) sits across the top with the name over it.
+  const banner = (server.banner || server.bannerColor) && h('div', {
+    class: 'server-banner',
+    style: { backgroundColor: server.bannerColor || 'var(--bg-raised)', backgroundImage: server.banner ? `url("${server.banner}")` : null },
+  }, head);
   return [
-    withMenu(h('button', {
-      type: 'button', class: 'sidebar-header', 'aria-expanded': String(open),
-      onclick: () => { actionsFor = open ? null : server.id; redraw(); },
-    }, h('span', { class: 'sidebar-title' }, server.name), icon('chevronDown', 18)), () => serverMenu(server)),
+    banner || head,
     open && serverActions(server),
     h('div', { class: 'sidebar-scroll' },
       loose.length > 0 && h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Channels'),
@@ -216,14 +222,29 @@ function statusMenu(event) {
   ]);
 }
 
+// While you're in a call your picture gets a thin green ring, which lights up fully while you talk.
+// No call panel: the channel itself is green in the list, and there's a small hang-up button.
 function userPanel() {
   const { me } = state;
+  const call = voice.channelId && !voice.connecting
+    && state.servers.get(voice.serverId)?.channels.find((c) => c.id === voice.channelId);
+  const face = avatar(me, { size: 34, presence: true });
+  if (call) {
+    face.classList.add('in-call');
+    face.classList.toggle('speaking', isSpeaking());
+  }
   return h('div', { class: 'user-panel' },
-    h('button', { type: 'button', class: 'user-panel-me', title: 'Set your status', onclick: statusMenu },
-      avatar(me, { size: 34, presence: true }),
-      h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName), h('span', {}, me.statusText || `@${me.username}`))),
+    h('button', { type: 'button', class: 'user-panel-me', title: call ? `In voice: ${call.name}` : 'Set your status', onclick: statusMenu },
+      face,
+      h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName),
+        h('span', {}, call ? h('span', { class: 'in-call-text' }, `In ${call.name}`) : me.statusText || `@${me.username}`))),
+    call && iconButton('phoneOff', 'Leave voice', () => leaveVoice(), 'leave-call'),
     iconButton('settings', 'Settings', () => openSettings()));
 }
+
+on('voice:speaking', () => {
+  document.querySelector('.user-panel .avatar.in-call')?.classList.toggle('speaking', isSpeaking());
+});
 
 export function mountSidebar(el) {
   redraw = () => {

@@ -20,8 +20,7 @@ function open(note) {
   const { channel, message } = note;
   const path = channel.type === 'dm' ? paths.dm(channel.id) : paths.channel(channel.serverId, channel.id);
   navigate(path);
-  // Let the chat load, then jump to the message.
-  setTimeout(() => document.querySelector(`.message-row[data-id="${message.id}"]`)?.scrollIntoView({ block: 'center' }), 600);
+  import('./chat.js').then((chat) => chat.jumpToMessage(channel.id, message.id));
 }
 
 function row(note, refresh) {
@@ -59,9 +58,10 @@ export async function openNotifications() {
   };
   openPage({
     title: 'Notifications',
-    actions: h('div', { class: 'tabs' }, segmented([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); })),
     content: h('div', { class: 'settings-content notifications-page' },
-      h('div', { class: 'notifications-tools' }, button('Clear all', () => attempt(async () => {
+      h('div', { class: 'notifications-tools' },
+        segmented([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); }),
+        button('Clear all', () => attempt(async () => {
         await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
         load();
       }), 'ghost small')),

@@ -1,6 +1,7 @@
 import { withMenu } from '../contextMenu.js';
 import { userMenu } from '../menus.js';
 import { h } from '../dom.js';
+import { showNav } from '../router.js';
 import { icon } from '../icons.js';
 import { state, on, relationsWith } from '../store.js';
 import * as actions from '../actions.js';
@@ -115,7 +116,7 @@ function render() {
   const pending = relationsWith('incoming').length;
   root.replaceChildren(
     h('header', { class: 'main-header' },
-      iconButton('back', 'Back', () => { document.body.dataset.panel = 'nav'; }, 'back-button'),
+      iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('users', 18), h('span', {}, 'Friends')),
       h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, label]) => h('button', {
         type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),

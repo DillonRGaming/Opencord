@@ -137,3 +137,19 @@ export function upsertChannel(channel) {
 export function hasUnread(server) {
   return server.channels.some(isUnread);
 }
+
+// --- custom roles ---
+
+// A member's roles, highest first.
+export function memberRoles(serverId, userId) {
+  const server = state.servers.get(serverId);
+  const member = state.members.get(serverId)?.find((m) => m.user.id === userId);
+  if (!server?.roles?.length || !member?.roleIds?.length) return [];
+  return server.roles.filter((role) => member.roleIds.includes(role.id));
+}
+
+// The colour of someone's name in a server: their highest role that has one.
+export function roleColor(serverId, userId) {
+  if (!serverId) return null;
+  return memberRoles(serverId, userId).find((role) => role.color)?.color || null;
+}

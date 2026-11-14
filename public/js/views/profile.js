@@ -5,6 +5,7 @@ import { attempt, button, confirmButton } from '../ui.js';
 import { profileCard } from './profileCard.js';
 import { openPanel, refreshPanel } from './side.js';
 import { openSettings } from './settings.js';
+import { roleChips } from './roles.js';
 
 // The profile showing in the side panel right now, if any.
 let showing = null;
@@ -43,10 +44,10 @@ export function openProfile(user, { serverId } = {}) {
     onClose: () => { showing = null; },
     build: () => {
       const fresh = state.users.get(user.id) || user;
-      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()));
+      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), serverId && roleChips(serverId, fresh));
     },
   });
 }
 
 // Keep the buttons and presence right while the profile is open.
-on('relationships users presence', () => { if (showing) refreshPanel(); });
+on('relationships users presence members servers', () => { if (showing) refreshPanel(); });

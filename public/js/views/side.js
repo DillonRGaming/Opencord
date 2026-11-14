@@ -3,6 +3,7 @@ import { state, on } from '../store.js';
 import { iconButton } from '../ui.js';
 import { onEscape } from '../escape.js';
 import { showMembers } from './members.js';
+import { pushLayer, leaveLayer, currentLayers } from '../router.js';
 
 // The column on the right. It shows one thing at a time: a panel someone opened (a profile, an invite
 // link, the channel editor…) or, inside a server, the member list. Panels take the place of pop-up dialogs.
@@ -16,12 +17,16 @@ function header(title, onClose) {
   return h('header', { class: 'side-header' }, h('h2', {}, title), iconButton('x', 'Close', onClose));
 }
 
+export function dismissPanel() {
+  leaveLayer('panel', closePanel);
+}
+
 function render() {
   if (!el) return;
   if (panel) {
     shownServer = null;
     el.hidden = false;
-    el.replaceChildren(header(panel.title, closePanel), h('div', { class: 'side-body' }, panel.build()));
+    el.replaceChildren(header(panel.title, dismissPanel), h('div', { class: 'side-body' }, panel.build()));
     return;
   }
   const serverId = state.route.name === 'server' ? state.route.serverId : null;
@@ -44,6 +49,8 @@ export function mountSide(aside) {
   render();
 }
 
+on('layers', () => { if (panel && !currentLayers().includes('panel') && matchMedia('(max-width: 799px)').matches) closePanel(); });
+
 // Moving somewhere else closes an open panel.
 on('route', () => {
   if (panel) closePanel();
@@ -53,7 +60,8 @@ on('route', () => {
 // `build` returns the panel's contents; it runs again on refreshPanel(). Returns { close }.
 export function openPanel({ title, build, onClose }) {
   closePanel();
-  const mine = { title, build, onClose, release: onEscape(() => closePanel()) };
+  const mine = { title, build, onClose, release: onEscape(() => dismissPanel()) };
+  pushLayer('panel');
   panel = mine;
   render();
   el.querySelector('.side-body input:not([readonly]), .side-body textarea')?.focus();

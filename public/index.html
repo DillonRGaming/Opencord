@@ -9,10 +9,15 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&family=Instrument+Serif&display=swap">
-  <link rel="stylesheet" href="/css/theme.css">
-  <link rel="stylesheet" href="/css/layout.css">
-  <link rel="stylesheet" href="/css/components.css">
-  <link rel="stylesheet" href="/css/chat.css">
+  <!-- The app's own styles sit in a cascade layer, so anything in a user's custom CSS wins over them
+       without needing !important or extra-specific selectors. -->
+  <style>
+    @import url("/css/theme.css") layer(app);
+    @import url("/css/layout.css") layer(app);
+    @import url("/css/components.css") layer(app);
+    @import url("/css/chat.css") layer(app);
+  </style>
+  <style id="theme-vars"></style>
   <style id="custom-css"></style>
 </head>
 <body>

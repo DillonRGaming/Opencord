@@ -98,12 +98,124 @@ router.delete('/:id/icon', (req, res) => {
   setIcon(req, res, null);
 });
 
+function setBanner(req, res, file) {
+  const server = access.modServer(req.params.id, req.user.id);
+  const updated = servers.update(server.id, { banner: file });
+  if (server.banner) storage.remove(`icons/${server.banner}`);
+  audit.log(server.id, req.user.id, file ? 'server.banner' : 'server.banner_remove', server.name);
+  res.json(announce(updated));
+}
+
+router.put('/:id/banner', rawImage, (req, res) => {
+  access.modServer(req.params.id, req.user.id);
+  setBanner(req, res, storage.saveImage('icons', req.body));
+});
+
+router.delete('/:id/banner', (req, res) => {
+  setBanner(req, res, null);
+});
+
+// --- custom roles ---
+
+const roleName = (value) => text(value, 'Role name', { min: 1, max: 40 });
+
+function roleFields(body) {
+  const fields = {};
+  if (body.name !== undefined) fields.name = roleName(body.name);
+  if (body.color !== undefined) {
+    if (body.color !== null && !HEX.test(body.color)) fail(400, 'Role colour must look like #a1b2c3.');
+    fields.color = body.color;
+  }
+  if (body.hoist !== undefined) fields.hoist = Boolean(body.hoist);
+  if (body.admin !== undefined) fields.admin = Boolean(body.admin);
+  return fields;
+}
+
+// Only the owner can hand out admin powers, through a role or otherwise.
+function guardAdminRole(server, userId, role, fields = {}) {
+  if ((role?.admin || fields.admin) && server.owner_id !== userId) fail(403, 'Only the owner can manage roles with admin powers.');
+}
+
+function roleMembersChanged(server, roleId) {
+  for (const userId of servers.memberIds(server.id)) {
+    if (!roleId || servers.memberRoleIds(server.id, userId).includes(roleId)) memberChanged(server, userId);
+  }
+}
+
+router.post('/:id/roles', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const fields = roleFields(req.body);
+  if (!fields.name) fail(400, 'Give the role a name.');
+  guardAdminRole(server, req.user.id, null, fields);
+  if (servers.roles(server.id).length >= 100) fail(400, 'A server can have up to 100 roles.');
+  const role = servers.createRole(server.id, fields);
+  announce(servers.get(server.id));
+  audit.log(server.id, req.user.id, 'role.create', role.name);
+  res.status(201).json(servers.toRole(role));
+});
+
+router.put('/:id/roles/order', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const ids = req.body.ids;
+  const known = servers.roles(server.id).map((r) => r.id);
+  if (!Array.isArray(ids) || ids.length !== known.length || !ids.every((id) => known.includes(id))) fail(400, 'Send every role id once.');
+  servers.orderRoles(server.id, ids);
+  announce(servers.get(server.id));
+  roleMembersChanged(server, null);
+  res.sendStatus(204);
+});
+
+router.patch('/:id/roles/:roleId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const role = servers.getRole(server.id, req.params.roleId);
+  if (!role) fail(404, 'Role not found.');
+  const fields = roleFields(req.body);
+  guardAdminRole(server, req.user.id, role, fields);
+  const updated = servers.updateRole(server.id, role.id, fields);
+  announce(servers.get(server.id));
+  audit.log(server.id, req.user.id, 'role.update', updated.name);
+  res.json(servers.toRole(updated));
+});
+
+router.delete('/:id/roles/:roleId', (req, res) => {
+  const server = access.modServer(req.params.id, req.user.id);
+  const role = servers.getRole(server.id, req.params.roleId);
+  if (!role) fail(404, 'Role not found.');
+  guardAdminRole(server, req.user.id, role);
+  const holders = servers.memberIds(server.id).filter((userId) => servers.memberRoleIds(server.id, userId).includes(role.id));
+  servers.removeRole(server.id, role.id);
+  announce(servers.get(server.id));
+  for (const userId of holders) memberChanged(server, userId);
+  audit.log(server.id, req.user.id, 'role.delete', role.name);
+  res.sendStatus(204);
+});
+
+function assignRole(req, res, on) {
+  const server = access.modServer(req.params.id, req.user.id);
+  const role = servers.getRole(server.id, req.params.roleId);
+  if (!role) fail(404, 'Role not found.');
+  const { userId } = req.params;
+  if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
+  guardAdminRole(server, req.user.id, role);
+  if (userId !== req.user.id && servers.roleOf(server.id, userId) === 'admin' && server.owner_id !== req.user.id) {
+    fail(403, "Only the owner can change an admin's roles.");
+  }
+  servers.setMemberRole(server.id, userId, role.id, on);
+  memberChanged(server, userId);
+  if (role.admin) announce(servers.get(server.id));
+  audit.log(server.id, req.user.id, on ? 'role.give' : 'role.take', userName(userId), role.name);
+  res.json(servers.member(server.id, userId));
+}
+
+router.put('/:id/members/:userId/roles/:roleId', (req, res) => assignRole(req, res, true));
+router.delete('/:id/members/:userId/roles/:roleId', (req, res) => assignRole(req, res, false));
+
 router.delete('/:id', (req, res) => {
   const server = access.ownedServer(req.params.id, req.user.id);
   const files = attachments.pathsForServer(server.id);
   const emojiFiles = emojis.forServer(server.id).map((e) => `emojis/${emojis.get(e.id).file}`);
   servers.remove(server.id);
-  storage.remove(...files, ...emojiFiles, server.icon && `icons/${server.icon}`);
+  storage.remove(...files, ...emojiFiles, server.icon && `icons/${server.icon}`, server.banner && `icons/${server.banner}`);
   realtime.toServer(server.id, 'server:delete', { id: server.id });
   realtime.closeServer(server.id);
   res.sendStatus(204);
