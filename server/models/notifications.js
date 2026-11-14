@@ -2,7 +2,7 @@ const db = require('../db');
 const { newId } = require('../lib/ids');
 
 // Who a new message should notify, and how: { userId → kind }. Mentions beat @everyone, which beats replies.
-function recipients(content, audienceIds, authorId, replyAuthorId) {
+function recipients(content, audienceIds, authorId, replyAuthorId, serverId = null) {
   const out = new Map();
   const audience = new Set(audienceIds);
   audience.delete(authorId);
@@ -12,6 +12,18 @@ function recipients(content, audienceIds, authorId, replyAuthorId) {
   if (names.length) {
     const rows = db.prepare('SELECT id FROM users WHERE username IN (SELECT value FROM json_each(?))').all(JSON.stringify(names));
     for (const { id } of rows) if (audience.has(id)) out.set(id, 'mention');
+  }
+  // Role mentions (<@&roleId>): everyone with the role, if the role is mentionable or an admin wrote it.
+  const roleIds = serverId ? [...content.matchAll(/<@&([\w-]{6,40})>/g)].map((m) => m[1]) : [];
+  if (roleIds.length) {
+    const author = db.prepare(`SELECT server_members.role, servers.owner_id FROM server_members JOIN servers ON servers.id = server_members.server_id
+      WHERE server_members.server_id = ? AND server_members.user_id = ?`).get(serverId, authorId);
+    const isMod = author && (author.owner_id === authorId || author.role === 'admin'
+      || db.prepare('SELECT 1 FROM member_roles JOIN roles ON roles.id = member_roles.role_id WHERE member_roles.server_id = ? AND member_roles.user_id = ? AND roles.admin = 1').get(serverId, authorId));
+    const rows = db.prepare(`SELECT member_roles.user_id FROM member_roles JOIN roles ON roles.id = member_roles.role_id
+      WHERE member_roles.server_id = ? AND roles.id IN (SELECT value FROM json_each(?)) ${isMod ? '' : 'AND roles.mentionable = 1'}`)
+      .all(serverId, JSON.stringify(roleIds));
+    for (const { user_id: id } of rows) if (audience.has(id) && out.get(id) !== 'mention') out.set(id, 'role');
   }
   return out;
 }

@@ -29,6 +29,7 @@ router.get('/bootstrap', (req, res) => {
     servers: servers.forUser(me.id).map(servers.toServer),
     dms: channels.dmsForUser(me.id),
     readStates: channels.readStates(me.id),
+    dmPings: channels.dmUnreadCounts(me.id),
     online: [me.id, ...users.audienceIds(me.id)].filter(realtime.isOnline),
     statuses: Object.fromEntries([me.id, ...users.audienceIds(me.id)].map((id) => [id, realtime.statusOf(id)]).filter(([, s]) => s !== 'offline')),
     unreadNotifications: notifications.unreadCount(me.id),

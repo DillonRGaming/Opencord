@@ -2,6 +2,7 @@ const express = require('express');
 const { fail, text } = require('../lib/http');
 const users = require('../models/users');
 const relationships = require('../models/relationships');
+const servers = require('../models/servers');
 const realtime = require('../realtime');
 
 const router = express.Router();
@@ -30,6 +31,12 @@ router.post('/', (req, res) => {
   if (mine?.status === 'outgoing') fail(409, 'You already sent them a request.');
   if (mine?.status === 'blocked') fail(400, 'You blocked this user. Unblock them first.');
   if (relationships.get(other.id, me)?.status === 'blocked') fail(403, "You can't send this user a request.");
+  // Their privacy setting: who may send them friend requests.
+  const from = users.settingOf(other.id, 'friendRequestsFrom', 'everyone');
+  if (relationships.get(me, other.id)?.status !== 'incoming') {
+    if (from === 'nobody') fail(403, "They aren't taking friend requests.");
+    if (from === 'servers' && !servers.shareServer(me, other.id)) fail(403, 'They only take friend requests from people in their servers.');
+  }
 
   if (mine?.status === 'incoming') {
     becomeFriends(me, other.id);

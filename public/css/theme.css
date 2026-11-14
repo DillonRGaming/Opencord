@@ -151,7 +151,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 .button.ghost:hover:not(:disabled) { background: var(--active); }
 .button.danger { background: var(--bg-raised); }
 .button.danger:hover:not(:disabled) { color: var(--danger); }
-.button.danger.armed, .button.danger.armed:hover { background: var(--danger); color: var(--bg-panel); }
+.button.danger.armed, .button.danger.armed:hover, .button.armed, .button.armed:hover { background: var(--danger); color: var(--bg-panel); }
 .button.small { min-height: 2.1rem; padding: 0.35rem 0.8rem; font-size: 0.84rem; }
 .button.wide { width: 100%; }
 

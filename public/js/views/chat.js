@@ -1,13 +1,15 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
-import { showNav } from '../router.js';
+import { showNav, navigate, paths } from '../router.js';
 import { icon } from '../icons.js';
 import { groupFace } from './sidebar.js';
+import { mountCallStage } from './voiceView.js';
+import { voice, joinVoice } from '../voice.js';
 import { ensureMembers } from './members.js';
 import { state, on, emit, isUnread, canModerate, markRead, dmName, roleColor } from '../store.js';
-import { attempt, avatar, copyText, iconButton, toast } from '../ui.js';
+import { attempt, avatar, confirmButton, copyText, iconButton, toast } from '../ui.js';
 import { createComposer } from './composer.js';
-import { messageCard, messageRow } from './message.js';
+import { messageCard, messageRow, fullContent } from './message.js';
 import { membersShown, openPanel, toggleMembers, dismissPanel } from './side.js';
 import { openProfile } from './profile.js';
 
@@ -22,7 +24,9 @@ const nameOf = (userId) => state.users.get(userId)?.displayName || 'Someone';
 
 function header(channel, serverId) {
   const back = iconButton('back', 'Back', () => showNav(), 'back-button');
+  const inThisCall = voice.channelId === channel.id;
   const tools = [
+    channel.type === 'dm' && !inThisCall && iconButton('phone', (state.voice.get(channel.id) || []).length ? 'Join call' : 'Start a call', () => joinVoice(channel)),
     searchBox(channel),
     iconButton('pin', 'Pinned messages', () => showPins(channel)),
     serverId && membersButton(),
@@ -40,11 +44,26 @@ function header(channel, serverId) {
         avatar(recipient, { size: 28, presence: true }), h('span', {}, recipient.displayName)),
       h('div', { class: 'main-spacer' }), tools);
   }
+  if (channel.kind === 'post') {
+    // A post: the arrow goes back to the list of posts.
+    const parent = state.servers.get(serverId)?.channels.find((c) => c.id === channel.parentId);
+    return h('header', { class: 'main-header' },
+      iconButton('back', 'Back to posts', () => navigate(paths.channel(serverId, channel.parentId)), 'post-back'),
+      h('div', { class: 'main-title' }, h('span', {}, channel.title || channel.name)),
+      h('div', { class: 'main-topic' }, parent ? `in ${parent.name}` : ''),
+      tools,
+      canDeletePost(channel, serverId) && confirmButton({
+        label: 'Delete post', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
+        onConfirm: () => api.del(`/api/channels/${channel.id}`),
+      }));
+  }
   return h('header', { class: 'main-header' }, back,
     h('div', { class: 'main-title' }, icon('hash', 18), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
     tools);
 }
+
+const canDeletePost = (post, serverId) => post.authorId === state.me.id || canModerate(serverId);
 
 function searchBox(channel) {
   const input = h('input', {
@@ -132,6 +151,11 @@ function historyStart(channel) {
     return h('div', { class: 'history-start' }, avatar(recipient, { size: 64 }),
       h('h2', {}, recipient.displayName), h('p', {}, `@${recipient.username}`));
   }
+  if (channel.kind === 'post') {
+    const author = state.users.get(channel.authorId);
+    return h('div', { class: 'history-start' }, h('span', { class: 'history-hash' }, icon('posts', 30)),
+      h('h2', {}, channel.title || channel.name), h('p', {}, `Started by ${author?.displayName || 'someone'}`));
+  }
   return h('div', { class: 'history-start' }, h('span', { class: 'history-hash' }, icon('hash', 30)),
     h('h2', {}, channel.name), channel.topic && h('p', {}, channel.topic));
 }
@@ -148,7 +172,7 @@ function rowFor(v, index) {
     onReact: react,
     onPin: (m) => attempt(() => (m.pinned ? api.del : api.put)(`/api/messages/${m.id}/pin`)),
     onVote: (m, option) => api.put(`/api/messages/${m.id}/poll/${option}`),
-    onCopy: async (m) => { await copyText(m.content); toast('Copied.', 'ok'); },
+    onCopy: async (m) => { await copyText(await fullContent(m)); toast('Copied.', 'ok'); },
     onJump: jumpTo,
   });
 }
@@ -295,6 +319,20 @@ function stopTyping(v, userId) {
 
 // --- live events ---
 
+// The call button in a DM header changes between "start", "join" and gone (while you're in that call).
+on('voice', () => {
+  if (view?.channel.type !== 'dm' || !view.root.isConnected) return;
+  view.root.querySelector('.main-header')?.replaceWith(header(view.channel, view.serverId));
+});
+
+// Turning auto-translate on (or changing the language) redraws the open chat.
+const translateKey = () => `${state.me.settings?.translateAuto}|${state.me.settings?.translateTo}`;
+on('me', () => {
+  if (!view || view.translateKey === translateKey()) return;
+  view.translateKey = translateKey();
+  drawAll(view);
+});
+
 on('message:create', (message) => {
   const v = view;
   if (!v || message.channelId !== v.channel.id) return;
@@ -399,6 +437,8 @@ export function showChat(container, channel, serverId = null) {
     // Same chat (for example a phone coming back from the channel list): keep it, refresh the header.
     view.channel = channel;
     view.root.querySelector('.main-header').replaceWith(header(channel, serverId));
+    const stage = view.root.querySelector('.dm-call');
+    if (stage) mountCallStage(stage, channel);
     updateLock(view);
     ack(view);
     return;
@@ -406,7 +446,8 @@ export function showChat(container, channel, serverId = null) {
   closeChat();
   if (serverId) ensureMembers(serverId);
 
-  const placeholder = channel.type === 'dm' ? `Message ${channel.kind === 'group' ? dmName(channel) : `@${channel.recipient.displayName}`}` : `Message #${channel.name}`;
+  const placeholder = channel.type === 'dm' ? `Message ${channel.kind === 'group' ? dmName(channel) : `@${channel.recipient.displayName}`}`
+    : channel.kind === 'post' ? 'Reply to this post' : `Message #${channel.name}`;
   const v = {
     channel, serverId, root: container,
     messages: [], early: [], hasMore: true, ready: false, loading: false, stick: true, height: 0,
@@ -454,9 +495,13 @@ export function showChat(container, channel, serverId = null) {
     },
   }, v.scroller, v.typingEl, v.composer.el);
 
-  container.replaceChildren(header(channel, serverId), chat);
+  // DMs have a call area above the messages: hidden until someone's in a call.
+  const callStage = channel.type === 'dm' && h('div', { class: 'dm-call', hidden: true });
+  container.replaceChildren(...[header(channel, serverId), callStage, chat].filter(Boolean));
+  if (callStage) mountCallStage(callStage, channel);
 
   view = v;
+  v.translateKey = translateKey();
   updateLock(v);
   drawTop(v);
   loadLatest(v);

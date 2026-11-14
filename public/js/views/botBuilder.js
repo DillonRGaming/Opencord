@@ -6,6 +6,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { attempt, button, toast } from '../ui.js';
 import { openPage } from './page.js';
+import { colorField } from '../colorPicker.js';
 
 // --- block definitions ---
 // Each part of `parts` is a word, or a field: { key, kind: 'text' | 'number' | 'select' | 'lines' | 'channel', … }.
@@ -16,18 +17,27 @@ const CATEGORIES = [
   { id: 'control', label: 'Control', colors: ['#ffab19', '#ec9c13', '#cf8b17'] },
   { id: 'voice', label: 'Voice', colors: ['#cf63cf', '#c94fc9', '#bd42bd'] },
   { id: 'variables', label: 'Variables', colors: ['#ff8c1a', '#ff8000', '#db6e00'] },
+  { id: 'data', label: 'Data & web', colors: ['#4cb4d8', '#3ea6ca', '#2f8db0'] },
   { id: 'admin', label: 'Admin', colors: ['#ff6680', '#ff4d6a', '#ff3355'], admin: true },
+  { id: 'roles', label: 'Roles', colors: ['#0fbd8c', '#0da57a', '#0b8e69'], admin: true },
   { id: 'values', label: 'Values', colors: ['#59c059', '#46b946', '#389438'] },
 ];
 const TARGET = [['person', 'the person'], ['mentioned', 'the mentioned person']];
 
 const MATCH = [['contains', 'contains'], ['starts', 'starts with'], ['equals', 'is exactly'], ['any', 'is anything']];
-const OPS = [['equals', '='], ['not', '≠'], ['contains', 'contains'], ['starts', 'starts with'], ['greater', '>'], ['less', '<']];
+const OPS = [['equals', '='], ['not', '≠'], ['contains', 'contains'], ['starts', 'starts with'], ['greater', '>'], ['less', '<'],
+  ['has_role', 'person has role'], ['not_role', 'person lacks role']];
+const MATH = [['+', '+'], ['-', '−'], ['*', '×'], ['/', '÷'], ['%', 'remainder'], ['min', 'smaller of'], ['max', 'bigger of'], ['round', 'rounded']];
+const CASES = [['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['length', 'the length'], ['reverse', 'reversed'], ['trim', 'trimmed']];
 
 const BLOCKS = {
   // triggers ("hats")
   message: { hat: true, category: 'events', parts: ['when a message', { key: 'match', kind: 'select', options: MATCH }, { key: 'text', kind: 'text', placeholder: 'hello', hideWhen: (b) => b.match === 'any' }], make: () => ({ type: 'message', match: 'contains', text: 'hello' }) },
-  command: { hat: true, category: 'events', parts: ['when someone types !', { key: 'name', kind: 'text', placeholder: 'ping', width: 6 }], make: () => ({ type: 'command', name: 'ping' }) },
+  command: { hat: true, category: 'events', parts: ['when someone types /', { key: 'name', kind: 'text', placeholder: 'ping', width: 6 }, 'described as', { key: 'description', kind: 'text', placeholder: 'shown in the / list' }], make: () => ({ type: 'command', name: 'ping', description: '' }) },
+  button: { hat: true, category: 'events', parts: ['when the button', { key: 'text', kind: 'text', placeholder: 'any button' }, 'is clicked'], make: () => ({ type: 'button', text: '' }) },
+  reaction: { hat: true, category: 'events', parts: ['when someone reacts with', { key: 'emoji', kind: 'text', placeholder: 'any emoji', width: 6 }], make: () => ({ type: 'reaction', emoji: '' }) },
+  menu: { hat: true, category: 'events', parts: ['when someone picks', { key: 'text', kind: 'text', placeholder: 'anything' }, 'from a menu'], make: () => ({ type: 'menu', text: '' }) },
+  leave: { hat: true, category: 'events', parts: ['when someone leaves the server'], make: () => ({ type: 'leave' }) },
   join: { hat: true, category: 'events', parts: ['when someone joins the server'], make: () => ({ type: 'join' }) },
   timer: { hat: true, category: 'events', parts: ['every', { key: 'minutes', kind: 'number', width: 3 }, 'minutes in', { key: 'channel', kind: 'channel' }], make: () => ({ type: 'timer', minutes: 60, channel: '' }) },
 
@@ -39,6 +49,9 @@ const BLOCKS = {
   ping: { category: 'messages', parts: ['ping', { key: 'target', kind: 'select', options: TARGET }, 'and say', { key: 'text', kind: 'text', placeholder: 'hi!' }], make: () => ({ type: 'ping', target: 'person', text: 'hi!' }) },
   dm: { category: 'messages', parts: ['DM', { key: 'target', kind: 'select', options: TARGET }, { key: 'text', kind: 'text', placeholder: 'Welcome!' }], make: () => ({ type: 'dm', target: 'person', text: 'Welcome to {server}!' }) },
   pin: { category: 'messages', parts: ['pin the message'], make: () => ({ type: 'pin' }) },
+  menu_send: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Pick a game:' }, 'with a menu called', { key: 'name', kind: 'text', placeholder: 'Pick one', width: 8 }, 'of', { key: 'options', kind: 'lines', placeholder: 'one choice per line' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'menu_send', text: 'What should we play?', name: 'Pick a game', options: ['Minecraft', 'Among Us', 'Chess'], channel: '' }) },
+  unpin: { category: 'messages', parts: ['unpin the message'], make: () => ({ type: 'unpin' }) },
+  buttons: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Pick one:' }, 'with buttons', { key: 'options', kind: 'lines', placeholder: 'one button per line' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'buttons', text: 'Pick a team:', options: ['Red', 'Blue'], channel: '' }) },
 
   // voice
   join_voice: { category: 'voice', parts: ['join voice channel', { key: 'channel', kind: 'voice' }], make: () => ({ type: 'join_voice', channel: '' }) },
@@ -68,6 +81,23 @@ const BLOCKS = {
   ban: { category: 'admin', parts: ['ban', { key: 'target', kind: 'select', options: TARGET }, 'because', { key: 'reason', kind: 'text', placeholder: 'reason' }], make: () => ({ type: 'ban', target: 'mentioned', reason: '' }) },
   timeout: { category: 'admin', parts: ['time out', { key: 'target', kind: 'select', options: TARGET }, 'for', { key: 'minutes', kind: 'number', width: 3 }, 'minutes'], make: () => ({ type: 'timeout', target: 'mentioned', minutes: 10 }) },
   untimeout: { category: 'admin', parts: ['remove timeout from', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'untimeout', target: 'mentioned' }) },
+  // roles (by name, so {arg1} works too; roles with admin powers are off limits)
+  give_role: { category: 'roles', parts: ['give', { key: 'target', kind: 'select', options: TARGET }, 'the role', { key: 'role', kind: 'role' }], make: () => ({ type: 'give_role', target: 'person', role: '' }) },
+  take_role: { category: 'roles', parts: ['take the role', { key: 'role', kind: 'role' }, 'from', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'take_role', target: 'person', role: '' }) },
+  toggle_role: { category: 'roles', parts: ['toggle the role', { key: 'role', kind: 'role' }, 'for', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'toggle_role', target: 'person', role: '' }) },
+  create_role: { category: 'roles', parts: ['create a role named', { key: 'role', kind: 'text', placeholder: 'Members' }, 'coloured', { key: 'color', kind: 'color' }], make: () => ({ type: 'create_role', role: '{arg1}', color: '#a99bf0' }) },
+  rename_role: { category: 'roles', parts: ['rename role', { key: 'role', kind: 'role' }, 'to', { key: 'name', kind: 'text', placeholder: 'new name' }], make: () => ({ type: 'rename_role', role: '', name: '{args}' }) },
+  color_role: { category: 'roles', parts: ['colour role', { key: 'role', kind: 'role' }, { key: 'color', kind: 'color' }], make: () => ({ type: 'color_role', role: '', color: '#8fc1d6' }) },
+  delete_role: { category: 'roles', parts: ['delete the role', { key: 'role', kind: 'role' }], make: () => ({ type: 'delete_role', role: '' }) },
+  // data & web
+  http: { category: 'data', parts: ['get', { key: 'url', kind: 'text', placeholder: 'https://api.example.com/{arg1}' }, 'and keep', { key: 'field', kind: 'text', placeholder: 'all of it (or a.json.path)' }, 'in', { key: 'name', kind: 'text', placeholder: 'response', width: 6 }], make: () => ({ type: 'http', url: 'https://api.adviceslip.com/advice', field: 'slip.advice', name: 'advice' }) },
+  math: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'total', width: 5 }, 'to', { key: 'left', kind: 'text', placeholder: '{var.a}', width: 5 }, { key: 'math', kind: 'select', options: MATH }, { key: 'right', kind: 'text', placeholder: '2', width: 4 }], make: () => ({ type: 'math', name: 'total', left: '{var.score}', math: '*', right: '2' }) },
+  random_number: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'roll', width: 5 }, 'to a random number from', { key: 'min', kind: 'number', width: 3 }, 'to', { key: 'max', kind: 'number', width: 3 }], make: () => ({ type: 'random_number', name: 'roll', min: 1, max: 6 }) },
+  text_case: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'shout', width: 5 }, 'to', { key: 'textCase', kind: 'select', options: CASES }, 'of', { key: 'value', kind: 'text', placeholder: '{args}', width: 6 }], make: () => ({ type: 'text_case', name: 'shout', textCase: 'upper', value: '{args}' }) },
+  list_add: { category: 'data', parts: ['add', { key: 'value', kind: 'text', placeholder: '{user}', width: 6 }, 'to list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_add', value: '{user}', name: 'queue' }) },
+  list_remove: { category: 'data', parts: ['remove', { key: 'value', kind: 'text', placeholder: '{user}', width: 6 }, 'from list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_remove', value: '{user}', name: 'queue' }) },
+  list_pick: { category: 'data', parts: ['pick a random item from list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }, 'into', { key: 'value', kind: 'text', placeholder: 'picked', width: 5 }], make: () => ({ type: 'list_pick', name: 'queue', value: 'picked' }) },
+  list_clear: { category: 'data', parts: ['empty the list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_clear', name: 'queue' }) },
   change: { category: 'variables', parts: ['change', { key: 'name', kind: 'text', placeholder: 'score', width: 5 }, 'by', { key: 'value', kind: 'text', placeholder: '1', width: 3 }], make: () => ({ type: 'change', name: 'score', value: '1' }) },
 };
 
@@ -75,7 +105,9 @@ const BLOCKS = {
 const VALUES = [
   ['{user}', 'their name'], ['{mention}', '@them'], ['{args}', 'command words'], ['{arg1}', 'first word'],
   ['{message}', 'the message'], ['{channel}', 'channel name'], ['{server}', 'server name'],
-  ['{var.score}', 'a variable'], ['{random 1 10}', 'random number'],
+  ['{var.score}', 'a variable'], ['{random 1 10}', 'random number'], ['{roles}', 'their roles'],
+  ['{button}', 'button clicked'], ['{choice}', 'menu choice'], ['{emoji}', 'reaction emoji'], ['{list.queue}', 'a list'], ['{list.queue.length}', 'list size'],
+  ['{time}', 'the time'], ['{date}', 'the date'],
 ];
 
 const categoryOf = (type) => CATEGORIES.find((c) => c.id === BLOCKS[type].category);
@@ -162,7 +194,8 @@ export function openBotBuilder(server, bot) {
   const textChannels = server.channels.filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position);
   const voiceChannels = server.channels.filter((c) => c.kind === 'voice').sort((a, b) => a.position - b.position);
   let admin = Boolean(bot.admin);
-  const canvas = h('div', { class: 'bb-canvas' });
+  const roleList = h('datalist', { id: `bb-roles-${bot.id}` }, (server.roles || []).filter((r) => !r.admin).map((r) => h('option', { value: r.name })));
+  const canvas = h('div', { class: 'bb-canvas' }, roleList);
   const status = h('span', { class: 'bb-status' }, 'Saved');
   const nameInput = h('input', { class: 'input bb-name', value: bot.user.displayName, maxLength: 32, oninput: () => markDirty() });
 
@@ -195,6 +228,19 @@ export function openBotBuilder(server, bot) {
         part.here && h('option', { value: '' }, 'this channel'),
         !part.here && h('option', { value: '' }, 'pick a channel'),
         list.map((c) => h('option', { value: c.id, selected: block[part.key] === c.id }, `${part.kind === 'voice' ? '🔊 ' : '#'}${c.name}`)));
+      return el;
+    }
+    if (part.kind === 'color') {
+      return colorField({ value: block[part.key], label: 'Colour', onChange: (c) => set(c) });
+    }
+    if (part.kind === 'role') {
+      // Pick a role, or type a name (or {arg1}) for one that doesn't exist yet.
+      const el = h('input', {
+        class: 'bb-field', type: 'text', value: block[part.key] ?? '', placeholder: 'role name', list: roleList.id,
+        style: { width: `${Math.max(8, String(block[part.key] || '').length) + 1.5}ch` },
+        oninput: () => { set(el.value); el.style.width = `${Math.max(8, el.value.length) + 1.5}ch`; },
+      });
+      remember(el);
       return el;
     }
     if (part.kind === 'lines') {
@@ -242,7 +288,7 @@ export function openBotBuilder(server, bot) {
 
   function blockView(block, path) {
     const def = BLOCKS[block.type];
-    const locked = def.category === 'admin' && !admin;
+    const locked = categoryOf(block.type).admin && !admin;
     const el = h('div', { class: `bb-block${def.mouths ? ' c' : ''}${def.cap ? ' cap' : ''}${locked ? ' locked' : ''}`, style: colorOf(block.type), title: locked ? 'Turn on Admin for this block to run' : null },
       h('div', { class: 'bb-row', onpointerdown: (event) => afterNudge(event, (e) => startMove(e, path)) }, label(block, def)));
     for (const [i, mouth] of (def.mouths || []).entries()) {
@@ -281,7 +327,7 @@ export function openBotBuilder(server, bot) {
   }
 
   function draw() {
-    canvas.replaceChildren(...program.map(scriptView));
+    canvas.replaceChildren(roleList, ...program.map(scriptView));
     shapeAll(canvas);
   }
 
@@ -484,7 +530,7 @@ export function openBotBuilder(server, bot) {
         onpointerdown: (event) => afterNudge(event, (e) => startNew(e, type)),
       }, h('div', { class: 'bb-row' }, def.parts.map((p) => (typeof p === 'string'
         ? h('span', { class: 'bb-word' }, p)
-        : h('span', { class: `bb-field fake${['select', 'channel', 'voice'].includes(p.kind) ? ' select' : ''}` }, p.kind === 'select' ? (p.options.find(([v]) => v === def.make()[p.key]) || p.options[0])[1] : p.kind === 'channel' ? (p.here ? 'this channel' : 'channel') : p.kind === 'voice' ? 'voice channel' : String(def.make()[p.key] ?? p.placeholder ?? ''))))),
+        : h('span', { class: `bb-field fake${['select', 'channel', 'voice'].includes(p.kind) ? ' select' : ''}` }, p.kind === 'select' ? (p.options.find(([v]) => v === def.make()[p.key]) || p.options[0])[1] : p.kind === 'channel' ? (p.here ? 'this channel' : 'channel') : p.kind === 'voice' ? 'voice channel' : p.kind === 'role' ? 'role' : p.kind === 'color' ? '●' : String(def.make()[p.key] ?? p.placeholder ?? ''))))),
       def.mouths && [h('div', { class: 'bb-mouth' }), h('div', { class: 'bb-foot' })])))));
   drawPalette();
   shapeAll(palette);

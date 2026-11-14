@@ -24,7 +24,11 @@ function ok(label) {
 const sockets = [];
 
 class Client {
-  cookie = '';
+  jar = new Map(); // cookie name → value, like a browser keeps them
+
+  get cookie() {
+    return [...this.jar].map(([name, value]) => `${name}=${value}`).join('; ');
+  }
 
   async request(method, url, body, headers = {}) {
     const isJson = body !== undefined && !Buffer.isBuffer(body);
@@ -37,8 +41,13 @@ class Client {
       },
       body: isJson ? JSON.stringify(body) : body,
     });
-    const setCookie = res.headers.get('set-cookie');
-    if (setCookie) this.cookie = setCookie.split(';')[0];
+    for (const line of res.headers.getSetCookie()) {
+      const [pair, ...attrs] = line.split(';');
+      const [name, value] = pair.trim().split('=');
+      const cleared = !value || attrs.some((a) => /expires=Thu, 01 Jan 1970/i.test(a));
+      if (cleared) this.jar.delete(name);
+      else this.jar.set(name, value);
+    }
     const type = res.headers.get('content-type') || '';
     const data = type.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer());
     return { status: res.status, data, headers: res.headers };
@@ -195,8 +204,9 @@ async function run() {
   const message = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'hello' });
   assert.equal((await wait).content, 'hello');
   await bob.expect(400, 'POST', `/api/channels/${general.id}/messages`, { content: '   ' });
-  const long = 'x'.repeat(200_000);
-  assert.equal((await bob.call('POST', `/api/channels/${general.id}/messages`, { content: long })).content.length, 200_000);
+  const long = 'x'.repeat(1000);
+  assert.equal((await bob.call('POST', `/api/channels/${general.id}/messages`, { content: long })).content.length, 1000);
+  await bob.expect(400, 'POST', `/api/channels/${general.id}/messages`, { content: `${long}!` });
   await alice.expect(403, 'PATCH', `/api/messages/${message.id}`, { content: 'hacked' });
   wait = nextEvent(aSock, 'message:update');
   const edited = await bob.call('PATCH', `/api/messages/${message.id}`, { content: 'hello!' });
@@ -212,7 +222,7 @@ async function run() {
   const older = await bob.call('GET', `/api/channels/${general.id}/messages?before=${page[0].id}`);
   assert.equal(older.length, 11);
   assert.equal(older.at(-1).content, 'm9');
-  ok('messages: realtime, typing, 200k chars, edit, owner delete, paging');
+  ok('messages: realtime, typing, 1000-char limit, edit, owner delete, paging');
 
   // --- replies, reactions, pins, search ---
   const original = await alice.call('POST', `/api/channels/${general.id}/messages`, { content: 'pizza or tacos?' });
@@ -356,6 +366,285 @@ async function run() {
   await bob.expect(403, 'POST', `/api/servers/${server.id}/roles`, { name: 'Again' });
   await alice.call('DELETE', `/api/servers/${server.id}/banner`);
   ok('roles: create, colour, hoist, admin powers, order, assign, delete; server banner');
+
+  // --- message limit, posts channels, whiteboards ---
+  await bob.expect(400, 'POST', `/api/channels/${general.id}/messages`, { content: 'x'.repeat(1001) });
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'y'.repeat(1000) });
+  const forum = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'Ideas', kind: 'posts' });
+  assert.equal(forum.kind, 'posts');
+  await bob.expect(400, 'POST', `/api/channels/${forum.id}/messages`, { content: 'not here' });
+  await bob.expect(400, 'POST', `/api/channels/${forum.id}/posts`, { title: 'No body' });
+  wait = nextEvent(aSock, 'post:create');
+  const post = await bob.call('POST', `/api/channels/${forum.id}/posts`, { title: 'Game night?', content: 'Friday at 8' });
+  assert.equal((await wait).id, post.id);
+  assert.equal(post.title, 'Game night?');
+  assert.equal(post.preview, 'Friday at 8');
+  wait = nextEvent(bSock, 'message:create', (m) => m.channelId === post.id);
+  await alice.call('POST', `/api/channels/${post.id}/messages`, { content: "I'm in" });
+  await wait;
+  let posts = await alice.call('GET', `/api/channels/${forum.id}/posts`);
+  assert.deepEqual(posts.map((p) => [p.title, p.replies]), [['Game night?', 1]]);
+  const boot = (await alice.call('GET', '/api/bootstrap')).servers.find((s) => s.id === server.id);
+  assert.ok(!boot.channels.some((c) => c.kind === 'post'), 'posts stay out of the channel list');
+  const renamed = await bob.call('PATCH', `/api/channels/${post.id}`, { name: 'Game night on Friday' });
+  assert.equal(renamed.title, 'Game night on Friday');
+  const second = await bob.call('POST', `/api/channels/${forum.id}/posts`, { title: 'Second', content: 'two' });
+  await bob.call('DELETE', `/api/channels/${second.id}`);
+  posts = await alice.call('GET', `/api/channels/${forum.id}/posts`);
+  assert.equal(posts.length, 1);
+
+  const board = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'doodles', kind: 'whiteboard' });
+  const liveSeen = nextEvent(aSock, 'wb:live', (e) => e.channelId === board.id);
+  bSock.emit('wb:live', { channelId: board.id, key: 'k1', points: [[0, 0], [5, 5]], color: '#ff0000', size: 4 });
+  assert.equal((await liveSeen).userId, bob.me.id);
+  wait = nextEvent(aSock, 'wb:stroke', (e) => e.channelId === board.id);
+  const saved = await new Promise((resolve) => bSock.emit('wb:stroke', { channelId: board.id, key: 'k1', points: [[0, 0], [5, 5], [10, 2]], color: '#ff0000', size: 4 }, resolve));
+  assert.ok(saved.id);
+  assert.equal((await wait).stroke.points.length, 3);
+  const bad = await new Promise((resolve) => bSock.emit('wb:stroke', { channelId: board.id, points: 'nope' }, resolve));
+  assert.ok(bad.error);
+  assert.equal((await alice.call('GET', `/api/channels/${board.id}/strokes`)).length, 1);
+  wait = nextEvent(bSock, 'wb:erase');
+  aSock.emit('wb:erase', { channelId: board.id, id: saved.id });
+  await wait;
+  assert.equal((await bob.call('GET', `/api/channels/${board.id}/strokes`)).length, 0);
+  await bob.expect(403, 'DELETE', `/api/channels/${board.id}/strokes`);
+  await alice.call('DELETE', `/api/channels/${board.id}/strokes`);
+  await alice.call('DELETE', `/api/channels/${forum.id}`);
+  await alice.expect(404, 'GET', `/api/channels/${post.id}`);
+  ok('1000-character limit; posts channels; whiteboard strokes live, saved, undone, cleared');
+
+  // --- long messages are sent cut short; calendar, music and wiki channels ---
+  const old = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'short for now' });
+  {
+    // Messages from before the limit can be huge: make one straight in the database.
+    const Database = require('better-sqlite3');
+    const raw = new Database(path.join(dataDir, 'opencord.db'));
+    raw.prepare('UPDATE messages SET content = ? WHERE id = ?').run('w'.repeat(50_000), old.id);
+    raw.close();
+  }
+  const listed = (await alice.call('GET', `/api/channels/${general.id}/messages?limit=5`)).find((m) => m.id === old.id);
+  assert.ok(listed.truncated && listed.content.length < 2000 && listed.length === 50_000);
+  assert.equal((await alice.call('GET', `/api/messages/${old.id}/content`)).content.length, 50_000);
+
+  const cal = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'events', kind: 'calendar' });
+  await bob.expect(400, 'POST', `/api/channels/${cal.id}/events`, { title: '', startsAt: Date.now() });
+  await bob.expect(400, 'POST', `/api/channels/${cal.id}/events`, { title: 'Backwards', startsAt: 2000, endsAt: 1000 });
+  wait = nextEvent(aSock, 'event:update', (e) => e.channelId === cal.id);
+  const ev = await bob.call('POST', `/api/channels/${cal.id}/events`, { title: 'Game night', startsAt: Date.now() + 86_400_000, location: 'Lounge' });
+  assert.equal((await wait).title, 'Game night');
+  assert.deepEqual(ev.rsvps.going, [bob.me.id]);
+  const answered = await alice.call('PUT', `/api/channels/${cal.id}/events/${ev.id}/rsvp`, { status: 'maybe' });
+  assert.deepEqual(answered.rsvps.maybe, [alice.me.id]);
+  await alice.call('PATCH', `/api/channels/${cal.id}/events/${ev.id}`, { title: 'Game night!' });
+  await alice.call('PATCH', `/api/channels/${cal.id}`, { readOnly: true });
+  await bob.expect(403, 'POST', `/api/channels/${cal.id}/events`, { title: 'Nope', startsAt: Date.now() });
+  assert.equal((await bob.call('GET', `/api/channels/${cal.id}/events`))[0].title, 'Game night!');
+  await bob.call('DELETE', `/api/channels/${cal.id}/events/${ev.id}`);
+  assert.equal((await bob.call('GET', `/api/channels/${cal.id}/events`)).length, 0);
+
+  const radio = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'radio', kind: 'music' });
+  await bob.expect(400, 'POST', `/api/channels/${radio.id}/music`, { url: 'https://example.com/not-music' });
+  const song = await bob.upload('tune.mp3', 'audio/mpeg', Buffer.from('ID3fake-audio-bytes'));
+  const songMsg = await bob.call('POST', `/api/channels/${general.id}/messages`, { attachmentIds: [song.id] });
+  wait = nextEvent(aSock, 'music:update', (m) => m.channelId === radio.id);
+  await bob.call('POST', `/api/channels/${radio.id}/music`, { url: songMsg.attachments[0].url });
+  let music = await wait;
+  assert.equal(music.queue.length, 1);
+  assert.equal(music.playing.itemId, music.queue[0].id, 'the first song starts by itself');
+  await alice.call('POST', `/api/channels/${radio.id}/music`, { url: songMsg.attachments[0].url });
+  music = await alice.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'pause' });
+  assert.ok(music.playing.pausedAt);
+  music = await alice.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'play' });
+  assert.equal(music.playing.pausedAt, null);
+  const firstId = music.playing.itemId;
+  await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'ended', itemId: firstId });
+  music = await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'ended', itemId: firstId });
+  assert.equal(music.queue.length, 1, 'two "ended" for the same song only skip once');
+  assert.notEqual(music.playing.itemId, firstId);
+  await bob.expect(403, 'DELETE', `/api/channels/${radio.id}/music/${music.queue[0].id}`);
+  await alice.call('DELETE', `/api/channels/${radio.id}/music/${music.queue[0].id}`);
+  assert.equal((await bob.call('GET', `/api/channels/${radio.id}/music`)).playing, null);
+
+  const wiki = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'guide', kind: 'wiki' });
+  wait = nextEvent(aSock, 'wiki:update', (p) => p.channelId === wiki.id);
+  const home = await bob.call('POST', `/api/channels/${wiki.id}/pages`, { title: 'Home', content: '# Welcome\nSee [[Rules]].' });
+  await wait;
+  await alice.expect(400, 'POST', `/api/channels/${wiki.id}/pages`, { title: 'home', content: '' });
+  await alice.call('PUT', `/api/channels/${wiki.id}/pages/${home.id}`, { title: 'Home', content: '# Welcome!' });
+  const history = await bob.call('GET', `/api/channels/${wiki.id}/pages/${home.id}/history`);
+  assert.equal(history[0].content, '# Welcome\nSee [[Rules]].');
+  assert.equal((await bob.call('GET', `/api/channels/${wiki.id}/pages/${home.id}`)).content, '# Welcome!');
+  assert.deepEqual((await bob.call('GET', `/api/channels/${wiki.id}/pages`)).map((p) => p.title), ['Home']);
+  await bob.expect(403, 'DELETE', `/api/channels/${wiki.id}/pages/${home.id}`);
+  await alice.call('DELETE', `/api/channels/${wiki.id}/pages/${home.id}`);
+  await bob.expect(400, 'POST', `/api/channels/${wiki.id}/messages`, { content: 'not a chat' });
+  for (const c of [cal, radio, wiki]) await alice.call('DELETE', `/api/channels/${c.id}`);
+  ok('long messages sent cut short; calendar events and RSVPs; music queue in sync; wiki pages with history');
+
+  // --- DM pings and DM calls ---
+  await alice.call('POST', `/api/channels/${dm.id}/messages`, { content: 'ping one' });
+  const last = await alice.call('POST', `/api/channels/${dm.id}/messages`, { content: 'ping two' });
+  assert.equal((await bob.call('GET', '/api/bootstrap')).dmPings[dm.id], 2);
+  await bob.call('POST', `/api/channels/${dm.id}/ack`, { messageId: last.id });
+  assert.equal((await bob.call('GET', '/api/bootstrap')).dmPings[dm.id], undefined);
+  const ring = nextEvent(bSock, 'call:ring', (e) => e.channelId === dm.id);
+  const joined = await new Promise((resolve) => aSock.emit('voice:join', dm.id, resolve));
+  assert.ok(joined.self && !joined.error);
+  assert.equal((await ring).userId, alice.me.id);
+  wait = nextEvent(bSock, 'voice:state', (e) => e.channelId === dm.id && e.users.length === 0);
+  aSock.emit('voice:leave');
+  await wait;
+  ok('DM pings count unread DMs; DM calls ring the other person');
+
+  // --- bots can hand out and manage roles ---
+  const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Roley' });
+  await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, { admin: true });
+  const memberRole = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Members' });
+  await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+    enabled: true,
+    program: [
+      { trigger: { type: 'command', name: 'join' }, blocks: [{ type: 'give_role', target: 'person', role: 'members' }] },
+      { trigger: { type: 'command', name: 'newrole' }, blocks: [{ type: 'create_role', role: '{arg1}', color: '#123456' }] },
+    ],
+  });
+  wait = nextEvent(aSock, 'member:update', (e) => e.member.user.id === bob.me.id && e.member.roleIds.includes(memberRole.id));
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '!join' });
+  await wait;
+  wait = nextEvent(aSock, 'server:update', (e) => e.roles.some((r) => r.name === 'Gamers'));
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '!newrole Gamers' });
+  assert.equal((await wait).roles.find((r) => r.name === 'Gamers').color, '#123456');
+  await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
+  ok('bots give roles and create roles');
+
+  // --- role mentions, bot buttons and new blocks, webhooks, community and privacy settings ---
+  const pingRole = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Gamers' + Date.now().toString(36).slice(-3) });
+  await alice.call('PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${pingRole.id}`);
+  wait = nextEvent(bSock, 'notification', (n) => n.kind === 'role');
+  await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `<@&${pingRole.id}> game time` });
+  await wait; // admins can always mention a role
+  const erin = await register('erin');
+  const erinInvite = await alice.call('POST', `/api/servers/${server.id}/invites`, {});
+  await erin.call('POST', `/api/invites/${erinInvite.code}`);
+  await erin.call('POST', `/api/channels/${general.id}/messages`, { content: `<@&${pingRole.id}> not mentionable yet` });
+  assert.ok(!(await bob.call('GET', '/api/notifications')).some((n) => n.message?.content?.includes('not mentionable')));
+  await alice.call('PATCH', `/api/servers/${server.id}/roles/${pingRole.id}`, { mentionable: true });
+  wait = nextEvent(bSock, 'notification', (n) => n.kind === 'role' && n.message.author.id === erin.me.id);
+  await erin.call('POST', `/api/channels/${general.id}/messages`, { content: `<@&${pingRole.id}> now it is` });
+  await wait;
+
+  const buttonBot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Buttons' });
+  await alice.call('PATCH', `/api/servers/${server.id}/bots/${buttonBot.id}`, {
+    enabled: true,
+    program: [
+      { trigger: { type: 'command', name: 'team', description: 'Pick a team' }, blocks: [{ type: 'buttons', text: 'Pick:', options: ['Red', 'Blue'] }] },
+      { trigger: { type: 'button', text: 'Red' }, blocks: [
+        { type: 'math', name: 'reds', left: '{var.reds}', math: '+', right: '1' },
+        { type: 'list_add', name: 'team', value: '{user}' },
+        { type: 'if', left: '', op: 'has_role', right: pingRole.name, do: [{ type: 'reply', text: 'red {var.reds} {list.team.length} {button}' }], else: [] },
+      ] },
+    ],
+  });
+  {
+    const listed = (await bob.call('GET', '/api/bootstrap')).servers.find((x) => x.id === server.id).commands;
+    assert.ok(listed.some((c) => c.name === 'team' && c.description === 'Pick a team'), 'bot commands are listed for the / menu');
+  }
+  wait = nextEvent(bSock, 'message:create', (m) => m.components?.length === 2);
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '/team' });
+  const picker = await wait;
+  wait = nextEvent(bSock, 'message:create', (m) => m.content.startsWith('red '));
+  await bob.call('POST', `/api/messages/${picker.id}/buttons/0`);
+  assert.equal((await wait).content, 'red 1 1 Red');
+  await bob.expect(404, 'POST', `/api/messages/${picker.id}/buttons/5`);
+  await alice.call('DELETE', `/api/servers/${server.id}/bots/${buttonBot.id}`);
+
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/webhooks`, { name: 'x', channelId: general.id });
+  const hook = await alice.call('POST', `/api/servers/${server.id}/webhooks`, { name: 'CI', channelId: general.id });
+  assert.match(hook.url, /^\/api\/webhooks\//);
+  wait = nextEvent(bSock, 'message:create', (m) => m.content === 'Build passed');
+  const anon = new Client();
+  await anon.call('POST', hook.url, { content: 'Build passed' });
+  assert.equal((await wait).author.displayName, 'CI');
+  await anon.expect(404, 'POST', `${hook.url}x`, { content: 'nope' });
+  await alice.call('DELETE', `/api/servers/${server.id}/webhooks/${hook.id}`);
+  await anon.expect(404, 'POST', hook.url, { content: 'gone' });
+
+  await alice.call('PATCH', `/api/servers/${server.id}`, { welcomeChannelId: general.id, welcomeMessage: 'Hi {user}, welcome to {server}', memberWait: 600, invitesAdminOnly: true, pinsAdminOnly: true });
+  const frank = await register('frank');
+  wait = nextEvent(aSock, 'message:create', (m) => m.content.startsWith('Hi @frank'));
+  await frank.call('POST', `/api/invites/${erinInvite.code}`);
+  assert.equal((await wait).author.displayName, 'Opencord');
+  await frank.expect(403, 'POST', `/api/channels/${general.id}/messages`, { content: 'too soon' });
+  await erin.expect(403, 'POST', `/api/servers/${server.id}/invites`, {});
+  const pinMe = await alice.call('POST', `/api/channels/${general.id}/messages`, { content: 'pin me' });
+  await erin.expect(403, 'PUT', `/api/messages/${pinMe.id}/pin`);
+  await alice.call('PATCH', `/api/servers/${server.id}`, { welcomeChannelId: null, memberWait: 0, invitesAdminOnly: false, pinsAdminOnly: false });
+  await frank.call('POST', `/api/channels/${general.id}/messages`, { content: 'now I can' });
+
+  await erin.call('PATCH', '/api/users/@me', { settings: { dmsFrom: 'friends', friendRequestsFrom: 'nobody' } });
+  await frank.expect(403, 'POST', '/api/dms', { userId: erin.me.id });
+  await frank.expect(403, 'POST', '/api/relationships', { username: 'erin' });
+  ok('role mentions; bot / commands, buttons, maths and lists; webhooks; welcome, new-member wait, invite and pin rules; privacy settings');
+
+  // --- linked channels, message links, bot menus, several accounts on one browser ---
+  const otherServer = await alice.call('POST', '/api/servers', { name: 'Second Server' });
+  const secondGeneral = otherServer.channels[0];
+  await bob.expect(403, 'GET', `/api/channels/${general.id}/links`);
+  const linkInfo = await alice.call('GET', `/api/channels/${general.id}/links`);
+  assert.ok(linkInfo.candidates.some((c) => c.id === secondGeneral.id));
+  await alice.call('POST', `/api/channels/${general.id}/links`, { channelId: secondGeneral.id });
+  wait = nextEvent(aSock, 'message:create', (m) => m.channelId === secondGeneral.id);
+  const relayed = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'hello both servers' });
+  const relayCopy = await wait;
+  assert.equal(relayCopy.content, 'hello both servers');
+  assert.equal(relayCopy.author.id, bob.me.id);
+  assert.equal(relayCopy.relay.channel, general.name);
+  wait = nextEvent(aSock, 'message:update', (m) => m.id === relayCopy.id);
+  await bob.call('PATCH', `/api/messages/${relayed.id}`, { content: 'edited everywhere' });
+  assert.equal((await wait).content, 'edited everywhere');
+  wait = nextEvent(aSock, 'message:delete', (m) => m.id === relayCopy.id);
+  await bob.call('DELETE', `/api/messages/${relayed.id}`);
+  await wait;
+  await alice.call('DELETE', `/api/channels/${general.id}/links`);
+  assert.equal((await alice.call('GET', `/api/channels/${general.id}/links`)).linked.length, 0);
+  await alice.call('DELETE', `/api/servers/${otherServer.id}`);
+
+  const quoted = await alice.call('POST', `/api/channels/${general.id}/messages`, { content: 'quote me' });
+  assert.equal((await bob.call('GET', `/api/messages/${quoted.id}`)).content, 'quote me');
+  await (await register('outsider')).expect(404, 'GET', `/api/messages/${quoted.id}`);
+
+  const menuBot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Menus' });
+  await alice.call('PATCH', `/api/servers/${server.id}/bots/${menuBot.id}`, {
+    enabled: true,
+    program: [
+      { trigger: { type: 'command', name: 'pick' }, blocks: [{ type: 'menu_send', text: 'Which?', name: 'Pick a game', options: ['Chess', 'Go'] }] },
+      { trigger: { type: 'menu', text: '' }, blocks: [{ type: 'reply', text: 'you picked {choice}' }] },
+    ],
+  });
+  wait = nextEvent(bSock, 'message:create', (m) => m.components?.[0]?.type === 'menu');
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '!pick' });
+  const menuMsg = await wait;
+  await bob.expect(400, 'POST', `/api/messages/${menuMsg.id}/menus/0`, { value: 'Poker' });
+  await new Promise((resolve) => setTimeout(resolve, 1100)); // one click a second per person
+  wait = nextEvent(bSock, 'message:create', (m) => m.content === 'you picked Go');
+  await bob.call('POST', `/api/messages/${menuMsg.id}/menus/0`, { value: 'Go' });
+  await wait;
+  await alice.call('DELETE', `/api/servers/${server.id}/bots/${menuBot.id}`);
+
+  // One browser, two accounts: adding keeps the first; switching swaps; logging out opens the other.
+  const browser = await register('multi1');
+  await browser.call('POST', '/api/auth/register', { username: 'multi2', password: 'password123', add: true });
+  let accounts = await browser.call('GET', '/api/auth/accounts');
+  assert.deepEqual(accounts.map((a) => [a.username, a.current]), [['multi2', true], ['multi1', false]]);
+  await browser.call('POST', '/api/auth/accounts/switch', { userId: accounts[1].id });
+  assert.equal((await browser.call('GET', '/api/users/@me')).username, 'multi1');
+  await browser.expect(404, 'POST', '/api/auth/accounts/switch', { userId: alice.me.id });
+  const loggedOut = await browser.call('POST', '/api/auth/logout');
+  assert.equal(loggedOut.switched, true);
+  assert.equal((await browser.call('GET', '/api/users/@me')).username, 'multi2');
+  assert.equal((await browser.call('POST', '/api/auth/logout')).switched, false);
+  await browser.expect(401, 'GET', '/api/users/@me');
+  ok('linked channels copy, edit and delete; message links; bot menus; several accounts, switching, logout to the next');
 
   // --- server icon, rename, kick, leave ---
   wait = nextEvent(bSock, 'server:update');

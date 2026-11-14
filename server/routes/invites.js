@@ -35,6 +35,7 @@ router.post('/:code', auth.requireAuth, (req, res) => {
     realtime.toUser(userId, 'server:create', servers.toServer(server));
     audit.log(server.id, userId, 'member.join', `@${req.user.username}`, `invite ${invite.code}`);
     post.emit('join', { serverId: server.id, user: users.toUser(req.user) });
+    post.welcome(server, req.user);
   }
   res.json(servers.toServer(server));
 });

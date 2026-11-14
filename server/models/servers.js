@@ -20,7 +20,27 @@ function toServer(row) {
       OR user_id IN (SELECT member_roles.user_id FROM member_roles JOIN roles ON roles.id = member_roles.role_id WHERE member_roles.server_id = ? AND roles.admin = 1))`)
       .all(row.id, row.id).map((r) => r.user_id),
     roles: roles(row.id),
+    welcomeChannelId: row.welcome_channel_id || null,
+    welcomeMessage: row.welcome_message || '',
+    memberWait: row.member_wait || 0,
+    invitesAdminOnly: Boolean(row.invites_admin_only),
+    pinsAdminOnly: Boolean(row.pins_admin_only),
+    commands: botCommands(row.id),
   };
+}
+
+// The !commands (also usable as /commands) of the server's switched-on bots, for the / list in the message box.
+function botCommands(serverId) {
+  const out = [];
+  const rows = db.prepare('SELECT bots.program, users.display_name FROM bots JOIN users ON users.id = bots.user_id WHERE bots.server_id = ? AND bots.enabled = 1')
+    .all(serverId);
+  for (const row of rows) {
+    for (const script of JSON.parse(row.program)) {
+      const t = script.trigger;
+      if (t?.type === 'command' && t.name && !out.some((c) => c.name === t.name)) out.push({ name: t.name, description: t.description || '', bot: row.display_name });
+    }
+  }
+  return out;
 }
 
 function get(id) {
@@ -46,7 +66,11 @@ function idsForUser(userId) {
   return db.prepare('SELECT server_id FROM server_members WHERE user_id = ?').all(userId).map((row) => row.server_id);
 }
 
-const COLUMNS = { name: 'name', icon: 'icon', banner: 'banner', description: 'description', bannerColor: 'banner_color', ownerId: 'owner_id' };
+const COLUMNS = {
+  name: 'name', icon: 'icon', banner: 'banner', description: 'description', bannerColor: 'banner_color', ownerId: 'owner_id',
+  welcomeChannelId: 'welcome_channel_id', welcomeMessage: 'welcome_message', memberWait: 'member_wait',
+  invitesAdminOnly: 'invites_admin_only', pinsAdminOnly: 'pins_admin_only',
+};
 
 function update(id, fields) {
   for (const [key, column] of Object.entries(COLUMNS)) {
@@ -130,7 +154,10 @@ function toMember(row) {
 // --- custom roles ---
 
 function toRole(row) {
-  return { id: row.id, name: row.name, color: row.color, position: row.position, hoist: Boolean(row.hoist), admin: Boolean(row.admin) };
+  return {
+    id: row.id, name: row.name, color: row.color, position: row.position, hoist: Boolean(row.hoist), admin: Boolean(row.admin),
+    mentionable: Boolean(row.mentionable),
+  };
 }
 
 function roles(serverId) {
@@ -150,7 +177,7 @@ function createRole(serverId, { name, color = null, hoist = false, admin = false
   return getRole(serverId, id);
 }
 
-const ROLE_COLUMNS = { name: 'name', color: 'color', hoist: 'hoist', admin: 'admin' };
+const ROLE_COLUMNS = { name: 'name', color: 'color', hoist: 'hoist', admin: 'admin', mentionable: 'mentionable' };
 
 function updateRole(serverId, roleId, fields) {
   for (const [key, column] of Object.entries(ROLE_COLUMNS)) {

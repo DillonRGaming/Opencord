@@ -15,7 +15,9 @@ const CACHE = 'private, max-age=31536000, immutable'; // file names never get re
 function canSee(attachment, userId) {
   if (!attachment.message_id) return attachment.uploader_id === userId;
   const channel = channels.get(messages.get(attachment.message_id).channel_id);
-  return channels.canAccess(userId, channel);
+  if (channels.canAccess(userId, channel)) return true;
+  // Or a copy of the message in a linked channel they can see.
+  return messages.copiesOf(attachment.message_id).some((copy) => channels.canAccess(userId, channels.get(copy.channel_id)));
 }
 
 // express.sendFile handles Range requests, which video and audio seeking needs.

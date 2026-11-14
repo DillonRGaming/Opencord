@@ -10,6 +10,7 @@ const messages = require('../models/messages');
 const realtime = require('../realtime');
 const post = require('./post');
 const audit = require('../models/audit');
+const previews = require('./previews');
 
 const MAX_STEPS = 500; // blocks per run
 const MAX_RUN_MS = 10 * 60_000; // a run (even a forever loop) stops after 10 minutes
@@ -19,6 +20,8 @@ const MAX_WAIT = 10; // seconds for one wait block
 const PER_MINUTE = 30; // messages per bot per minute
 const MAX_VARS = 200;
 const MAX_TEXT = 2000;
+const MAX_HTTP = 3; // web requests per run
+const MAX_LIST = 200; // items in a list variable
 
 // --- storage ---
 
@@ -77,16 +80,44 @@ function setVar(botId, key, value) {
   db.prepare('INSERT OR REPLACE INTO bot_vars (bot_id, key, value) VALUES (?, ?, ?)').run(botId, key, String(value).slice(0, MAX_TEXT));
 }
 
+// Lists are kept in a variable as JSON.
+function getList(botId, name) {
+  try {
+    const value = JSON.parse(getVar(botId, `list:${name}`) || '[]');
+    return Array.isArray(value) ? value.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function setList(botId, name, items) {
+  setVar(botId, `list:${name}`, JSON.stringify(items.slice(-MAX_LIST)));
+}
+
+// Reads "a.b.0.c" out of parsed JSON.
+function pick(data, path) {
+  let value = data;
+  for (const key of path.split('.').filter(Boolean)) {
+    if (value == null || typeof value !== 'object') return '';
+    value = value[key];
+  }
+  if (value == null) return '';
+  return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
 // --- checking a program before saving it ---
 
-const TRIGGERS = ['message', 'command', 'join', 'timer'];
+const TRIGGERS = ['message', 'command', 'join', 'timer', 'button', 'reaction', 'leave', 'menu'];
 const ACTIONS = ['send', 'reply', 'react', 'wait', 'set', 'change', 'if', 'repeat', 'random', 'stop',
-  'forever', 'until', 'dm', 'ping', 'pin', 'join_voice', 'leave_voice'];
+  'forever', 'until', 'dm', 'ping', 'pin', 'join_voice', 'leave_voice',
+  'buttons', 'menu_send', 'http', 'math', 'random_number', 'list_add', 'list_remove', 'list_pick', 'list_clear', 'text_case', 'unpin'];
 // These only run when the bot is an admin.
 const ADMIN_ACTIONS = ['delete', 'purge', 'create_channel', 'delete_channel', 'rename_channel', 'topic', 'slowmode', 'lock',
-  'kick', 'ban', 'timeout', 'untimeout', 'everyone', 'invite'];
+  'kick', 'ban', 'timeout', 'untimeout', 'everyone', 'invite',
+  'give_role', 'take_role', 'toggle_role', 'create_role', 'delete_role', 'rename_role', 'color_role'];
 const ALL_ACTIONS = [...ACTIONS, ...ADMIN_ACTIONS];
-const OPS = ['equals', 'not', 'contains', 'starts', 'greater', 'less'];
+const OPS = ['equals', 'not', 'contains', 'starts', 'greater', 'less', 'has_role', 'not_role'];
+const MATH = ['+', '-', '*', '/', '%', 'min', 'max', 'round'];
 
 function clean(value, max = MAX_TEXT) {
   return String(value ?? '').slice(0, max);
@@ -97,7 +128,12 @@ function validateBlocks(blocks, depth = 0) {
   return blocks.slice(0, 100).map((b) => {
     if (!b || !ALL_ACTIONS.includes(b.type)) throw new Error('Unknown block.');
     const out = { type: b.type };
-    for (const key of ['text', 'emoji', 'name', 'value', 'left', 'right', 'channel', 'reason']) if (b[key] !== undefined) out[key] = clean(b[key]);
+    for (const key of ['text', 'emoji', 'name', 'value', 'left', 'right', 'channel', 'reason', 'role', 'url', 'field']) if (b[key] !== undefined) out[key] = clean(b[key]);
+    if (b.math !== undefined) out.math = MATH.includes(b.math) ? b.math : '+';
+    if (b.textCase !== undefined) out.textCase = ['upper', 'lower', 'length', 'reverse', 'trim'].includes(b.textCase) ? b.textCase : 'upper';
+    if (b.min !== undefined) out.min = Math.round(Number(b.min)) || 0;
+    if (b.max !== undefined) out.max = Math.round(Number(b.max)) || 0;
+    if (b.color !== undefined) out.color = /^#[0-9a-f]{6}$/i.test(b.color) ? b.color : null;
     if (b.target !== undefined) out.target = b.target === 'mentioned' ? 'mentioned' : 'person';
     if (b.kind !== undefined) out.kind = b.kind === 'voice' ? 'voice' : 'text';
     if (b.lock !== undefined) out.lock = b.lock === 'unlock' ? 'unlock' : 'lock';
@@ -126,7 +162,12 @@ function validateProgram(program) {
       trigger.match = ['any', 'contains', 'starts', 'equals'].includes(t.match) ? t.match : 'contains';
       trigger.text = clean(t.text, 200);
     }
-    if (t.type === 'command') trigger.name = clean(t.name, 32).replace(/^!/, '').toLowerCase().replace(/\s+/g, '');
+    if (t.type === 'command') {
+      trigger.name = clean(t.name, 32).replace(/^[!/]/, '').toLowerCase().replace(/\s+/g, '');
+      trigger.description = clean(t.description, 100);
+    }
+    if (t.type === 'button' || t.type === 'menu') trigger.text = clean(t.text, 80);
+    if (t.type === 'reaction') trigger.emoji = clean(t.emoji, 80);
     if (t.type === 'timer') {
       trigger.minutes = Math.min(Math.max(Math.round(Number(t.minutes)) || 60, 1), 10080);
       trigger.channel = clean(t.channel, 40);
@@ -159,6 +200,18 @@ function fill(text, ctx) {
       case 'channel': return ctx.channel?.name ?? '';
       case 'server': return servers.get(ctx.bot.server_id)?.name ?? '';
       case 'message': return ctx.message?.content ?? '';
+      case 'roles': return ctx.user ? rolesOf(ctx, ctx.user.id).map((r) => r.name).join(', ') : '';
+      case 'button': return ctx.button ?? '';
+      case 'choice': return ctx.choice ?? '';
+      case 'emoji': return ctx.emoji ?? '';
+      case 'list': {
+        // {list.name} → the items joined with commas; {list.name.length} → how many.
+        const [name, prop] = (rest || '').split('.');
+        const items = getList(ctx.bot.id, name);
+        return prop === 'length' ? String(items.length) : items.join(', ');
+      }
+      case 'time': return new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+      case 'date': return new Date().toLocaleDateString('en-GB');
       case 'var': return getVar(ctx.bot.id, rest || '');
       case 'random': {
         const [lo, hi] = (rest || '1 10').split(/\s+/).map(Number);
@@ -181,6 +234,9 @@ function test(block, ctx) {
     case 'starts': return left.toLowerCase().startsWith(right.toLowerCase());
     case 'greater': return Number(left) > Number(right);
     case 'less': return Number(left) < Number(right);
+    // "the person has the role <right>" (left is ignored).
+    case 'has_role': return Boolean(ctx.user) && rolesOf(ctx, ctx.user.id).some((r) => r.name.toLowerCase() === right.trim().toLowerCase());
+    case 'not_role': return !ctx.user || !rolesOf(ctx, ctx.user.id).some((r) => r.name.toLowerCase() === right.trim().toLowerCase());
     default: return left.toLowerCase() === right.toLowerCase();
   }
 }
@@ -238,6 +294,21 @@ function memberChanged(ctx, userId) {
 }
 
 const channelName = (text) => text.toLowerCase().replace(/\s+/g, '-').slice(0, 100);
+
+// Roles by name (any case). Bots never touch roles with admin powers.
+function findRole(ctx, name) {
+  const wanted = name.trim().toLowerCase();
+  return wanted ? servers.roles(ctx.bot.server_id).find((r) => r.name.toLowerCase() === wanted && !r.admin) || null : null;
+}
+
+function rolesOf(ctx, userId) {
+  const ids = servers.memberRoleIds(ctx.bot.server_id, userId);
+  return servers.roles(ctx.bot.server_id).filter((r) => ids.includes(r.id));
+}
+
+function rolesChanged(ctx) {
+  realtime.toServer(ctx.bot.server_id, 'server:update', servers.toServer(servers.get(ctx.bot.server_id)));
+}
 
 class Stop extends Error {}
 
@@ -334,6 +405,84 @@ async function runBlocks(blocks, ctx) {
         }
       case 'stop':
         throw new Stop();
+      case 'buttons': {
+        // A message with up to 5 buttons under it; clicking one runs "when a button is clicked".
+        const labels = (block.options || []).map((o) => fill(o, ctx).trim().slice(0, 80)).filter(Boolean).slice(0, 5);
+        const channel = targetChannel(block, ctx);
+        const content = fill(block.text, ctx).trim();
+        if (!channel || !content || !labels.length || ctx.sends >= MAX_SENDS || !canSend(ctx.bot.id)) break;
+        ctx.sends += 1;
+        post.postMessage(channel, ctx.bot.user_id, content, { components: labels.map((label) => ({ label })) });
+        break;
+      }
+      case 'menu_send': {
+        // A message with a drop-down of up to 25 choices; picking one runs "when someone picks from a menu".
+        const options = (block.options || []).map((o) => fill(o, ctx).trim().slice(0, 80)).filter(Boolean).slice(0, 25);
+        const channel = targetChannel(block, ctx);
+        const content = fill(block.text, ctx).trim();
+        if (!channel || !content || !options.length || ctx.sends >= MAX_SENDS || !canSend(ctx.bot.id)) break;
+        ctx.sends += 1;
+        post.postMessage(channel, ctx.bot.user_id, content, { components: [{ type: 'menu', placeholder: fill(block.name, ctx).slice(0, 80) || 'Pick one', options }] });
+        break;
+      }
+      case 'http': {
+        // GET a public web address (never this machine or the local network) and keep the reply in a variable.
+        if ((ctx.http = (ctx.http || 0) + 1) > MAX_HTTP) break;
+        const url = fill(block.url, ctx).trim();
+        if (!/^https?:\/\//i.test(url)) break;
+        const res = await previews.get(url, { maxBytes: 256 * 1024 });
+        let value = res ? res.body.toString('utf8') : '';
+        if (value && block.field) {
+          try { value = pick(JSON.parse(value), fill(block.field, ctx)); } catch { value = ''; }
+        }
+        setVar(ctx.bot.id, block.name || 'response', value.slice(0, MAX_TEXT));
+        break;
+      }
+      case 'math': {
+        const a = Number(fill(block.left, ctx)) || 0;
+        const b = Number(fill(block.right, ctx)) || 0;
+        const result = {
+          '+': a + b, '-': a - b, '*': a * b, '/': b ? a / b : 0, '%': b ? a % b : 0, min: Math.min(a, b), max: Math.max(a, b), round: Math.round(a),
+        }[block.math || '+'];
+        setVar(ctx.bot.id, block.name, Number.isFinite(result) ? Math.round(result * 1e6) / 1e6 : 0);
+        break;
+      }
+      case 'random_number': {
+        const lo = Math.min(block.min ?? 1, block.max ?? 10);
+        const hi = Math.max(block.min ?? 1, block.max ?? 10);
+        setVar(ctx.bot.id, block.name, Math.floor(Math.random() * (hi - lo + 1)) + lo);
+        break;
+      }
+      case 'list_add': {
+        const items = getList(ctx.bot.id, block.name);
+        items.push(fill(block.value, ctx).slice(0, 200));
+        setList(ctx.bot.id, block.name, items);
+        break;
+      }
+      case 'list_remove': {
+        const value = fill(block.value, ctx).toLowerCase();
+        setList(ctx.bot.id, block.name, getList(ctx.bot.id, block.name).filter((item) => item.toLowerCase() !== value));
+        break;
+      }
+      case 'list_clear':
+        setList(ctx.bot.id, block.name, []);
+        break;
+      case 'list_pick': {
+        const items = getList(ctx.bot.id, block.name);
+        setVar(ctx.bot.id, block.value || 'picked', items.length ? items[Math.floor(Math.random() * items.length)] : '');
+        break;
+      }
+      case 'text_case': {
+        const text = fill(block.value, ctx);
+        const out = { upper: text.toUpperCase(), lower: text.toLowerCase(), length: String(text.length), reverse: [...text].reverse().join(''), trim: text.trim() }[block.textCase || 'upper'];
+        setVar(ctx.bot.id, block.name, out);
+        break;
+      }
+      case 'unpin':
+        if (ctx.message && messages.get(ctx.message.id)) {
+          realtime.toChannel(ctx.channel, 'message:update', messages.serialize(messages.setPinned(ctx.message.id, false)));
+        }
+        break;
 
       // --- admin ---
       case 'delete':
@@ -432,6 +581,55 @@ async function runBlocks(blocks, ctx) {
         log(ctx, 'member.timeout_remove', `@${user.username}`);
         break;
       }
+      case 'give_role':
+      case 'take_role':
+      case 'toggle_role': {
+        const user = targetUser(block, ctx);
+        const role = findRole(ctx, fill(block.role, ctx));
+        if (!role || !canTouch(ctx, user)) break;
+        const has = servers.memberRoleIds(ctx.bot.server_id, user.id).includes(role.id);
+        const on = block.type === 'give_role' || (block.type === 'toggle_role' && !has);
+        if (on === has) break;
+        servers.setMemberRole(ctx.bot.server_id, user.id, role.id, on);
+        memberChanged(ctx, user.id);
+        log(ctx, on ? 'role.give' : 'role.take', `@${user.username}`, role.name);
+        break;
+      }
+      case 'create_role': {
+        const name = fill(block.role, ctx).trim().slice(0, 40);
+        if (!name || findRole(ctx, name) || servers.roles(ctx.bot.server_id).length >= 100) break;
+        servers.createRole(ctx.bot.server_id, { name, color: block.color || null });
+        rolesChanged(ctx);
+        log(ctx, 'role.create', name);
+        break;
+      }
+      case 'delete_role': {
+        const role = findRole(ctx, fill(block.role, ctx));
+        if (!role) break;
+        const holders = servers.memberIds(ctx.bot.server_id).filter((id) => servers.memberRoleIds(ctx.bot.server_id, id).includes(role.id));
+        servers.removeRole(ctx.bot.server_id, role.id);
+        rolesChanged(ctx);
+        for (const id of holders) memberChanged(ctx, id);
+        log(ctx, 'role.delete', role.name);
+        break;
+      }
+      case 'rename_role': {
+        const role = findRole(ctx, fill(block.role, ctx));
+        const name = fill(block.name, ctx).trim().slice(0, 40);
+        if (!role || !name) break;
+        servers.updateRole(ctx.bot.server_id, role.id, { name });
+        rolesChanged(ctx);
+        log(ctx, 'role.update', role.name, `renamed to ${name}`);
+        break;
+      }
+      case 'color_role': {
+        const role = findRole(ctx, fill(block.role, ctx));
+        if (!role) break;
+        servers.updateRole(ctx.bot.server_id, role.id, { color: block.color || null });
+        rolesChanged(ctx);
+        log(ctx, 'role.update', role.name, 'colour');
+        break;
+      }
       case 'invite': {
         const code = servers.createInvite(ctx.bot.server_id, ctx.bot.user_id, { maxUses: null, expiresAt: Date.now() + 86_400_000 });
         setVar(ctx.bot.id, block.name || 'invite', `/invite/${code}`);
@@ -482,11 +680,31 @@ post.onPost((event, payload) => {
         if (!trigger) continue;
         let args = [];
         if (trigger.type === 'command') {
-          const m = /^!(\S+)\s*([\s\S]*)$/.exec(message.content.trim());
+          // !name or /name
+          const m = /^[!/](\S+)\s*([\s\S]*)$/.exec(message.content.trim());
           if (!m || m[1].toLowerCase() !== trigger.name) continue;
           args = m[2].split(/\s+/).filter(Boolean);
         } else if (trigger.type !== 'message' || !matches(trigger, message.content)) continue;
         run(bot, script.blocks, { channel, message, user: message.author, args });
+      }
+    }
+  }
+  if (event === 'reaction') {
+    const { channel, message, user, emoji } = payload;
+    if (channel.type !== 'text' || user.bot) return;
+    for (const bot of enabledBots(channel.server_id)) {
+      for (const script of JSON.parse(bot.program)) {
+        const t = script.trigger;
+        if (t?.type === 'reaction' && (!t.emoji || t.emoji === emoji)) run(bot, script.blocks, { channel, message, user, emoji, args: [] });
+      }
+    }
+  }
+  if (event === 'leave') {
+    const { serverId, user } = payload;
+    const first = channels.forServer(serverId).find((c) => c.kind === 'text');
+    for (const bot of enabledBots(serverId)) {
+      for (const script of JSON.parse(bot.program)) {
+        if (script.trigger?.type === 'leave') run(bot, script.blocks, { channel: first, user, args: [] });
       }
     }
   }
@@ -514,4 +732,34 @@ setInterval(() => {
   }
 }, 60_000).unref();
 
-module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin };
+// Someone picked from a drop-down under one of a bot's messages: run its matching "menu" scripts.
+function pickFromMenu(channel, message, user, choice) {
+  const bot = db.prepare('SELECT * FROM bots WHERE user_id = ? AND enabled = 1').get(message.author_id);
+  if (!bot || bot.server_id !== channel.server_id) return false;
+  const json = messages.serialize(message);
+  let ran = false;
+  for (const script of JSON.parse(bot.program)) {
+    const t = script.trigger;
+    if (t?.type !== 'menu' || (t.text && t.text.toLowerCase() !== choice.toLowerCase())) continue;
+    ran = true;
+    run(bot, script.blocks, { channel, message: json, user: users.toUser(users.get(user.id)), choice, args: [choice] });
+  }
+  return ran;
+}
+
+// Someone clicked a button under one of a bot's messages: run that bot's matching "button" scripts.
+function clickButton(channel, message, user, label) {
+  const bot = db.prepare('SELECT * FROM bots WHERE user_id = ? AND enabled = 1').get(message.author_id);
+  if (!bot || bot.server_id !== channel.server_id) return false;
+  const json = messages.serialize(message);
+  let ran = false;
+  for (const script of JSON.parse(bot.program)) {
+    const t = script.trigger;
+    if (t?.type !== 'button' || (t.text && t.text.toLowerCase() !== label.toLowerCase())) continue;
+    ran = true;
+    run(bot, script.blocks, { channel, message: json, user: users.toUser(users.get(user.id)), button: label, args: [label] });
+  }
+  return ran;
+}
+
+module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu };

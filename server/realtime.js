@@ -40,12 +40,42 @@ function init(httpServer) {
       addSocket(userId, -1);
     });
 
+    // --- whiteboards: finished strokes are saved and shared; strokes still being drawn are only relayed ---
+    const board = (channelId) => {
+      const channel = typeof channelId === 'string' && channels.get(channelId);
+      return channel && channel.kind === 'whiteboard' && channels.canAccess(userId, channel) ? channel : null;
+    };
+    socket.on('wb:live', (data = {}) => {
+      const channel = board(data.channelId);
+      const stroke = channel && cleanStroke(data);
+      if (stroke) socket.to(serverRoom(channel.server_id)).volatile.emit('wb:live', { channelId: channel.id, key: String(data.key).slice(0, 40), userId, ...stroke });
+    });
+    socket.on('wb:stroke', (data = {}, reply) => {
+      const channel = board(data.channelId);
+      const stroke = channel && cleanStroke(data);
+      if (!stroke) return reply?.({ error: 'That stroke could not be saved.' });
+      const saved = channels.addStroke(channel.id, userId, stroke);
+      toServer(channel.server_id, 'wb:stroke', { channelId: channel.id, key: String(data.key).slice(0, 40), stroke: saved });
+      reply?.({ id: saved.id });
+    });
+    // Undo: take back one of your own strokes (admins can take back anyone's).
+    socket.on('wb:erase', ({ channelId, id } = {}) => {
+      const channel = board(channelId);
+      const row = channel && typeof id === 'string' && channels.getStroke(id);
+      if (!row || row.channel_id !== channel.id) return;
+      if (row.user_id !== userId && !['owner', 'admin'].includes(servers.roleOf(channel.server_id, userId))) return;
+      channels.removeStroke(id);
+      toServer(channel.server_id, 'wb:erase', { channelId: channel.id, id });
+    });
+
     // --- voice: the server only relays WebRTC offers/answers/candidates between people in the same room ---
     socket.emit('voice:states', voiceStatesFor(userId));
 
     socket.on('voice:join', (channelId, reply) => {
       const channel = typeof channelId === 'string' && channels.get(channelId);
-      if (!channel || channel.kind !== 'voice' || !channels.canAccess(userId, channel)) return reply?.({ error: 'Voice channel not found.' });
+      // Voice channels in servers, and calls in DMs and group DMs.
+      const callable = channel && (channel.kind === 'voice' || channel.type === 'dm');
+      if (!callable || !channels.canAccess(userId, channel)) return reply?.({ error: 'Voice channel not found.' });
       leaveVoice(socket);
       if (!voice.has(channel.id)) voice.set(channel.id, new Map());
       const room = voice.get(channel.id);
@@ -54,6 +84,10 @@ function init(httpServer) {
       socket.data.voice = channel.id;
       socket.join(voiceRoom(channel.id));
       announceVoice(channel);
+      // The first person into a DM call rings everyone else in the DM.
+      if (channel.type === 'dm' && !peers.length) {
+        for (const other of channels.dmMemberIds(channel.id)) if (other !== userId) toUser(other, 'call:ring', { channelId: channel.id, userId });
+      }
       reply?.({ self: socket.id, peers: [...room.entries()].filter(([id]) => id !== socket.id && !id.startsWith('bot:')).map(([id, p]) => ({ socketId: id, ...p })), skip: peers.length });
     });
 
@@ -79,6 +113,19 @@ function init(httpServer) {
   });
 }
 
+// A stroke from a client: points as [x, y] pairs (whole board units), a colour, a width, and whether it erases.
+function cleanStroke(data) {
+  if (!Array.isArray(data.points) || !data.points.length) return null;
+  const points = [];
+  for (const p of data.points.slice(0, 4000)) {
+    if (!Array.isArray(p) || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) return null;
+    points.push([Math.round(p[0] * 10) / 10, Math.round(p[1] * 10) / 10]);
+  }
+  const color = /^#[0-9a-f]{6}$/i.test(data.color) ? data.color : '#ffffff';
+  const size = Math.min(Math.max(Number(data.size) || 4, 1), 120);
+  return { points, color, size, erase: Boolean(data.erase) };
+}
+
 // channelId → Map(socketId → { userId, muted, deafened, speaking })
 const voice = new Map();
 const voiceRoom = (id) => `voice:${id}`;
@@ -93,12 +140,16 @@ function voiceState(channelId) {
 }
 
 function announceVoice(channel) {
-  if (channel) toServer(channel.server_id, 'voice:state', voiceState(channel.id));
+  if (!channel) return;
+  if (channel.type === 'dm') toUsers(channels.dmMemberIds(channel.id), 'voice:state', voiceState(channel.id));
+  else toServer(channel.server_id, 'voice:state', voiceState(channel.id));
 }
 
 function voiceStatesFor(userId) {
   const mine = new Set(servers.idsForUser(userId));
-  return [...voice.keys()].map((id) => channels.get(id)).filter((c) => c && mine.has(c.server_id)).map((c) => voiceState(c.id));
+  return [...voice.keys()].map((id) => channels.get(id))
+    .filter((c) => c && (c.type === 'dm' ? channels.canAccess(userId, c) : mine.has(c.server_id)))
+    .map((c) => voiceState(c.id));
 }
 
 function leaveVoice(socket) {

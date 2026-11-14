@@ -14,6 +14,8 @@ export const state = {
   online: new Set(), // user ids
   statuses: new Map(), // userId → 'online' / 'idle' / 'dnd'
   unreadNotifications: 0,
+  posts: new Map(), // postId → Post, for posts channels that have been opened
+  dmPings: new Map(), // DM channelId → unread messages from others, shown as red counts
   voice: new Map(), // voice channelId → [{ userId, muted, deafened, speaking }]
   route: { name: 'home' },
 };
@@ -48,6 +50,7 @@ export function load(data) {
   state.online = new Set(data.online).add(data.me.id);
   state.statuses = new Map(Object.entries(data.statuses || {}));
   state.unreadNotifications = data.unreadNotifications || 0;
+  state.dmPings = new Map(Object.entries(data.dmPings || {}));
   remember(data.me, ...data.relationships.map((r) => r.user), ...data.dms.flatMap(dmPeople));
 }
 
@@ -71,6 +74,7 @@ export function updateUser(user) {
 
 export function findChannel(channelId) {
   if (state.dms.has(channelId)) return state.dms.get(channelId);
+  if (state.posts.has(channelId)) return state.posts.get(channelId);
   for (const server of state.servers.values()) {
     const channel = server.channels.find((c) => c.id === channelId);
     if (channel) return channel;
@@ -84,6 +88,14 @@ export function isUnread(channel) {
 
 export function markRead(channelId, messageId) {
   if (messageId > (state.readStates[channelId] || '')) state.readStates[channelId] = messageId;
+  const channel = state.dms.get(channelId);
+  if (channel && (!channel.lastMessageId || messageId >= channel.lastMessageId)) state.dmPings.delete(channelId);
+}
+
+export function dmPingTotal() {
+  let total = 0;
+  for (const n of state.dmPings.values()) total += n;
+  return total;
 }
 
 // DMs newest first; ones just opened (no messages yet) sit at the top.
@@ -152,4 +164,21 @@ export function memberRoles(serverId, userId) {
 export function roleColor(serverId, userId) {
   if (!serverId) return null;
   return memberRoles(serverId, userId).find((role) => role.color)?.color || null;
+}
+
+// --- settings that change behaviour ---
+
+export const setting = (key, fallback) => state.me?.settings?.[key] ?? fallback;
+
+// Quiet hours: no sounds, desktop notifications or call rings between two times (it can wrap past midnight).
+export function quietNow() {
+  const q = setting('quietHours', null);
+  if (!q?.on || !q.from || !q.to) return false;
+  const now = new Date();
+  const minutes = now.getHours() * 60 + now.getMinutes();
+  const [fh, fm] = q.from.split(':').map(Number);
+  const [th, tm] = q.to.split(':').map(Number);
+  const from = fh * 60 + fm;
+  const to = th * 60 + tm;
+  return from <= to ? minutes >= from && minutes < to : minutes >= from || minutes < to;
 }

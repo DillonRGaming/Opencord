@@ -17,11 +17,30 @@ import { mountSide } from './views/side.js';
 import { mountPages } from './views/page.js';
 import { showVoice, closeVoiceView } from './views/voiceView.js';
 import { startGestures } from './gestures.js';
+import { showPosts, closePosts, loadPost } from './views/posts.js';
+import { showWhiteboard, closeWhiteboard } from './views/whiteboard.js';
+import { showCalendar, closeCalendar } from './views/calendar.js';
+import { showMusic, closeMusic } from './views/music.js';
+import { showWiki, closeWiki } from './views/wiki.js';
+import './views/ring.js';
 
 const root = document.getElementById('app');
 
 function emptyState(title, text) {
   return h('div', { class: 'empty-state' }, icon('message', 44), h('h2', {}, title), h('p', {}, text));
+}
+
+// Channel kinds that have their own view instead of a chat.
+const APPS = {
+  posts: { show: showPosts, close: closePosts },
+  whiteboard: { show: showWhiteboard, close: closeWhiteboard },
+  calendar: { show: showCalendar, close: closeCalendar },
+  music: { show: showMusic, close: closeMusic },
+  wiki: { show: showWiki, close: closeWiki },
+};
+
+function closeApps(except = null) {
+  for (const [kind, app] of Object.entries(APPS)) if (kind !== except) app.close();
 }
 
 // Decides what the main column shows for the current address.
@@ -31,6 +50,7 @@ async function showMain(main) {
   const voiceChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'voice');
   if (voiceChannel) {
     closeChat();
+    closeApps();
     return showVoice(main, voiceChannel, server.id);
   }
   closeVoiceView();
@@ -38,7 +58,20 @@ async function showMain(main) {
   if (route.name === 'server') {
     const server = state.servers.get(route.serverId);
     if (!server) return navigate(paths.home(), { replace: true, panel: 'nav' });
-    const channel = server.channels.find((c) => c.id === route.channelId && c.kind === 'text');
+    const picked = server.channels.find((c) => c.id === route.channelId);
+    closeApps(picked?.kind === 'posts' && route.postId ? null : picked?.kind);
+    const app = APPS[picked?.kind];
+    if (app && !(picked.kind === 'posts' && route.postId)) {
+      closeChat();
+      return app.show(main, picked, server.id);
+    }
+    if (picked?.kind === 'posts') {
+      const post = await loadPost(route.postId);
+      if (!post) return navigate(paths.channel(server.id, picked.id), { replace: true });
+      if (state.route.postId !== post.id) return undefined; // moved on while it loaded
+      return showChat(main, post, server.id);
+    }
+    const channel = picked?.kind === 'text' ? picked : null;
     if (channel) return showChat(main, channel, server.id);
     const first = [...server.channels].filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position)[0];
     if (first) {
@@ -48,6 +81,7 @@ async function showMain(main) {
     return main.replaceChildren();
   }
 
+  closeApps();
   if (route.name === 'dm') {
     const dm = state.dms.get(route.channelId);
     if (dm) return showChat(main, dm);
@@ -60,6 +94,7 @@ async function showMain(main) {
   }
 
   closeChat();
+  closeApps();
   return showFriends(main);
 }
 
@@ -92,6 +127,12 @@ function showApp() {
   on('route servers dms', () => showMain(content));
   on('presence', refreshPresenceDots);
   showMain(content);
+  // Opened from a message link (…?m=<id>): jump to that message once the chat is up.
+  const linked = new URLSearchParams(location.search).get('m');
+  if (linked && state.route.channelId) {
+    history.replaceState(history.state, '', location.pathname);
+    import('./views/chat.js').then((m) => m.jumpToMessage(state.route.postId || state.route.channelId, linked));
+  }
   startGestures();
   connect();
 }

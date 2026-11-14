@@ -16,6 +16,10 @@ function canReach(me, otherId) {
   if (!relationships.areFriends(me, otherId) && !servers.shareServer(me, otherId)) {
     fail(403, 'You can only message friends and people you share a server with.');
   }
+  // Their privacy setting: DMs from friends only.
+  if (users.settingOf(otherId, 'dmsFrom', 'servers') === 'friends' && !relationships.areFriends(me, otherId) && !users.get(me).is_bot) {
+    fail(403, 'They only take messages from friends.');
+  }
 }
 
 router.post('/', (req, res) => {

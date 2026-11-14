@@ -87,7 +87,7 @@ function swipeNavigation() {
 
 // --- elastic overscroll ---
 
-const SCROLLERS = '.scroller, .sidebar-scroll, .side-body, .page-scroll, .rail, .settings-nav, .menu, .emoji-picker-grid, .notification-list';
+const SCROLLERS = '.scroller, .sidebar-scroll, .side-body, .page-scroll, .rail, .settings-nav, .settings-main, .wiki-items, .menu, .emoji-picker-grid, .notification-list';
 const PULL = 0.35; // how much of the finger's movement the content follows past the end
 const MAX_PULL = 90;
 

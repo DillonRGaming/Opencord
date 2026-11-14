@@ -81,6 +81,18 @@ function render() {
     h('div', { class: 'main-title' }, icon('volume', 18), h('span', {}, channel.name)),
     h('div', { class: 'main-spacer' }));
 
+  if (view.compact) view.root.hidden = !inCall && !people.length;
+  if (!inCall && view.compact) {
+    // A DM: just a slim bar saying who's in the call, with a button to join.
+    view.tiles.clear();
+    const names = people.map((p) => state.users.get(p.userId)?.displayName || 'Someone');
+    view.root.replaceChildren(...(people.length ? [h('div', { class: 'call-bar' },
+      h('span', { class: 'call-bar-faces' }, people.slice(0, 4).map((p) => avatar(state.users.get(p.userId) || { id: p.userId, displayName: '?' }, { size: 28 }))),
+      h('span', { class: 'call-bar-text' }, `${names.slice(0, 3).join(', ')} ${people.length === 1 ? 'is' : 'are'} in a call`),
+      h('button', { type: 'button', class: 'button accent small', disabled: voice.connecting, onclick: () => joinVoice(channel) },
+        icon('phone', 16), voice.connecting ? 'Joining…' : 'Join'))] : []));
+    return;
+  }
   if (!inCall) {
     view.tiles.clear();
     view.root.replaceChildren(header, h('div', { class: 'vc-lobby' },
@@ -98,7 +110,7 @@ function render() {
   let grid = view.root.querySelector('.vc-grid');
   if (!grid) {
     grid = h('div', { class: 'vc-grid' });
-    view.root.replaceChildren(h('div', { class: 'vc-call' }, iconButton('back', 'Back', () => showNav(), 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls()));
+    view.root.replaceChildren(h('div', { class: 'vc-call' }, !view.compact && iconButton('back', 'Back', () => showNav(), 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls()));
   } else {
     view.root.querySelector('.vc-bar').replaceWith(controls());
   }
@@ -139,6 +151,12 @@ on('voice voice:media voice:speaking users', render);
 
 export function closeVoiceView() {
   view = null;
+}
+
+// The call area at the top of a DM: hidden with no call, a bar when others are in one, the full call once you join.
+export function mountCallStage(el, channel) {
+  view = { channel, serverId: null, tiles: new Map(), focus: null, compact: true, root: el };
+  render();
 }
 
 export function showVoice(container, channel, serverId) {

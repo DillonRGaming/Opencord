@@ -1,9 +1,9 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { state } from '../store.js';
-import { logout } from '../actions.js';
+import { logout, listAccounts, switchAccount, addAccount } from '../actions.js';
 import { formatDate } from '../format.js';
-import { avatar, button, field, form, settingRow, settingsCard, settingsHero, toast } from '../ui.js';
+import { attempt, avatar, button, field, form, settingRow, settingsCard, settingsHero, toast } from '../ui.js';
 
 export function accountPage() {
   const { me } = state;
@@ -22,6 +22,21 @@ export function accountPage() {
           toast('Password changed. Other devices have been logged out.', 'ok');
         },
       }, field('Current password', current), field('New password', next))),
-    settingsCard('Session', settingRow('Log out of this device', button('Log out', logout, 'danger'))),
+    accountsCard(),
+    settingsCard('Session', settingRow('Log out of this account', button('Log out', logout, 'danger'))),
   ];
+}
+
+// Every account logged in on this browser. Each keeps its own settings, DMs and servers; switching reloads.
+function accountsCard() {
+  const list = h('div', { class: 'manage-list' }, h('p', { class: 'loading' }, 'Loading…'));
+  listAccounts().then((accounts) => {
+    list.replaceChildren(...accounts.map((user) => h('div', { class: 'manage-row' },
+      avatar(user, { size: 36 }),
+      h('span', { class: 'manage-main' }, h('strong', {}, user.displayName), h('span', {}, `@${user.username}`)),
+      h('span', { class: 'manage-actions always' }, user.current
+        ? h('span', { class: 'member-tag' }, 'Open now')
+        : button('Switch', () => attempt(() => switchAccount(user.id)), 'ghost small')))));
+  }).catch(() => list.replaceChildren());
+  return settingsCard('Accounts on this device', list, h('div', {}, button('Add an account', () => addAccount(), 'primary small')));
 }

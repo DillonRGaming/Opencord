@@ -6,6 +6,10 @@ const channels = require('./channels');
 const attachments = require('./attachments');
 
 const REPLY_PREVIEW = 200;
+// Very long messages (from before the 1000-character limit) are sent cut short; the rest is fetched only
+// when someone clicks "Show more".
+const LONG = 2000;
+const LONG_PREVIEW = 1200;
 
 // emoji → [userId…] for each message, in the order the emoji were first used.
 function reactionsByMessage(ids) {
@@ -36,7 +40,8 @@ function repliesById(ids) {
 function serializeAll(rows) {
   const ids = rows.map((row) => row.id);
   const authors = users.mapByIds(rows.map((row) => row.author_id));
-  const files = attachments.mapByMessageIds(ids);
+  // A copy in a linked channel shows the original's files.
+  const files = attachments.mapByMessageIds([...ids, ...rows.map((row) => row.relay_of).filter(Boolean)]);
   const reactions = reactionsByMessage(ids);
   const replies = repliesById(rows.map((row) => row.reply_to_id));
   const polls = pollsById(ids);
@@ -44,14 +49,17 @@ function serializeAll(rows) {
     id: row.id,
     channelId: row.channel_id,
     author: authors.get(row.author_id),
-    content: row.content,
-    attachments: files.get(row.id) || [],
+    content: row.content.length > LONG ? row.content.slice(0, LONG_PREVIEW) : row.content,
+    ...(row.content.length > LONG ? { truncated: true, length: row.content.length } : {}),
+    attachments: files.get(row.relay_of || row.id) || [],
+    relay: row.relay ? JSON.parse(row.relay) : null,
     // A reply whose original was deleted keeps replyTo: { id, deleted: true }.
     replyTo: row.reply_to_id ? (replies.get(row.reply_to_id) || { id: row.reply_to_id, deleted: true }) : null,
     reactions: [...(reactions.get(row.id) || [])].map(([emoji, userIds]) => ({ emoji, userIds })),
     pinned: row.pinned_at != null,
     embeds: row.embeds ? JSON.parse(row.embeds) : [],
     poll: polls.get(row.id) || null,
+    components: row.components ? JSON.parse(row.components) : null,
     editedAt: row.edited_at,
     createdAt: row.created_at,
   }));
@@ -169,7 +177,17 @@ const remove = db.transaction((message) => {
   `).run(message.channel_id, message.channel_id, message.id);
 });
 
+function copiesOf(id) {
+  return db.prepare('SELECT * FROM messages WHERE relay_of = ?').all(id);
+}
+
+function setComponents(id, components) {
+  db.prepare('UPDATE messages SET components = ? WHERE id = ?').run(JSON.stringify(components), id);
+  return get(id);
+}
+
 module.exports = {
+  setComponents, copiesOf,
   serializeAll,
   createPoll, getPoll, vote, setEmbeds, newest,
   serialize, get, list, create, edit, setPinned, pinned, search, react, unreact, hasAttachments, remove,

@@ -64,8 +64,73 @@ function get(id) {
   return db.prepare('SELECT * FROM channels WHERE id = ?').get(id);
 }
 
+// A server's channels, not counting posts (those live inside their posts channel).
 function forServer(serverId) {
-  return db.prepare('SELECT * FROM channels WHERE server_id = ? ORDER BY position, id').all(serverId);
+  return db.prepare("SELECT * FROM channels WHERE server_id = ? AND kind != 'post' ORDER BY position, id").all(serverId);
+}
+
+// --- posts ---
+
+function toPost(row) {
+  const stats = db.prepare('SELECT COUNT(*) AS n FROM messages WHERE channel_id = ?').get(row.id);
+  const first = db.prepare('SELECT content, author_id FROM messages WHERE channel_id = ? ORDER BY id LIMIT 1').get(row.id);
+  const image = db.prepare(`SELECT attachments.id, attachments.name FROM attachments JOIN messages ON messages.id = attachments.message_id
+    WHERE messages.channel_id = ? AND attachments.kind = 'image' ORDER BY messages.id LIMIT 1`).get(row.id);
+  return {
+    ...toChannel(row),
+    title: row.name,
+    authorId: row.owner_id,
+    createdAt: row.created_at,
+    replies: Math.max(0, stats.n - 1),
+    preview: (first?.content || '').slice(0, 300),
+    image: image ? `/media/attachments/${image.id}/${encodeURIComponent(image.name)}` : null,
+  };
+}
+
+// Newest activity first.
+function posts(parentId) {
+  return db.prepare("SELECT * FROM channels WHERE parent_id = ? AND kind = 'post' ORDER BY COALESCE(last_message_id, id) DESC LIMIT 200")
+    .all(parentId).map(toPost);
+}
+
+function createPost(parent, authorId, title) {
+  const id = newId();
+  db.prepare(`INSERT INTO channels (id, server_id, type, kind, parent_id, name, owner_id, position, created_at)
+    VALUES (?, ?, 'text', 'post', ?, ?, ?, 0, ?)`).run(id, parent.server_id, parent.id, title, authorId, Date.now());
+  return get(id);
+}
+
+function postIds(parentId) {
+  return db.prepare("SELECT id FROM channels WHERE parent_id = ? AND kind = 'post'").all(parentId).map((r) => r.id);
+}
+
+// --- whiteboards ---
+
+function strokes(channelId) {
+  return db.prepare('SELECT id, user_id, data FROM whiteboard_strokes WHERE channel_id = ? ORDER BY id').all(channelId)
+    .map((row) => ({ id: row.id, userId: row.user_id, ...JSON.parse(row.data) }));
+}
+
+function addStroke(channelId, userId, stroke) {
+  const id = newId();
+  db.prepare('INSERT INTO whiteboard_strokes (id, channel_id, user_id, data, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(id, channelId, userId, JSON.stringify(stroke), Date.now());
+  // Keep boards to a sane size: the oldest strokes go first.
+  db.prepare(`DELETE FROM whiteboard_strokes WHERE channel_id = ? AND id NOT IN
+    (SELECT id FROM whiteboard_strokes WHERE channel_id = ? ORDER BY id DESC LIMIT 20000)`).run(channelId, channelId);
+  return { id, userId, ...stroke };
+}
+
+function getStroke(id) {
+  return db.prepare('SELECT * FROM whiteboard_strokes WHERE id = ?').get(id);
+}
+
+function removeStroke(id) {
+  db.prepare('DELETE FROM whiteboard_strokes WHERE id = ?').run(id);
+}
+
+function clearStrokes(channelId) {
+  db.prepare('DELETE FROM whiteboard_strokes WHERE channel_id = ?').run(channelId);
 }
 
 function create(serverId, name, { kind = 'text', parentId = null } = {}) {
@@ -147,6 +212,18 @@ function readStates(userId) {
   return Object.fromEntries(rows.map((row) => [row.channel_id, row.last_read_id]));
 }
 
+// Unread messages from other people in each of someone's DMs: { channelId → count } (counts stop at 100).
+function dmUnreadCounts(userId) {
+  const rows = db.prepare(`
+    SELECT m.channel_id, MIN(COUNT(*), 100) AS n FROM dm_members d
+    JOIN messages m ON m.channel_id = d.channel_id
+    LEFT JOIN read_states r ON r.user_id = d.user_id AND r.channel_id = d.channel_id
+    WHERE d.user_id = ? AND m.author_id != ? AND (r.last_read_id IS NULL OR m.id > r.last_read_id)
+    GROUP BY m.channel_id
+  `).all(userId, userId);
+  return Object.fromEntries(rows.map((row) => [row.channel_id, row.n]));
+}
+
 // Read states only move forwards.
 function ack(userId, channelId, messageId) {
   db.prepare(`
@@ -159,5 +236,6 @@ module.exports = {
   createGroup, addDmMember, removeDmMember, setGroup,
   reorder, slowmodeWait, notePost,
   toChannel, serialize, get, forServer, create, update, remove,
-  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, readStates, ack,
+  toPost, posts, createPost, postIds, strokes, addStroke, getStroke, removeStroke, clearStrokes,
+  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, readStates, ack, dmUnreadCounts,
 };

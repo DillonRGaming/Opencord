@@ -180,6 +180,8 @@ function linksIn(content) {
   for (const m of text.matchAll(/(<)?(https?:\/\/[^\s<>]+)/gi)) {
     if (m[1]) continue;
     const url = m[2].replace(/[.,!?;:)\]'"]+$/, '');
+    // Links to an Opencord message show as a quote in the app, not as a web preview.
+    if (/\/channels\/[^?\s]+\?m=[\w-]+$/.test(url)) continue;
     if (!out.includes(url)) out.push(url);
     if (out.length >= MAX_LINKS) break;
   }
@@ -200,4 +202,4 @@ async function image(raw) {
   return res;
 }
 
-module.exports = { forContent, linksIn, image, blockedAddress };
+module.exports = { forContent, linksIn, image, blockedAddress, preview, youtubeId, get };

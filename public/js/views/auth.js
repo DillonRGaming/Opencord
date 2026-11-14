@@ -22,8 +22,9 @@ function showcase() {
 }
 
 // The log in / create account screen. With an invite, it shows the server first and joins after signing in.
-export function showAuth(root, invite) {
-  let mode = 'register';
+// With `add`, it's adding another account to this browser: the open one stays logged in, to switch back to.
+export function showAuth(root, invite, { add = false } = {}) {
+  let mode = add ? 'login' : 'register';
 
   async function finish() {
     if (!invite) {
@@ -54,7 +55,7 @@ export function showAuth(root, invite) {
         submit.disabled = true;
         try {
           // A new account's display name starts as its username; it can be changed in settings.
-          const body = { username: username.control.value.trim(), password: password.control.value };
+          const body = { username: username.control.value.trim(), password: password.control.value, add };
           await api.post(login ? '/api/auth/login' : '/api/auth/register', body);
           await finish();
         } catch (err) {
@@ -68,13 +69,15 @@ export function showAuth(root, invite) {
       h('main', { class: 'auth-main' },
         h('div', { class: 'auth-brand' }, icon('logo', 28), 'Opencord'),
         h('div', { class: 'auth-body' },
-          h('h1', { class: 'auth-title' }, login ? 'Welcome back' : 'Sign up'),
-          h('p', { class: 'auth-lead' }, invite ? "You've been invited to join" : login ? 'Log in to pick up where you left off.' : 'Make an account. It takes ten seconds.'),
+          h('h1', { class: 'auth-title' }, add ? (login ? 'Add an account' : 'Make another account') : login ? 'Welcome back' : 'Sign up'),
+          h('p', { class: 'auth-lead' }, add ? 'You stay logged in to your other accounts and can switch between them any time.'
+            : invite ? "You've been invited to join" : login ? 'Log in to pick up where you left off.' : 'Make an account. It takes ten seconds.'),
           invite && inviteCard(invite),
           form,
           h('p', { class: 'auth-switch' }, login ? 'New here? ' : 'Already have an account? ',
             h('button', { type: 'button', onclick: () => { mode = login ? 'register' : 'login'; render(); } },
-              login ? 'Create an account' : 'Log in')))),
+              login ? 'Create an account' : 'Log in')),
+          add && h('p', { class: 'auth-switch' }, h('button', { type: 'button', onclick: () => location.reload() }, 'Back to Opencord')))),
       showcase()));
     username.control.focus();
   }

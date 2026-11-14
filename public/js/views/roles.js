@@ -4,7 +4,9 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, memberRoles, roleOf, canModerate } from '../store.js';
 import { showMenu } from '../contextMenu.js';
-import { attempt, button, iconButton, segmented, settingRow, settingsCard, toast } from '../ui.js';
+import { attempt, avatar, button, confirmButton, iconButton } from '../ui.js';
+import { colorField } from '../colorPicker.js';
+import { ensureMembers } from './members.js';
 
 const COLORS = ['#e3a3a3', '#e0a07e', '#d6bb84', '#c8cf9e', '#a9c79a', '#8fc1d6', '#a99bf0', '#d6a8c8', '#b9bdb5'];
 
@@ -58,16 +60,30 @@ export function roleChips(serverId, user) {
 
 // --- server settings ---
 
+let openRoleId = null; // the role whose editor is open in settings
+let memberQuery = '';
+
+function switchButton(on, onChange, label, disabled = false) {
+  return h('button', {
+    type: 'button', class: `switch${on ? ' on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': label, disabled,
+    onclick: () => onChange(!on),
+  }, h('span', { class: 'switch-knob' }));
+}
+
+// A compact list of roles; tapping one opens its editor underneath (name, colour, switches and who has it).
 export function rolesSection(serverId) {
   const server = state.servers.get(serverId);
   const roles = server.roles || [];
   const owner = isOwner(serverId);
-  const members = state.members.get(serverId) || [];
-  const count = (role) => members.filter((m) => m.roleIds?.includes(role.id)).length;
+  ensureMembers(serverId);
+  const members = (state.members.get(serverId) || []).filter((m) => !m.user.bot);
+  const holders = (role) => members.filter((m) => m.roleIds?.includes(role.id));
+  if (openRoleId && !roles.some((r) => r.id === openRoleId)) openRoleId = null;
 
+  const redraw = () => document.querySelector('.settings-layout')?.dispatchEvent(new Event('redraw'));
   const create = () => attempt(async () => {
-    await api.post(`/api/servers/${serverId}/roles`, { name: 'New role', color: COLORS[roles.length % COLORS.length] });
-    toast('Role created. Give it a name below.', 'ok');
+    const role = await api.post(`/api/servers/${serverId}/roles`, { name: 'New role', color: COLORS[roles.length % COLORS.length] });
+    openRoleId = role.id;
   });
   const move = (index, by) => attempt(async () => {
     const ids = roles.map((r) => r.id);
@@ -75,37 +91,82 @@ export function rolesSection(serverId) {
     await api.put(`/api/servers/${serverId}/roles/order`, { ids });
   });
 
-  const roleCard = (role, index) => {
+  const editor = (role, index) => {
     const locked = role.admin && !owner;
     const save = (fields) => attempt(() => api.patch(`/api/servers/${serverId}/roles/${role.id}`, fields));
     const name = h('input', {
-      class: 'input inline-input', value: role.name, maxLength: 40, disabled: locked, 'aria-label': 'Role name',
+      class: 'input', value: role.name, maxLength: 40, disabled: locked, 'aria-label': 'Role name',
       onchange: () => name.value.trim() && save({ name: name.value.trim() }),
+      onkeydown: (event) => { if (event.key === 'Enter') name.blur(); },
     });
-    const color = h('input', { class: 'color-input', type: 'color', value: role.color || '#b9bdb5', disabled: locked, onchange: () => save({ color: color.value }) });
-    return h('div', { class: 'role-row', style: role.color ? { '--role': role.color } : null },
-      h('div', { class: 'role-row-head' },
-        swatch(role.color), name,
-        h('span', { class: 'role-count' }, `${count(role)} member${count(role) === 1 ? '' : 's'}`),
-        h('span', { class: 'manage-actions always' },
-          iconButton('arrowUp', 'Move up', () => move(index, -1), index === 0 ? 'hidden-action' : ''),
-          iconButton('arrowDown', 'Move down', () => move(index, 1), index === roles.length - 1 ? 'hidden-action' : ''),
-          !locked && iconButton('trash', `Delete ${role.name}`, () => attempt(() => api.del(`/api/servers/${serverId}/roles/${role.id}`)), 'danger'))),
-      !locked && h('div', { class: 'role-row-body' },
-        settingRow('Colour', [color, h('div', { class: 'role-colors' }, COLORS.map((c) => h('button', {
-          type: 'button', class: 'role-color', style: { background: c }, title: c, 'aria-label': `Colour ${c}`, onclick: () => save({ color: c }),
-        })), button('None', () => save({ color: null }), 'ghost small'))]),
-        settingRow('List separately', segmented([[true, 'Yes'], [false, 'No']], role.hoist, (v) => save({ hoist: v }))),
-        owner && settingRow('Admin powers', segmented([[true, 'Yes'], [false, 'No']], role.admin, (v) => save({ admin: v })))));
+    const has = holders(role);
+    const canEdit = canGive(serverId, role);
+    const others = members.filter((m) => !m.roleIds?.includes(role.id) && canEditRolesOf(serverId, m.user.id));
+    const results = h('div', { class: 'role-add-list' });
+    const drawResults = () => {
+      const q = memberQuery.trim().toLowerCase();
+      const found = q ? others.filter((m) => `${m.user.displayName} ${m.user.username}`.toLowerCase().includes(q)).slice(0, 8) : [];
+      results.replaceChildren(...found.map((m) => h('button', {
+        type: 'button', class: 'role-add-person', onclick: () => { memberQuery = ''; setRole(serverId, m.user.id, role.id, true); },
+      }, avatar(m.user, { size: 24 }), h('span', {}, m.user.displayName), icon('plus', 15))));
+    };
+    const search = h('input', {
+      class: 'input', placeholder: others.length ? 'Add someone…' : 'Everyone has this role', disabled: !canEdit || !others.length,
+      value: memberQuery, 'aria-label': 'Add someone to this role',
+      oninput: () => { memberQuery = search.value; drawResults(); },
+    });
+    drawResults();
+
+    return h('div', { class: 'role-editor' },
+      h('div', { class: 'role-edit-top' },
+        colorField({ value: role.color, allowNone: true, disabled: locked, label: 'Role colour', onChange: (c) => save({ color: c }) }),
+        name),
+      h('div', { class: 'role-switches' },
+        h('label', { class: 'role-switch' }, h('span', {}, 'Show separately in the member list'),
+          switchButton(role.hoist, (v) => save({ hoist: v }), 'Show separately', locked)),
+        h('label', { class: 'role-switch' }, h('span', {}, 'Anyone can @mention this role'),
+          switchButton(role.mentionable, (v) => save({ mentionable: v }), 'Mentionable', locked)),
+        owner && h('label', { class: 'role-switch' }, h('span', {}, 'Admin powers'),
+          switchButton(role.admin, (v) => save({ admin: v }), 'Admin powers'))),
+      h('div', { class: 'role-people' },
+        h('div', { class: 'role-people-title' }, `People · ${has.length}`),
+        has.length > 0 && h('div', { class: 'role-chips' }, has.map((m) => h('span', { class: 'role-chip person' },
+          avatar(m.user, { size: 18 }), h('span', {}, m.user.displayName),
+          canEdit && canEditRolesOf(serverId, m.user.id) && h('button', {
+            type: 'button', class: 'role-chip-x', title: `Take ${role.name} from ${m.user.displayName}`, 'aria-label': `Remove ${m.user.displayName}`,
+            onclick: () => setRole(serverId, m.user.id, role.id, false),
+          }, icon('x', 12))))),
+        canEdit && search, results),
+      h('div', { class: 'role-edit-actions' },
+        iconButton('arrowUp', 'Move up', () => move(index, -1), index === 0 ? 'hidden-action' : ''),
+        iconButton('arrowDown', 'Move down', () => move(index, 1), index === roles.length - 1 ? 'hidden-action' : ''),
+        h('span', { class: 'main-spacer' }),
+        !locked && confirmButton({
+          label: 'Delete role', confirmLabel: 'Delete it?', className: 'button ghost small',
+          onConfirm: () => api.del(`/api/servers/${serverId}/roles/${role.id}`),
+        })));
+  };
+
+  const row = (role, index) => {
+    const open = openRoleId === role.id;
+    return h('div', { class: `role-item${open ? ' open' : ''}` },
+      h('button', {
+        type: 'button', class: 'role-head', 'aria-expanded': String(open),
+        onclick: () => { openRoleId = open ? null : role.id; memberQuery = ''; redraw(); },
+      }, swatch(role.color),
+      h('span', { class: 'role-name', style: role.color ? { color: role.color } : null }, role.name),
+      role.admin && icon('shield', 14),
+      h('span', { class: 'role-count' }, String(holders(role).length)),
+      icon('chevronDown', 16)),
+      open && editor(role, index));
   };
 
   return [
-    settingsCard(null, h('p', { class: 'muted' }, 'Roles give people a coloured name and can list them separately. The highest role with a colour wins.'),
-      h('div', {}, button('Create role', create, 'primary small'))),
-    roles.length
-      ? settingsCard('Roles — highest first', h('div', { class: 'role-list' }, roles.map(roleCard)))
-      : settingsCard('Roles', h('div', { class: 'empty-state small' }, h('span', { class: 'empty-icon' }, icon('tag', 22)), h('strong', {}, 'No roles yet'))),
-    settingsCard('Give roles', h('p', { class: 'muted' }, 'Open someone’s profile and use the + under Roles, or the tag button next to them under Members.')),
+    h('section', { class: 'settings-card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'settings-card-title' }, 'Roles'), button('Create role', create, 'primary small')),
+      roles.length
+        ? h('div', { class: 'role-list' }, roles.map(row))
+        : h('div', { class: 'empty-state small' }, h('span', { class: 'empty-icon' }, icon('tag', 22)), h('strong', {}, 'No roles yet'))),
   ];
 }
 

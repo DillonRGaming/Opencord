@@ -3,6 +3,8 @@ import { state } from '../store.js';
 import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, FONTS, THEMES } from '../theme.js';
 import { button, segmented, settingRow, settingsCard } from '../ui.js';
+import { colorField } from '../colorPicker.js';
+import { LANGUAGES, targetLanguage } from '../translate.js';
 
 // Colours for the little theme previews: background, panel, raised.
 const PREVIEW = {
@@ -35,7 +37,12 @@ function choices(values, build) {
   return { elements: buttons.map(([, el]) => el), press };
 }
 
-const settingsNow = () => ({ ...DEFAULTS, ...state.me.settings });
+// Defaults for settings that aren't about looks (kept apart so "Reset appearance" leaves them alone).
+const OTHER_DEFAULTS = {
+  timestamps: 'hover', jumboEmoji: true, spoilers: 'click', linkPreviews: true, mediaSize: 'normal', underlineLinks: false,
+  sendKey: 'enter', showTyping: true, translateAuto: false, bubbles: false, dmsFrom: 'servers', sendTyping: true, friendRequestsFrom: 'everyone',
+};
+const settingsNow = () => ({ ...DEFAULTS, ...OTHER_DEFAULTS, ...state.me.settings });
 
 export function appearancePage() {
   const current = settingsNow();
@@ -47,13 +54,13 @@ export function appearancePage() {
     PREVIEW[theme.id].slice(1).map((color) => h('span', { style: { background: color } }))), theme.name));
   themes.press(THEMES.find((theme) => theme.id === document.documentElement.dataset.theme));
 
-  const picker = h('input', {
-    class: 'color-input', type: 'color', value: current.accent, title: 'Pick any colour',
-    oninput: () => { accents.press(picker.value); changeSettings({ accent: picker.value }); },
+  const picker = colorField({
+    value: current.accent, label: 'Pick any colour',
+    onChange: (c) => { accents.press(c); changeSettings({ accent: c }); },
   });
   const accents = choices(ACCENTS, (color) => h('button', {
     type: 'button', class: 'swatch', style: { background: color }, title: color, 'aria-label': `Accent ${color}`,
-    onclick: () => { accents.press(color); picker.value = color; changeSettings({ accent: color }); },
+    onclick: () => { accents.press(color); picker.value = color; picker.style.background = color; changeSettings({ accent: color }); },
   }));
   accents.press(current.accent);
 
@@ -79,11 +86,47 @@ export function chatPage() {
   const current = settingsNow();
   return [
     settingsCard('Messages',
+      settingRow('Your messages', option('bubbles', [[false, 'On the left, like everyone’s'], [true, 'On the right, like a messenger']], current)),
       settingRow('Message spacing', option('density', [['cozy', 'Cozy'], ['compact', 'Compact']], current)),
-      settingRow('Clock', option('clock', [['auto', 'Auto'], ['12', '12-hour'], ['24', '24-hour']], current))),
+      settingRow('Clock', option('clock', [['auto', 'Auto'], ['12', '12-hour'], ['24', '24-hour']], current)),
+      settingRow('Times on grouped messages', option('timestamps', [['hover', 'On hover'], ['always', 'Always']], current)),
+      settingRow('Emoji-only messages', option('jumboEmoji', [[true, 'Big'], [false, 'Normal size']], current)),
+      settingRow('Spoilers', option('spoilers', [['click', 'Hidden until clicked'], ['always', 'Always shown']], current))),
+    settingsCard('Media and links',
+      settingRow('Link previews', option('linkPreviews', [[true, 'Show'], [false, 'Hide']], current)),
+      settingRow('Picture size', option('mediaSize', [['small', 'Small'], ['normal', 'Normal'], ['large', 'Large']], current)),
+      settingRow('Underline links', option('underlineLinks', [[false, 'No'], [true, 'Yes']], current))),
+    settingsCard('Typing',
+      settingRow('Send with', option('sendKey', [['enter', 'Enter'], ['ctrlEnter', 'Ctrl + Enter']], current)),
+      settingRow('Show who is typing', option('showTyping', [[true, 'Show'], [false, 'Hide']], current))),
     settingsCard('Avatars',
       settingRow('Avatars in chat', option('chatAvatars', [[true, 'Show'], [false, 'Hide']], current)),
       settingRow('Avatar shape', option('avatarShape', [['round', 'Round'], ['square', 'Rounded square']], current))),
+  ];
+}
+
+export function translationPage() {
+  const current = settingsNow();
+  const to = h('select', { class: 'input', 'aria-label': 'Translate into', onchange: () => changeSettings({ translateTo: to.value }) },
+    LANGUAGES.map(([code, name]) => h('option', { value: code, selected: code === targetLanguage() }, name)));
+  return [
+    settingsCard('Translation',
+      settingRow('Translate into', to),
+      settingRow('Translate other languages automatically', option('translateAuto', [[false, 'Off'], [true, 'On']], current)),
+      h('p', { class: 'muted' }, 'With it on, every message in another language shows in yours, with a "Show original" link. '
+        + 'You can also translate any message by hand from its tools (the 文A button), picking both languages or letting it detect the first. '
+        + 'Text being translated is sent to Google Translate.')),
+  ];
+}
+
+export function privacyPage() {
+  const current = settingsNow();
+  return [
+    settingsCard('Messages',
+      settingRow('Who can DM you', option('dmsFrom', [['servers', 'Friends and server members'], ['friends', 'Friends only']], current)),
+      settingRow('Let others see when you’re typing', option('sendTyping', [[true, 'Yes'], [false, 'No']], current))),
+    settingsCard('Friends',
+      settingRow('Who can send you friend requests', option('friendRequestsFrom', [['everyone', 'Everyone'], ['servers', 'People in my servers'], ['nobody', 'Nobody']], current))),
   ];
 }
 
@@ -107,6 +150,17 @@ export function customCssPage() {
   return [settingsCard('Your CSS', css)];
 }
 
+// No sounds, desktop notifications or call rings between two times.
+function quietHoursCard(current) {
+  const q = { on: false, from: '22:00', to: '08:00', ...(current.quietHours || {}) };
+  const save = () => changeSettings({ quietHours: { ...q } });
+  const from = h('input', { class: 'input time-input', type: 'time', value: q.from, onchange: () => { q.from = from.value; save(); } });
+  const to = h('input', { class: 'input time-input', type: 'time', value: q.to, onchange: () => { q.to = to.value; save(); } });
+  return settingsCard('Quiet hours',
+    settingRow('Quiet hours', segmented([[true, 'On'], [false, 'Off']], q.on, (value) => { q.on = value; save(); })),
+    settingRow('From', from), settingRow('Until', to));
+}
+
 export function notificationsPage() {
   const current = settingsNow();
   const status = h('span', { class: 'range-value' }, 'Notification' in window ? Notification.permission.replace('default', 'not asked yet') : 'not supported');
@@ -123,5 +177,10 @@ export function notificationsPage() {
       }, 'ghost small')])),
     settingsCard('Sound',
       settingRow('Play a sound', segmented([[true, 'On'], [false, 'Off']], current.notificationSound !== false, (value) => changeSettings({ notificationSound: value })))),
+    settingsCard('Direct messages',
+      settingRow('Notify me about new DMs', segmented([[true, 'On'], [false, 'Off']], current.dmNotifications !== false, (value) => changeSettings({ dmNotifications: value }))),
+      settingRow('Red counts on unread DMs', segmented([[true, 'Show'], [false, 'Hide']], current.dmPings !== false, (value) => changeSettings({ dmPings: value }))),
+      settingRow('Ring when someone calls', segmented([[true, 'On'], [false, 'Off']], current.callRing !== false, (value) => changeSettings({ callRing: value })))),
+    quietHoursCard(current),
   ];
 }

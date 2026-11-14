@@ -88,10 +88,44 @@ export function confirmButton({ label, confirmLabel, onConfirm, face = label, cl
   return el;
 }
 
-export function toast(message, kind = 'error') {
-  const el = h('div', { class: `toast ${kind}`, role: 'status' }, message);
-  document.getElementById('layers').append(el);
-  setTimeout(() => el.remove(), 4500);
+// Feedback ("Copied.", an error) shows up inline, right where you did the thing: in the message box when it
+// came from the chat, or as a line at the bottom of the card, form or panel you were using. Nothing floats.
+let lastTarget = null;
+document.addEventListener('pointerdown', (event) => {
+  // A click in a menu doesn't count: the menu closes, so the thing it was opened on is the better place.
+  if (!event.target.closest?.('.menu, .emoji-picker, .color-picker')) lastTarget = event.target;
+}, true);
+document.addEventListener('keydown', () => {
+  if (document.activeElement && document.activeElement !== document.body) lastTarget = document.activeElement;
+}, true);
+
+const NOTICE_HOSTS = '.settings-card, .post-draft, .wiki-editor, .wiki-page, .event-card, .music-now, .music-queue, .role-editor, '
+  + '.add-friend, .friend, .side-body, .vc-call, .vc-lobby, .user-panel, .sidebar-scroll, .page-scroll, .ring-card, .main-header';
+
+function noticeHost(anchor) {
+  const el = anchor?.isConnected ? anchor : null;
+  const chat = el?.closest('.chat') || (!el && document.querySelector('.column-content .chat'));
+  const composer = chat?.querySelector('.composer');
+  if (composer) return { composer };
+  const host = el?.closest(NOTICE_HOSTS) || document.querySelector('.page-open .page-scroll, .column-content .page-scroll, .column-content .main-header');
+  return { host };
+}
+
+export function toast(message, kind = 'error', anchor = lastTarget) {
+  if (!message) return;
+  const { composer, host } = noticeHost(anchor);
+  if (composer) {
+    composer.dispatchEvent(new CustomEvent('notice', { detail: { message, kind } }));
+    return;
+  }
+  if (!host) return;
+  const note = h('p', { class: `inline-notice ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, message);
+  // One notice per place: a new one replaces the last.
+  const box = host.matches('.main-header') ? host.parentElement : host;
+  box.querySelector(':scope > .inline-notice')?.remove();
+  if (host.matches('.main-header')) host.after(note);
+  else box.append(note);
+  setTimeout(() => note.remove(), kind === 'error' ? 7000 : 3500);
 }
 
 // Runs an async action from a click handler and shows a toast if it fails.

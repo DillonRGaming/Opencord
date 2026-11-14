@@ -2,7 +2,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { openPage } from './page.js';
 import { profilePage } from './settingsProfile.js';
-import { appearancePage, chatPage, accessibilityPage, customCssPage, notificationsPage } from './settingsAppearance.js';
+import { appearancePage, chatPage, accessibilityPage, customCssPage, notificationsPage, privacyPage, translationPage } from './settingsAppearance.js';
 import { accountPage } from './settingsAccount.js';
 
 // [heading, [[id, label, build, search words]]]
@@ -10,11 +10,13 @@ const GROUPS = [
   ['User settings', [
     ['account', 'My Account', accountPage, 'password log out username'],
     ['profile', 'Profile', profilePage, 'avatar display name status about bio banner'],
+    ['privacy', 'Privacy', privacyPage, 'dms direct messages friend requests typing block'],
   ]],
   ['App settings', [
     ['appearance', 'Appearance', appearancePage, 'theme colour color accent font size text corners spacing sidebar dark light'],
-    ['chat', 'Chat', chatPage, 'messages compact cozy clock time avatars'],
-    ['notifications', 'Notifications', notificationsPage, 'desktop sound alerts mentions'],
+    ['chat', 'Chat', chatPage, 'messages compact cozy clock time avatars previews spoilers enter send typing pictures links emoji'],
+    ['translation', 'Translation', translationPage, 'translate language auto detect'],
+    ['notifications', 'Notifications', notificationsPage, 'desktop sound alerts mentions dms ring calls quiet hours'],
     ['accessibility', 'Accessibility', accessibilityPage, 'contrast animations motion'],
     ['css', 'Custom CSS', customCssPage, 'style code wallpaper'],
   ]],
@@ -32,7 +34,7 @@ export function openSectionedPage({ title, groups, start }) {
     for (const other of items) other.el.setAttribute('aria-current', String(other === item));
     heading.textContent = item.label;
     content.replaceChildren(...[item.build()].flat());
-    content.closest('.page-scroll')?.scrollTo(0, 0);
+    content.closest('.settings-main')?.scrollTo(0, 0);
   };
 
   const nav = h('nav', { class: 'settings-nav', 'aria-label': title });

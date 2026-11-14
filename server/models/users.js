@@ -69,4 +69,15 @@ function audienceIds(userId) {
   `).all(userId, userId, userId).map((row) => row.id);
 }
 
-module.exports = { toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };
+// One of someone's settings (they're stored as JSON), or `fallback`.
+function settingOf(userId, key, fallback) {
+  const row = db.prepare('SELECT settings FROM users WHERE id = ?').get(userId);
+  try {
+    return JSON.parse(row?.settings || '{}')[key] ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+module.exports = {
+  settingOf, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

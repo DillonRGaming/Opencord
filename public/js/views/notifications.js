@@ -1,13 +1,13 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, emit, dmName } from '../store.js';
+import { state, on, emit, dmName, quietNow, setting } from '../store.js';
 import { navigate, paths } from '../router.js';
-import { formatStamp, renderMarkdown } from '../format.js';
-import { attempt, avatar, button, iconButton, segmented } from '../ui.js';
+import { formatStamp, renderMarkdown, mentionsMe } from '../format.js';
+import { attempt, avatar, confirmButton, iconButton, segmented } from '../ui.js';
 import { openPage } from './page.js';
 
-const KIND = { mention: 'mentioned you', everyone: 'mentioned everyone', reply: 'replied to you' };
+const KIND = { mention: 'mentioned you', everyone: 'mentioned everyone', reply: 'replied to you', role: 'mentioned your role' };
 let filter = 'all';
 
 function where(channel) {
@@ -61,10 +61,13 @@ export async function openNotifications() {
     content: h('div', { class: 'settings-content notifications-page' },
       h('div', { class: 'notifications-tools' },
         segmented([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); }),
-        button('Clear all', () => attempt(async () => {
-        await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
-        load();
-      }), 'ghost small')),
+        confirmButton({
+          label: 'Clear all', confirmLabel: 'Clear them all?', className: 'button ghost small',
+          onConfirm: async () => {
+            await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
+            load();
+          },
+        })),
       list),
   });
   load();
@@ -85,7 +88,7 @@ export async function askForDesktopNotifications() {
 
 on('notification', (note) => {
   const here = note.channel && state.route.channelId === note.channel.id && document.hasFocus();
-  if (state.me?.presence === 'dnd') return;
+  if (state.me?.presence === 'dnd' || quietNow()) return;
   if (here || !wantsDesktop() || !('Notification' in window) || Notification.permission !== 'granted') return;
   const { message } = note;
   const shown = new Notification(`${message.author.displayName} ${KIND[note.kind] || ''}`.trim(), {
@@ -113,4 +116,17 @@ function ping() {
 on('notifications notification', () => {
   const n = state.unreadNotifications;
   document.title = n ? `(${n}) Opencord` : 'Opencord';
+});
+
+// A new DM (that isn't a mention, which is handled above) gets a desktop notification too, if wanted.
+on('message:create', (message) => {
+  const dm = state.dms.get(message.channelId);
+  if (!dm || message.author.id === state.me.id || setting('dmNotifications', true) === false) return;
+  if (state.me?.presence === 'dnd' || quietNow() || mentionsMe(message.content)) return;
+  if ((state.route.channelId === dm.id && document.hasFocus()) || !wantsDesktop() || !('Notification' in window) || Notification.permission !== 'granted') return;
+  const shown = new Notification(dm.kind === 'group' ? `${message.author.displayName} in ${dmName(dm)}` : message.author.displayName, {
+    body: message.content.slice(0, 200) || 'Sent a file', tag: message.id, icon: message.author.avatar || '/favicon.svg',
+  });
+  shown.onclick = () => { window.focus(); navigate(paths.dm(dm.id)); shown.close(); };
+  if (setting('notificationSound', true) !== false) ping();
 });

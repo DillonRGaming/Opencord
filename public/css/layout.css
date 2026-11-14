@@ -138,31 +138,32 @@ button.main-title:hover { background: var(--hover); }
 /* --- phones --- */
 
 @media (max-width: 799px) {
-  :root { --gap: 0px; --radius-panel: 0px; }
-  .app { grid-template-columns: 64px minmax(0, 1fr); }
+  /* Same rounded panels on a darker ground as on a computer, just with a smaller gap. */
+  :root { --gap: 6px; --radius-panel: 16px; }
+  .app { grid-template-columns: 56px minmax(0, 1fr); }
   .rail { padding: 10px 0; }
   /* The lists are always there; the main column slides over them from the right (and away again with a
      swipe). The side panel is fixed over everything. */
   .main { display: contents; }
   .column {
-    position: fixed; inset: 0; z-index: 5; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28);
+    position: fixed; inset: var(--gap); z-index: 5; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28); overflow: hidden;
     transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s;
   }
   body[data-panel="nav"] .column {
-    transform: translateX(100%); visibility: hidden;
+    transform: translateX(calc(100% + var(--gap) * 2)); visibility: hidden;
     transition: transform 0.26s cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s 0.26s;
   }
   body.swiping .column { transition: none; visibility: visible; }
   body.swiping, body.swiping * { user-select: none; }
   .side { transition: transform 0.22s cubic-bezier(0.2, 0.8, 0.2, 1); }
   body.swiping .side { transition: none; }
-  .sidebar { border-left: 1px solid var(--border); }
   .back-button { display: inline-grid; margin-left: -8px; }
   .main-topic { display: none; }
   .main-header { height: 56px; padding: 0 8px 0 14px; }
   .nav-item { min-height: 44px; font-size: 0.95rem; }
   .nav-item .icon-button { opacity: 1; }
-  .side { position: fixed; inset: 0; z-index: 10; width: auto; }
+  .side { position: fixed; inset: var(--gap); z-index: 10; width: auto; box-shadow: -10px 0 30px rgba(0, 0, 0, 0.28); overflow: hidden; }
+  html, body { overflow-x: hidden; }
   .side-header { height: 56px; }
 }
 .sidebar-header.brand > .icon { color: var(--accent); }
@@ -175,7 +176,11 @@ body:has(.page-open) .side:has(> .side-body.members) { display: none; }
 .category-toggle .icon { transition: transform 0.15s; }
 .sidebar-heading.folded .category-toggle .icon { transform: rotate(-90deg); }
 .nav-item.dragging { opacity: 0.4; }
-.nav-item.drop-target, .sidebar-heading.drop-target { box-shadow: inset 0 2px 0 var(--accent); }
+/* Where a dragged channel will land: a thin straight line above the row. */
+.nav-item.drop-target, .sidebar-heading.drop-target { position: relative; }
+.nav-item.drop-target::before, .sidebar-heading.drop-target::before {
+  content: ""; position: absolute; left: 6px; right: 6px; top: -3px; height: 2px; border-radius: 1px; background: var(--accent); pointer-events: none;
+}
 
 /* Who's in a voice channel, under it in the list. */
 .voice-users { display: grid; gap: 2px; margin: 0 0 6px 26px; padding-left: 8px; border-left: 1px solid var(--border); }
@@ -210,17 +215,54 @@ body:has(.voice-view) .side:has(> .side-body.members) { display: none; }
 .avatar.in-call .avatar-face { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 3.5px color-mix(in srgb, var(--ok) 45%, transparent); transition: box-shadow 0.15s; }
 .avatar.in-call.speaking .avatar-face { box-shadow: 0 0 0 2px var(--bg-raised), 0 0 0 4px var(--ok); }
 .in-call-text { color: var(--ok); }
+.user-panel .call-control { flex: none; width: 30px; height: 30px; }
+.user-panel .call-control.off { color: var(--danger); }
 .user-panel .leave-call { color: var(--text-faint); }
-.user-panel .leave-call:hover { color: var(--danger); }
+.user-panel .leave-call:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 14%, transparent); }
 
 /* The server banner at the top of the channel list, with the server name on a shade along its bottom. */
 .server-banner {
-  display: flex; align-items: flex-end; flex: none; height: 132px; margin: -8px -8px 6px;
+  display: flex; align-items: flex-end; flex: none; height: 84px; margin: -8px -8px 6px;
   border-radius: var(--radius-panel) var(--radius-panel) 0 0; background-size: cover; background-position: center; overflow: hidden;
 }
 .server-banner .sidebar-header {
-  min-height: 48px; padding: 18px 18px 10px; border-radius: 0; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  min-height: 44px; padding: 14px 16px 8px; border-radius: 0; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
   background: linear-gradient(transparent, rgba(0, 0, 0, 0.55));
 }
 .server-banner .sidebar-header > .icon { color: #fff; }
 button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover, .server-banner .sidebar-header[aria-expanded="true"] { background: linear-gradient(transparent, rgba(0, 0, 0, 0.7)); }
+
+/* Red counts for DMs (and friend requests), like pings. */
+.ping-badge {
+  position: absolute; right: 2px; bottom: -2px; display: grid; place-items: center; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: var(--danger); color: #fff; font-size: 0.68rem; font-weight: 700; font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 3px var(--bg-app); pointer-events: none;
+}
+.ping-badge.inline { position: static; box-shadow: none; }
+.nav-item:has(.ping-badge)::after { display: none; }
+.rail-item > button > .avatar, .rail-item > button > .group-face { border-radius: 30%; }
+.dm-in-call { display: inline-grid; color: var(--ok); }
+
+/* --- server folders in the rail --- */
+.folder-face {
+  --folder: var(--accent); display: grid; grid-template-columns: repeat(2, 18px); grid-auto-rows: 18px; gap: 3px; place-content: center;
+  width: 44px; height: 44px; border-radius: 30%; background: color-mix(in srgb, var(--folder) 22%, var(--bg-raised)); transition: background 0.12s;
+}
+.folder-face .server-icon { width: 18px; height: 18px; border-radius: 30%; font-size: 0.5rem; }
+.rail-folder:hover .folder-face { background: color-mix(in srgb, var(--folder) 34%, var(--bg-raised)); }
+.rail-folder.active .folder-face { outline: 2px solid var(--folder); outline-offset: 2px; }
+.rail-folder-open {
+  --folder: var(--accent); display: flex; flex-direction: column; align-items: center; gap: 10px; flex: none;
+  width: 52px; padding: 4px 0 6px; border-radius: 18px; background: color-mix(in srgb, var(--folder) 14%, transparent);
+}
+.folder-head { display: grid; place-items: center; width: 44px; height: 32px; border-radius: 12px; color: var(--folder); }
+.rail-folder-open .rail-item:first-child:hover .folder-head { background: color-mix(in srgb, var(--folder) 18%, transparent); }
+.rail-folder-open .rail-pill { left: -6px; }
+/* Where a dragged server will land: a line above or below, or a ring when it goes into a folder. */
+.rail-item.dragging { opacity: 0.35; }
+.rail-item.drop-before::before, .rail-item.drop-after::after {
+  content: ""; position: absolute; left: 8px; right: 8px; height: 3px; border-radius: 2px; background: var(--accent); pointer-events: none;
+}
+.rail-item.drop-before::before { top: -7px; }
+.rail-item.drop-after::after { bottom: -7px; }
+.rail-item.drop-into > button { outline: 2px solid var(--accent); outline-offset: 3px; }

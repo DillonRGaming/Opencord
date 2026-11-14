@@ -73,6 +73,14 @@ export function apply(settings) {
   root.dataset.chatAvatars = String(s.chatAvatars !== false);
   root.dataset.contrast = pick(s.contrast, ['normal', 'high'], 'normal');
   root.dataset.motion = pick(s.motion, ['full', 'reduced'], 'full');
+  root.dataset.linkPreviews = String(s.linkPreviews !== false);
+  root.dataset.jumbo = String(s.jumboEmoji !== false);
+  root.dataset.spoilers = pick(s.spoilers, ['click', 'always'], 'click');
+  root.dataset.media = pick(s.mediaSize, ['small', 'normal', 'large'], 'normal');
+  root.dataset.showTyping = String(s.showTyping !== false);
+  root.dataset.bubbles = String(Boolean(s.bubbles));
+  root.dataset.underlineLinks = String(Boolean(s.underlineLinks));
+  root.dataset.timestamps = pick(s.timestamps, ['hover', 'always'], 'hover');
   setClock(pick(s.clock, ['auto', '12', '24'], 'auto'));
   // In the app's layer (not inline styles), so custom CSS can still override them.
   document.getElementById('theme-vars').textContent = `@layer app { :root:root:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} } }`;

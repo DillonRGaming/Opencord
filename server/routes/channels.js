@@ -7,38 +7,145 @@ const servers = require('../models/servers');
 const messages = require('../models/messages');
 const attachments = require('../models/attachments');
 const relationships = require('../models/relationships');
+const users = require('../models/users');
 const realtime = require('../realtime');
 const { channelName, categoryName } = require('./servers');
 const audit = require('../models/audit');
 const notifications = require('../models/notifications');
 const { postMessage } = require('../lib/post');
+const links = require('../lib/links');
 
 const router = express.Router();
 
-// Server channel that the user can manage (admins and the owner).
+// Server channel that the user can manage (admins and the owner; for a post, also whoever started it).
 function ownedChannel(channelId, userId) {
   const channel = access.visibleChannel(channelId, userId);
   if (channel.type !== 'text') fail(400, "DMs can't be changed here.");
+  if (channel.kind === 'post' && channel.owner_id === userId) return channel;
   access.modServer(channel.server_id, userId);
   return channel;
 }
 
-const label = (channel) => (channel.kind === 'category' ? channel.name : `#${channel.name}`);
+// Seconds a new member still has to wait before posting (the server's "new members wait" setting).
+function newMemberWait(serverId, userId) {
+  const server = servers.get(serverId);
+  if (!server?.member_wait) return 0;
+  const joined = servers.member(serverId, userId)?.joinedAt || 0;
+  return Math.max(0, Math.ceil((joined + server.member_wait * 1000 - Date.now()) / 1000));
+}
+
+const NO_POSTING = ['category', 'voice', 'posts', 'whiteboard', 'calendar', 'music', 'wiki'];
+
+const label = (channel) => (channel.kind === 'category' || channel.kind === 'post' ? channel.name : `#${channel.name}`);
 
 router.get('/:id', (req, res) => {
-  res.json(channels.serialize(access.visibleChannel(req.params.id, req.user.id), req.user.id));
+  const channel = access.visibleChannel(req.params.id, req.user.id);
+  res.json(channel.kind === 'post' ? channels.toPost(channel) : channels.serialize(channel, req.user.id));
+});
+
+// --- linked channels (between servers you own) ---
+
+function ownedTextChannel(id, userId) {
+  const channel = access.visibleChannel(id, userId);
+  if (channel.kind !== 'text') fail(400, 'Only text channels can be linked.');
+  if (servers.get(channel.server_id)?.owner_id !== userId) fail(403, 'Only the owner of both servers can link channels.');
+  return channel;
+}
+
+router.get('/:id/links', (req, res) => {
+  const channel = ownedTextChannel(req.params.id, req.user.id);
+  const linked = links.linked(channel.id);
+  // What it could link to: text channels in the other servers this person owns.
+  const candidates = servers.forUser(req.user.id).filter((s) => s.owner_id === req.user.id && s.id !== channel.server_id)
+    .flatMap((s) => channels.forServer(s.id).filter((c) => c.kind === 'text' && !linked.some((l) => l.id === c.id)).map(links.describe));
+  res.json({ linked: linked.map(links.describe), candidates });
+});
+
+router.post('/:id/links', (req, res) => {
+  const channel = ownedTextChannel(req.params.id, req.user.id);
+  const other = ownedTextChannel(text(req.body.channelId, 'channelId'), req.user.id);
+  if (other.server_id === channel.server_id) fail(400, 'Link it to a channel in another server.');
+  links.link(channel, other, req.user.id);
+  audit.log(channel.server_id, req.user.id, 'channel.link', `#${channel.name}`, `#${other.name} in ${servers.get(other.server_id).name}`);
+  res.json({ linked: links.linked(channel.id).map(links.describe) });
+});
+
+router.delete('/:id/links', (req, res) => {
+  const channel = ownedTextChannel(req.params.id, req.user.id);
+  links.unlink(channel.id);
+  audit.log(channel.server_id, req.user.id, 'channel.unlink', `#${channel.name}`);
+  res.sendStatus(204);
+});
+
+// --- posts channels ---
+
+function postsChannel(id, userId) {
+  const channel = access.visibleChannel(id, userId);
+  if (channel.kind !== 'posts') fail(400, 'That is not a posts channel.');
+  return channel;
+}
+
+router.get('/:id/posts', (req, res) => {
+  res.json(channels.posts(postsChannel(req.params.id, req.user.id).id));
+});
+
+// A new post: a title and its first message (text and/or files).
+router.post('/:id/posts', (req, res) => {
+  const parent = postsChannel(req.params.id, req.user.id);
+  const title = text(req.body.title, 'Title', { min: 1, max: 100 });
+  const content = text(req.body.content ?? '', 'Message', { max: 1000 });
+  const attachmentIds = Array.isArray(req.body.attachmentIds) ? req.body.attachmentIds.filter((id) => typeof id === 'string') : [];
+  if (!content && !attachmentIds.length) fail(400, 'Write something in the post.');
+  if (servers.roleOf(parent.server_id, req.user.id) === 'member') {
+    if (servers.timeoutUntil(parent.server_id, req.user.id)) fail(403, 'You are timed out.');
+    if (parent.read_only) fail(403, 'Only admins and the owner can post here.');
+  }
+  const post = channels.createPost(parent, req.user.id, title);
+  postMessage(post, req.user.id, content, { attachmentIds: [...new Set(attachmentIds)] });
+  const json = channels.toPost(channels.get(post.id));
+  realtime.toServer(parent.server_id, 'post:create', json);
+  res.status(201).json(json);
+});
+
+// --- whiteboards ---
+
+function whiteboard(id, userId) {
+  const channel = access.visibleChannel(id, userId);
+  if (channel.kind !== 'whiteboard') fail(400, 'That is not a whiteboard.');
+  return channel;
+}
+
+router.get('/:id/strokes', (req, res) => {
+  res.json(channels.strokes(whiteboard(req.params.id, req.user.id).id));
+});
+
+router.delete('/:id/strokes', (req, res) => {
+  const channel = whiteboard(req.params.id, req.user.id);
+  access.modServer(channel.server_id, req.user.id);
+  channels.clearStrokes(channel.id);
+  realtime.toServer(channel.server_id, 'wb:clear', { channelId: channel.id });
+  audit.log(channel.server_id, req.user.id, 'channel.update', `#${channel.name}`, 'cleared the whiteboard');
+  res.sendStatus(204);
 });
 
 router.patch('/:id', (req, res) => {
   const channel = ownedChannel(req.params.id, req.user.id);
   const fields = {};
-  if (req.body.name !== undefined) fields.name = channel.kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
+  if (req.body.name !== undefined) {
+    if (channel.kind === 'post') fields.name = text(req.body.name, 'Title', { min: 1, max: 100 });
+    else fields.name = channel.kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
+  }
   if (req.body.topic !== undefined) fields.topic = text(req.body.topic, 'Topic', { max: 1024 });
   if (req.body.slowmode !== undefined) {
     if (!Number.isSafeInteger(req.body.slowmode) || req.body.slowmode < 0 || req.body.slowmode > 21600) fail(400, 'Slowmode must be 0 to 21600 seconds.');
     fields.slowmode = req.body.slowmode;
   }
   if (req.body.readOnly !== undefined) fields.readOnly = req.body.readOnly ? 1 : 0;
+  if (channel.kind === 'post') {
+    const post = channels.toPost(channels.update(channel.id, fields));
+    realtime.toServer(channel.server_id, 'post:update', post);
+    return res.json(post);
+  }
   const json = channels.toChannel(channels.update(channel.id, fields));
   realtime.toServer(channel.server_id, 'channel:update', json);
   const what = Object.keys(fields).map((k) => ({ readOnly: 'who can post', slowmode: `slowmode ${fields.slowmode}s` }[k] || k));
@@ -54,6 +161,18 @@ router.delete('/:id', (req, res) => {
     for (const child of channels.forServer(channel.server_id).filter((c) => c.parent_id === channel.id)) {
       realtime.toServer(channel.server_id, 'channel:update', channels.toChannel(channels.update(child.id, { parentId: null })));
     }
+  }
+  if (channel.kind === 'post') {
+    channels.remove(channel.id);
+    storage.remove(...files);
+    if (channel.owner_id !== req.user.id) audit.log(channel.server_id, req.user.id, 'post.delete', channel.name);
+    realtime.toServer(channel.server_id, 'post:delete', { id: channel.id, parentId: channel.parent_id, serverId: channel.server_id });
+    return res.sendStatus(204);
+  }
+  // A posts channel takes its posts with it.
+  for (const postId of channel.kind === 'posts' ? channels.postIds(channel.id) : []) {
+    files.push(...attachments.pathsForChannel(postId));
+    channels.remove(postId);
   }
   channels.remove(channel.id);
   audit.log(channel.server_id, req.user.id, `${channel.kind === 'category' ? 'category' : 'channel'}.delete`, label(channel));
@@ -81,18 +200,20 @@ router.get('/:id/search', (req, res) => {
 
 router.post('/:id/messages', (req, res) => {
   const channel = access.visibleChannel(req.params.id, req.user.id);
-  const content = text(req.body.content ?? '', 'Message');
+  const content = text(req.body.content ?? '', 'Message', { max: 1000 });
   const attachmentIds = req.body.attachmentIds ?? [];
   if (!Array.isArray(attachmentIds) || attachmentIds.some((id) => typeof id !== 'string')) {
     fail(400, 'attachmentIds must be a list of ids.');
   }
   if (!content && !attachmentIds.length) fail(400, "You can't send an empty message.");
   const replyToId = req.body.replyToId == null ? null : text(req.body.replyToId, 'replyToId');
-  if (channel.kind === 'category' || channel.kind === 'voice') fail(400, "You can't post in that channel.");
+  if (NO_POSTING.includes(channel.kind)) fail(400, "You can't post in that channel.");
   const role = channel.type === 'text' ? servers.roleOf(channel.server_id, req.user.id) : null;
   if (role === 'member') {
     const until = servers.timeoutUntil(channel.server_id, req.user.id);
     if (until) fail(403, `You are timed out until ${new Date(until).toLocaleString()}.`);
+    const newWait = newMemberWait(channel.server_id, req.user.id);
+    if (newWait) fail(403, `New members can post in ${Math.ceil(newWait / 60)} minute${newWait > 60 ? 's' : ''}.`);
     if (channel.read_only) fail(403, 'Only admins and the owner can post in this channel.');
     const wait = channels.slowmodeWait(channel, req.user.id);
     if (wait) fail(429, `Slowmode is on. You can post again in ${wait}s.`, { retryAfterMs: wait * 1000 });
@@ -100,6 +221,10 @@ router.post('/:id/messages', (req, res) => {
   if (channel.type === 'dm' && channel.kind !== 'group') {
     const [a, b] = channels.dmMemberIds(channel.id);
     if (relationships.eitherBlocked(a, b)) fail(403, "You can't message this user.");
+    const other = a === req.user.id ? b : a;
+    if (users.settingOf(other, 'dmsFrom', 'servers') === 'friends' && !relationships.areFriends(a, b) && !req.user.is_bot) {
+      fail(403, 'They only take messages from friends.');
+    }
   }
 
   res.status(201).json(postMessage(channel, req.user.id, content, { attachmentIds: [...new Set(attachmentIds)], replyToId }));
@@ -108,7 +233,7 @@ router.post('/:id/messages', (req, res) => {
 // Polls: a message with a question and 2–10 options. closesIn is hours (0 or missing = never).
 router.post('/:id/polls', (req, res) => {
   const channel = access.visibleChannel(req.params.id, req.user.id);
-  if (channel.kind === 'category' || channel.kind === 'voice') fail(400, "You can't post in that channel.");
+  if (NO_POSTING.includes(channel.kind)) fail(400, "You can't post in that channel.");
   const question = text(req.body.question, 'Question', { min: 1, max: 300 });
   const options = req.body.options;
   if (!Array.isArray(options) || options.length < 2 || options.length > 10) fail(400, 'A poll needs 2 to 10 options.');

@@ -7,7 +7,10 @@ const messages = require('../models/messages');
 const attachments = require('../models/attachments');
 const realtime = require('../realtime');
 const audit = require('../models/audit');
-const { attachPreviews } = require('../lib/post');
+const { attachPreviews, emit } = require('../lib/post');
+const bots = require('../lib/bots');
+const links = require('../lib/links');
+const users = require('../models/users');
 
 const router = express.Router();
 
@@ -17,14 +20,27 @@ function visibleMessage(messageId, userId) {
   return { message, channel: access.visibleChannel(message.channel_id, userId) };
 }
 
+// One message, for the quote card shown where someone pasted a link to it.
+router.get('/:id', (req, res) => {
+  const { message, channel } = visibleMessage(req.params.id, req.user.id);
+  res.json({ ...messages.serialize(message), channelName: channel.type === 'dm' ? null : channel.name, serverId: channel.server_id });
+});
+
+// The whole text of a message that was sent cut short.
+router.get('/:id/content', (req, res) => {
+  const { message } = visibleMessage(req.params.id, req.user.id);
+  res.json({ id: message.id, content: message.content });
+});
+
 router.patch('/:id', (req, res) => {
   const { message, channel } = visibleMessage(req.params.id, req.user.id);
   if (message.author_id !== req.user.id) fail(403, 'You can only edit your own messages.');
-  const content = text(req.body.content, 'Message');
+  const content = text(req.body.content, 'Message', { max: 1000 });
   if (!content && !messages.hasAttachments(message.id)) fail(400, "A message can't be empty.");
 
   const json = messages.serialize(messages.edit(message.id, content));
   realtime.toChannel(channel, 'message:update', json);
+  links.relayEdit(messages.get(message.id));
   res.json(json);
   attachPreviews(channel, message.id, content);
 });
@@ -36,6 +52,7 @@ router.delete('/:id', (req, res) => {
   if (!mine && !moderator) fail(403, "You can't delete that message.");
 
   const files = attachments.pathsForMessage(message.id);
+  links.relayDelete(message);
   messages.remove(message);
   storage.remove(...files);
   realtime.toChannel(channel, 'message:delete', { id: message.id, channelId: channel.id });
@@ -50,6 +67,7 @@ function reactionRoute(add) {
     const emoji = text(req.params.emoji, 'Reaction', { min: 1, max: 80 });
     if (add) messages.react(message.id, req.user.id, emoji);
     else messages.unreact(message.id, req.user.id, emoji);
+    if (add) emit('reaction', { channel, message: messages.serialize(message), user: users.toUser(users.get(req.user.id)), emoji });
     const json = messages.serialize(messages.get(message.id));
     realtime.toChannel(channel, 'message:update', json);
     res.json(json);
@@ -63,6 +81,9 @@ router.delete('/:id/reactions/:emoji', reactionRoute(false));
 function pinRoute(pinned) {
   return (req, res) => {
     const { message, channel } = visibleMessage(req.params.id, req.user.id);
+    if (channel.server_id && servers.get(channel.server_id)?.pins_admin_only && servers.roleOf(channel.server_id, req.user.id) === 'member') {
+      fail(403, 'Only admins can pin messages in this server.');
+    }
     const json = messages.serialize(messages.setPinned(message.id, pinned));
     realtime.toChannel(channel, 'message:update', json);
     res.json(json);
@@ -80,6 +101,32 @@ router.put('/:id/poll/:option', (req, res) => {
   const json = messages.serialize(messages.get(message.id));
   realtime.toChannel(channel, 'message:update', json);
   res.json(json);
+});
+
+// A button under a bot's message.
+const clicks = new Map(); // userId → last click time
+router.post('/:id/buttons/:index', (req, res) => {
+  const { message, channel } = visibleMessage(req.params.id, req.user.id);
+  const buttons = message.components ? JSON.parse(message.components) : [];
+  const button = buttons[Number(req.params.index)];
+  if (!button || button.type === 'menu') fail(404, 'That button is gone.');
+  if (Date.now() - (clicks.get(req.user.id) || 0) < 1000) fail(429, 'Slow down a little.');
+  clicks.set(req.user.id, Date.now());
+  const ran = bots.clickButton(channel, message, req.user, button.label);
+  res.json({ ok: ran });
+});
+
+// A choice from a drop-down under a bot's message.
+router.post('/:id/menus/:index', (req, res) => {
+  const { message, channel } = visibleMessage(req.params.id, req.user.id);
+  const parts = message.components ? JSON.parse(message.components) : [];
+  const menu = parts[Number(req.params.index)];
+  if (menu?.type !== 'menu') fail(404, 'That menu is gone.');
+  const choice = text(req.body.value, 'Choice');
+  if (!menu.options.includes(choice)) fail(400, 'That isn’t one of the choices.');
+  if (Date.now() - (clicks.get(req.user.id) || 0) < 1000) fail(429, 'Slow down a little.');
+  clicks.set(req.user.id, Date.now());
+  res.json({ ok: bots.pickFromMenu(channel, message, req.user, choice) });
 });
 
 router.put('/:id/pin', pinRoute(true));

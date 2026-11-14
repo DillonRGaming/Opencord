@@ -45,7 +45,7 @@ function row(item) {
       closeMenu();
       item.onClick();
     },
-  }, item.dot && h('span', { class: `presence menu-dot ${item.dot}` }),
+  }, item.face, item.dot && h('span', { class: `presence menu-dot ${item.dot}` }),
   item.swatch !== undefined && h('span', { class: 'menu-swatch', style: { background: item.swatch || 'var(--text-faint)' } }),
   label, item.icon && icon(item.icon, 16));
   return el;

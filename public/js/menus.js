@@ -3,6 +3,7 @@ import * as api from './api.js';
 import { state, emit, isUnread, markRead, canModerate, roleOf, dmName } from './store.js';
 import { paths } from './router.js';
 import * as actions from './actions.js';
+import { canEditRolesOf } from './views/roles.js';
 import { attempt, copyText, toast } from './ui.js';
 
 const copy = (text, what) => attempt(async () => { await copyText(text); toast(`${what} copied.`, 'ok'); });
@@ -22,6 +23,21 @@ const views = {
   moderate: () => import('./views/moderation.js'),
   groups: () => import('./views/groups.js'),
 };
+
+// Ticks for each role this person can be given or have taken away, right in their menu.
+function roleItems(server, user, member) {
+  if (!server?.roles?.length || user.bot || !member || !canEditRolesOf(server.id, user.id)) return [];
+  const isOwner = server.ownerId === state.me.id;
+  const roles = server.roles.filter((r) => !r.admin || isOwner).slice(0, 12);
+  if (!roles.length) return [];
+  return ['-', ...roles.map((role) => {
+    const has = member.roleIds?.includes(role.id);
+    return {
+      label: `${role.name}${has ? '  ✓' : ''}`, swatch: role.color,
+      onClick: () => attempt(() => (has ? api.del : api.put)(`/api/servers/${server.id}/members/${user.id}/roles/${role.id}`)),
+    };
+  })];
+}
 
 export function userMenu(user, { serverId } = {}) {
   const me = user.id === state.me.id;
@@ -46,6 +62,7 @@ export function userMenu(user, { serverId } = {}) {
     myRole === 'owner' && !me && !user.bot && (theirRole === 'admin'
       ? { label: 'Remove admin', icon: 'shield', onClick: () => attempt(() => api.put(`/api/servers/${serverId}/members/${user.id}/role`, { role: 'member' })) }
       : { label: 'Make admin', icon: 'shield', onClick: () => attempt(() => api.put(`/api/servers/${serverId}/members/${user.id}/role`, { role: 'admin' })) }),
+    ...roleItems(server, user, member),
     outranks && '-',
     outranks && (member?.timeoutUntil
       ? { label: 'Remove timeout', icon: 'clock', onClick: () => attempt(() => api.put(`/api/servers/${serverId}/members/${user.id}/timeout`, { seconds: 0 })) }
@@ -126,7 +143,9 @@ export function messageMenu(message, mine, handlers, row, quick) {
     { label: message.pinned ? 'Unpin message' : 'Pin message', icon: 'pin', onClick: () => handlers.onPin(message) },
     '-',
     message.content && { label: 'Copy text', icon: 'copy', onClick: () => handlers.onCopy(message) },
-    { label: 'Copy message link', icon: 'link', onClick: () => copy(`${location.origin}${location.pathname}#${message.id}`, 'Link') },
+    message.content && { label: 'Translate', icon: 'languages', onClick: async () => (await import('./views/message.js')).openTranslate(row) },
+    // Pasted into a chat, this shows as a quote of the message; opened, it jumps to it.
+    { label: 'Copy message link', icon: 'link', onClick: () => copy(`${location.origin}${location.pathname}?m=${message.id}`, 'Link') },
     { label: 'Copy message ID', icon: 'copy', onClick: () => copy(message.id, 'Message ID') },
     (mine || handlers.canDelete) && '-',
     (mine || handlers.canDelete) && { label: 'Delete message', icon: 'trash', danger: true, onClick: () => attempt(() => handlers.onDelete(message)) },

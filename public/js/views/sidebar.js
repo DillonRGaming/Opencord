@@ -1,13 +1,13 @@
 import { withMenu, showMenu } from '../contextMenu.js';
-import { setMe } from '../actions.js';
+import { setMe, listAccounts, switchAccount, addAccount } from '../actions.js';
 import { categoryMenu, channelMenu, dmMenu, serverMenu } from '../menus.js';
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, isUnread, canModerate, sortedDms, relationsWith, dmName, dmPeople } from '../store.js';
+import { state, on, isUnread, canModerate, sortedDms, relationsWith, dmName, dmPeople, findChannel } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { attempt, avatar, confirmButton, iconButton } from '../ui.js';
-import { voice, isSpeaking, leaveVoice } from '../voice.js';
+import { voice, isSpeaking, leaveVoice, toggleMute, toggleDeafen } from '../voice.js';
 import { openChannelPage, openInviteLink } from './serverPages.js';
 import { openServerSettings } from './serverSettings.js';
 import { openProfile } from './profile.js';
@@ -62,7 +62,9 @@ function homeList() {
         return navItem({
           active: route.channelId === dm.id, unread: isUnread(dm), onclick: () => navigate(paths.dm(dm.id)), menu: () => dmMenu(dm),
         }, group ? groupFace(dm) : avatar(dm.recipient, { size: 32, presence: true }),
-        h('span', { class: 'nav-label' }, dmName(dm), sub && h('span', { class: 'nav-sub' }, sub)));
+        h('span', { class: 'nav-label' }, dmName(dm), sub && h('span', { class: 'nav-sub' }, sub)),
+        (state.voice.get(dm.id) || []).length > 0 && h('span', { class: 'dm-in-call', title: 'In a call' }, icon('phone', 15)),
+        state.dmPings.get(dm.id) > 0 && route.channelId !== dm.id && state.me.settings?.dmPings !== false && h('span', { class: 'ping-badge inline' }, state.dmPings.get(dm.id) > 99 ? '99+' : state.dmPings.get(dm.id)));
       })),
   ];
 }
@@ -158,7 +160,7 @@ function channelRow(server, channel) {
     onclick: () => navigate(paths.channel(server.id, channel.id)),
     menu: () => channelMenu(server, channel),
     drag: draggable(server, channel),
-  }, icon(isVoice ? 'volume' : channel.readOnly ? 'lock' : 'hash', 18), h('span', { class: 'nav-label' }, channel.name),
+  }, icon(isVoice ? 'volume' : { posts: 'posts', whiteboard: 'whiteboard', calendar: 'calendar', music: 'music', wiki: 'book' }[channel.kind] || (channel.readOnly ? 'lock' : 'hash'), 18), h('span', { class: 'nav-label' }, channel.name),
   mod && h('span', {
     class: 'icon-button', role: 'button', tabIndex: 0, title: 'Edit channel', 'aria-label': `Edit ${channel.name}`,
     onclick: (event) => { event.stopPropagation(); openChannelPage(server, channel); },
@@ -208,17 +210,23 @@ function serverList(server) {
 }
 
 // Clicking your name: pick a status, or go to your profile.
-function statusMenu(event) {
+async function statusMenu(event) {
   const box = event.currentTarget.getBoundingClientRect();
   const choose = (presence) => attempt(async () => setMe(await api.patch('/api/users/@me', { presence })));
   const current = state.me.presence || 'online';
-  showMenu({ clientX: box.left, clientY: box.top - 250, preventDefault() {}, stopPropagation() {} }, [
+  // The other accounts logged in on this browser, to switch to.
+  const accounts = await listAccounts().catch(() => []);
+  const others = accounts.filter((a) => !a.current);
+  showMenu({ clientX: box.left, clientY: box.top - 400, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
       label: current === value ? `${label}  ✓` : label, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
     })),
     '-',
     { label: state.me.statusText ? 'Change custom status' : 'Set a custom status', icon: 'pencil', onClick: () => openSettings('profile') },
     { label: 'Your profile', icon: 'user', onClick: () => openProfile(state.me) },
+    '-',
+    ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), onClick: () => attempt(() => switchAccount(user.id)) })),
+    { label: 'Add an account', icon: 'userPlus', onClick: () => addAccount() },
   ]);
 }
 
@@ -226,8 +234,7 @@ function statusMenu(event) {
 // No call panel: the channel itself is green in the list, and there's a small hang-up button.
 function userPanel() {
   const { me } = state;
-  const call = voice.channelId && !voice.connecting
-    && state.servers.get(voice.serverId)?.channels.find((c) => c.id === voice.channelId);
+  const call = voice.channelId && !voice.connecting && findChannel(voice.channelId);
   const face = avatar(me, { size: 34, presence: true });
   if (call) {
     face.classList.add('in-call');
@@ -237,9 +244,12 @@ function userPanel() {
     h('button', { type: 'button', class: 'user-panel-me', title: call ? `In voice: ${call.name}` : 'Set your status', onclick: statusMenu },
       face,
       h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName),
-        h('span', {}, call ? h('span', { class: 'in-call-text' }, `In ${call.name}`) : me.statusText || `@${me.username}`))),
-    call && iconButton('phoneOff', 'Leave voice', () => leaveVoice(), 'leave-call'),
-    iconButton('settings', 'Settings', () => openSettings()));
+        h('span', {}, call ? h('span', { class: 'in-call-text' }, call.type === 'dm' ? `In a call with ${dmName(call)}` : `In ${call.name}`) : me.statusText || `@${me.username}`))),
+    // In a call: mute, deafen and hang up sit right here, small, instead of a whole call panel.
+    call && iconButton(voice.muted ? 'micOff' : 'mic', voice.muted ? 'Unmute' : 'Mute', toggleMute, `call-control${voice.muted ? ' off' : ''}`),
+    call && iconButton(voice.deafened ? 'headphonesOff' : 'headphones', voice.deafened ? 'Undeafen' : 'Deafen', toggleDeafen, `call-control${voice.deafened ? ' off' : ''}`),
+    call && iconButton('phoneOff', 'Leave call', () => leaveVoice(), 'call-control leave-call'),
+    !call && iconButton('settings', 'Settings', () => openSettings()));
 }
 
 on('voice:speaking', () => {

@@ -1,3 +1,5 @@
+import { state } from './store.js';
+
 // Emoji for the picker and :name: autocomplete. Each category is "emoji name name2,emoji name,…";
 // the first name is the main one, the rest are extra search words.
 const RAW = {
@@ -35,14 +37,15 @@ export function searchEmoji(query, limit = 40) {
   return [...starts, ...contains].slice(0, limit);
 }
 
-// Recently used, newest first; kept in this browser only.
+// Recently used, newest first; kept in this browser only, per account.
+const recentKey = () => `oc_recent_emoji:${state.me?.id || ''}`;
 export function recentEmoji() {
-  try { return JSON.parse(localStorage.getItem('oc_recent_emoji') || '[]'); } catch { return []; }
+  try { return JSON.parse(localStorage.getItem(recentKey()) || '[]'); } catch { return []; }
 }
 
 export function rememberEmoji(value) {
   try {
     const list = [value, ...recentEmoji().filter((e) => e !== value)].slice(0, 24);
-    localStorage.setItem('oc_recent_emoji', JSON.stringify(list));
+    localStorage.setItem(recentKey(), JSON.stringify(list));
   } catch { /* private mode */ }
 }

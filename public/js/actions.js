@@ -33,6 +33,7 @@ export function changeSettings(changes) {
   settingsDirty = true;
   applyTheme(state.me.settings);
   saveSettings();
+  emit('me'); // views that follow settings (the rail's folders, translation) redraw
 }
 
 function setRelation(relation) {
@@ -79,9 +80,25 @@ export async function joinInvite(code) {
   navigate(paths.channel(server.id, server.channels[0]?.id), { panel: 'nav' });
 }
 
+// Logging out of one account opens the next one logged in on this browser, if any.
 export async function logout() {
-  await api.post('/api/auth/logout').catch(() => {});
-  location.href = '/';
+  const result = await api.post('/api/auth/logout').catch(() => null);
+  location.href = result?.switched ? '/channels/@me' : '/';
+}
+
+// --- several accounts on one browser ---
+
+export const listAccounts = () => api.get('/api/auth/accounts');
+
+// Switching reloads the app, so everything (settings, DMs, servers) is fetched fresh for that account.
+export async function switchAccount(userId) {
+  await api.post('/api/auth/accounts/switch', { userId });
+  location.href = '/channels/@me';
+}
+
+export async function addAccount() {
+  const { showAuth } = await import('./views/auth.js');
+  showAuth(document.getElementById('app'), null, { add: true });
 }
 
 // Accepts a full invite link or just the code.

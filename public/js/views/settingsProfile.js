@@ -5,6 +5,7 @@ import { setMe } from '../actions.js';
 import { attempt, button, field, form, pickFiles, settingRow, settingsCard, toast } from '../ui.js';
 import { DEFAULTS } from '../theme.js';
 import { profileCard } from './profileCard.js';
+import { colorField } from '../colorPicker.js';
 
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
@@ -15,7 +16,10 @@ export function profilePage() {
   const displayName = h('input', { class: 'input', required: true, maxLength: 32, value: me.displayName });
   const statusText = h('input', { class: 'input', maxLength: 128, value: me.statusText, placeholder: 'What are you up to?' });
   const bio = h('textarea', { class: 'textarea', maxLength: 190, value: me.bio, placeholder: 'A few words about you' });
-  const banner = h('input', { class: 'color-input', type: 'color', value: bannerColor || state.me.settings.accent || DEFAULTS.accent });
+  const banner = colorField({
+    value: bannerColor || state.me.settings.accent || DEFAULTS.accent, label: 'Banner colour',
+    onInput: (c) => { bannerColor = c; draw(); }, onChange: (c) => { bannerColor = c; draw(); },
+  });
   const preview = h('div');
 
   // The preview shows what is typed, before it is saved.
@@ -29,7 +33,6 @@ export function profilePage() {
     }));
   }
   for (const input of [displayName, statusText, bio]) input.addEventListener('input', draw);
-  banner.addEventListener('input', () => { bannerColor = banner.value; draw(); });
 
   async function changeAvatar() {
     const [file] = await pickFiles({ accept: IMAGE_TYPES });
@@ -56,7 +59,7 @@ export function profilePage() {
     [button('Change', changeAvatar, 'ghost small'), button('Remove', removeAvatar, 'ghost small')])),
   settingsCard('About you', field('Display name', displayName), field('Status', statusText), field('About me', bio)),
   settingsCard('Banner', settingRow('Banner colour',
-    [banner, button('Use accent colour', () => { bannerColor = null; draw(); }, 'ghost small')])));
+    [banner, button('Use accent colour', () => { bannerColor = null; banner.value = null; banner.style.background = state.me.settings.accent || DEFAULTS.accent; draw(); }, 'ghost small')])));
 
   draw();
   editor.classList.add('settings-content');

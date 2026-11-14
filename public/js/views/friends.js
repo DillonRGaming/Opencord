@@ -70,9 +70,9 @@ function buildAddBox() {
   const status = h('p', { class: 'add-status', role: 'status' });
   const username = h('input', {
     class: 'input', required: true, maxLength: 32, autocapitalize: 'none', spellcheck: false,
-    placeholder: 'Add a friend by their username', 'aria-label': 'Username',
+    placeholder: 'username', 'aria-label': 'Username',
   });
-  const send = h('button', { type: 'submit', class: 'button accent' }, icon('userPlus', 18), 'Send request');
+  const send = h('button', { type: 'submit', class: 'button accent' }, icon('userPlus', 18), h('span', {}, 'Send request'));
   return h('form', {
     class: 'add-friend',
     onsubmit: async (event) => {
@@ -93,7 +93,8 @@ function buildAddBox() {
         send.disabled = false;
       }
     },
-  }, h('div', { class: 'add-friend-row' }, h('span', { class: 'add-at' }, '@'), username, send), status);
+  }, h('label', { class: 'add-friend-title' }, 'Add a friend'),
+  h('div', { class: 'add-friend-row' }, h('span', { class: 'add-at' }, '@'), username, send), status);
 }
 
 function body() {
@@ -114,15 +115,17 @@ function render() {
   if (!root?.isConnected || state.route.name !== 'home') return;
   addBox ??= buildAddBox();
   const pending = relationsWith('incoming').length;
+  // On a computer the tabs sit in the header; a phone has no room there, so they get a row of their own.
+  const tabs = (extra) => h('div', { class: `tabs ${extra}`, role: 'tablist' }, TABS.map(([id, label]) => h('button', {
+    type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
+    onclick: () => { tab = id; render(); },
+  }, label, id === 'pending' && pending > 0 && h('span', { class: 'badge' }, pending))));
   root.replaceChildren(
     h('header', { class: 'main-header' },
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('users', 18), h('span', {}, 'Friends')),
-      h('div', { class: 'tabs', role: 'tablist' }, TABS.map(([id, label]) => h('button', {
-        type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
-        onclick: () => { tab = id; render(); },
-      }, label, id === 'pending' && pending > 0 && h('span', { class: 'badge' }, pending))))),
-    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, bodyOrEmpty())));
+      tabs('header-tabs')),
+    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, tabs('page-tabs'), bodyOrEmpty())));
 }
 
 on('relationships presence users', render);

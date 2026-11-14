@@ -21,7 +21,7 @@ const channelName = (value) => text(value, 'Channel name', { min: 1, max: 100 })
 const categoryName = (value) => text(value, 'Category name', { min: 1, max: 100 });
 const withPresence = (member) => ({ ...member, online: realtime.isOnline(member.user.id), status: realtime.statusOf(member.user.id) });
 const HEX = /^#[0-9a-f]{6}$/i;
-const KINDS = ['text', 'voice', 'category'];
+const KINDS = ['text', 'voice', 'category', 'posts', 'whiteboard', 'calendar', 'music', 'wiki'];
 const MAX_EMOJIS = 100;
 const TIMEOUTS = [60, 300, 600, 3600, 86400, 7 * 86400]; // seconds
 
@@ -63,6 +63,23 @@ router.patch('/:id', (req, res) => {
     fields.bannerColor = req.body.bannerColor;
     changed.push('banner colour');
   }
+  const { welcomeChannelId, welcomeMessage, memberWait, invitesAdminOnly, pinsAdminOnly } = req.body;
+  if (welcomeChannelId !== undefined) {
+    if (welcomeChannelId !== null) {
+      const ch = channels.get(String(welcomeChannelId));
+      if (!ch || ch.server_id !== server.id || ch.kind !== 'text') fail(400, 'Pick a text channel in this server.');
+    }
+    fields.welcomeChannelId = welcomeChannelId;
+    changed.push('welcome channel');
+  }
+  if (welcomeMessage !== undefined) { fields.welcomeMessage = text(welcomeMessage, 'Welcome message', { max: 500 }); changed.push('welcome message'); }
+  if (memberWait !== undefined) {
+    if (!Number.isSafeInteger(memberWait) || memberWait < 0 || memberWait > 7 * 86400) fail(400, 'The wait must be 0 to 7 days (in seconds).');
+    fields.memberWait = memberWait;
+    changed.push(`new members wait ${memberWait}s`);
+  }
+  if (invitesAdminOnly !== undefined) { fields.invitesAdminOnly = invitesAdminOnly ? 1 : 0; changed.push(`invites: ${invitesAdminOnly ? 'admins' : 'everyone'}`); }
+  if (pinsAdminOnly !== undefined) { fields.pinsAdminOnly = pinsAdminOnly ? 1 : 0; changed.push(`pins: ${pinsAdminOnly ? 'admins' : 'everyone'}`); }
   const json = announce(servers.update(server.id, fields));
   if (changed.length) audit.log(server.id, req.user.id, 'server.update', server.name, changed.join(', '));
   res.json(json);
@@ -128,6 +145,7 @@ function roleFields(body) {
   }
   if (body.hoist !== undefined) fields.hoist = Boolean(body.hoist);
   if (body.admin !== undefined) fields.admin = Boolean(body.admin);
+  if (body.mentionable !== undefined) fields.mentionable = Boolean(body.mentionable);
   return fields;
 }
 
@@ -229,7 +247,9 @@ router.get('/:id/members', (req, res) => {
 });
 
 function removeMember(server, userId) {
+  const user = users.get(userId);
   servers.removeMember(server.id, userId);
+  if (user && !user.is_bot) require('../lib/post').emit('leave', { serverId: server.id, user: users.toUser(user) });
   realtime.leaveServer(userId, server.id);
   realtime.toUser(userId, 'server:delete', { id: server.id });
   realtime.toServer(server.id, 'member:remove', { serverId: server.id, userId });
@@ -317,6 +337,7 @@ const INVITE_EXPIRY = [0, 3600, 86400, 7 * 86400, 30 * 86400]; // seconds, 0 = n
 
 router.post('/:id/invites', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
+  if (server.invites_admin_only && servers.roleOf(server.id, req.user.id) === 'member') fail(403, 'Only admins can make invites in this server.');
   const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
   if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');
   const expiresIn = req.body.expiresIn ?? 0;
@@ -343,7 +364,7 @@ router.delete('/:id/invites/:code', (req, res) => {
 router.post('/:id/channels', (req, res) => {
   const server = access.modServer(req.params.id, req.user.id);
   const kind = req.body.kind ?? 'text';
-  if (!KINDS.includes(kind)) fail(400, 'Channel kind must be text, voice or category.');
+  if (!KINDS.includes(kind)) fail(400, 'Unknown channel kind.');
   const name = kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
   let parentId = null;
   if (req.body.parentId && kind !== 'category') {

@@ -28,6 +28,7 @@ api.use((req, res, next) => {
 // Open to logged-out visitors: auth, and the invite preview (invites.js guards its own join route).
 api.use('/auth', require('./auth'));
 api.use('/invites', require('./invites'));
+api.use('/webhooks', require('./webhooks').hooks); // other programs post here with the webhook's secret
 
 api.use(auth.requireAuth);
 api.use(writesPerUser);
@@ -35,10 +36,13 @@ api.use('/', require('./users'));
 api.use('/relationships', require('./relationships'));
 api.use('/dms', require('./dms'));
 api.use('/servers', require('./servers').router);
+api.use('/servers', require('./webhooks').manage);
 api.use('/channels', require('./channels'));
+api.use('/channels', require('./apps'));
 api.use('/messages', require('./messages'));
 api.use('/uploads', chunksPerUser, require('./uploads'));
 api.use('/notifications', require('./notifications'));
+api.use('/translate', require('./translate'));
 
 api.use(() => fail(404, 'Not found.'));
 

@@ -5,7 +5,7 @@ import { sendTyping } from '../realtime.js';
 import { startUpload } from '../upload.js';
 import { icon } from '../icons.js';
 import { avatar, iconButton, pickFiles, toast } from '../ui.js';
-import { state, dmPeople } from '../store.js';
+import { state, dmPeople, canModerate, setting } from '../store.js';
 import { openPoll } from './poll.js';
 import { openEmojiPicker, customEmojis, customCode } from '../emojiPicker.js';
 import { searchEmoji } from '../emojiData.js';
@@ -22,9 +22,13 @@ function suggestions(channel, trigger, query) {
       ? (state.members.get(channel.serverId) || []).map((m) => m.user)
       : [state.me, ...dmPeople(channel)];
     const specials = channel.serverId ? [{ special: 'everyone', label: '@everyone', sub: 'Notify everyone in this server' }, { special: 'here', label: '@here', sub: 'Notify everyone' }] : [];
+    // Roles: the mentionable ones, or all of them for admins. Inserted as <@&id>, shown as @Name.
+    const server = channel.serverId && state.servers.get(channel.serverId);
+    const roles = (server?.roles || []).filter((r) => (r.mentionable || canModerate(server.id)) && r.name.toLowerCase().includes(q));
     return [
       ...people.filter((u) => u.username.startsWith(q) || u.displayName.toLowerCase().includes(q))
         .map((u) => ({ insert: `@${u.username} `, face: avatar(u, { size: 24 }), label: u.displayName, sub: `@${u.username}` })),
+      ...roles.map((r) => ({ insert: `<@&${r.id}> `, face: h('span', { class: 'role-dot', style: { background: r.color || 'var(--text-faint)' } }), label: `@${r.name}`, sub: 'Role' })),
       ...specials.filter((s) => s.special.startsWith(q)).map((s) => ({ insert: `@${s.special} `, face: '@', label: s.label, sub: s.sub })),
     ].slice(0, SUGGEST_MAX);
   }
@@ -40,9 +44,18 @@ function suggestions(channel, trigger, query) {
   return [...custom, ...standard].slice(0, SUGGEST_MAX);
 }
 
+export const MESSAGE_MAX = 1000;
+
 function autoGrow(textarea) {
   textarea.style.height = 'auto';
   textarea.style.height = `${textarea.scrollHeight}px`;
+  // A counter shows up near the limit.
+  const counter = textarea.closest('.composer')?.querySelector('.char-count');
+  if (counter) {
+    const left = MESSAGE_MAX - textarea.value.length;
+    counter.textContent = left <= 200 ? String(left) : '';
+    counter.classList.toggle('low', left <= 50);
+  }
   // The send button lights up once there is something to send.
   textarea.closest('.composer')?.classList.toggle('ready', Boolean(textarea.value.trim()) || textarea.closest('.composer').querySelector('.upload') !== null);
 }
@@ -78,9 +91,18 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     // "/" at the very start: the commands, then a usage hint once one is picked.
     const slash = /^\/(\w*)$/.exec(before);
     if (slash) {
-      const items = availableCommands(channel).filter((c) => c.name.startsWith(slash[1].toLowerCase())).map((c) => ({
-        insert: `/${c.name} `, label: `/${c.name}`, sub: c.about, tag: c.mod ? 'Admin' : null,
-      }));
+      const q = slash[1].toLowerCase();
+      const builtIn = availableCommands(channel);
+      // The server's bot commands are in the list too (sent as a message, which sets the bot off).
+      const botCommands = (state.servers.get(channel.serverId)?.commands || []).filter((c) => !builtIn.some((b) => b.name === c.name));
+      const items = [
+        ...builtIn.filter((c) => c.name.startsWith(q)).map((c) => ({
+          insert: `/${c.name} `, label: `/${c.name}`, sub: c.about, tag: c.mod ? 'Admin' : null,
+        })),
+        ...botCommands.filter((c) => c.name.startsWith(q)).map((c) => ({
+          insert: `/${c.name} `, label: `/${c.name}`, sub: c.description || `A command from ${c.bot}`, tag: c.bot,
+        })),
+      ];
       if (!items.length) return closeSuggest();
       suggest = { items, index: Math.min(suggest.index, items.length - 1), start: 0 };
       return drawSuggest();
@@ -116,13 +138,13 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     textarea.focus();
   }
   const textarea = h('textarea', {
-    rows: 1, placeholder, 'aria-label': placeholder,
+    rows: 1, placeholder, 'aria-label': placeholder, maxLength: MESSAGE_MAX,
     oninput: () => {
       autoGrow(textarea);
       updateSuggest();
       if (textarea.value && Date.now() - lastTyping > TYPING_EVERY_MS) {
         lastTyping = Date.now();
-        sendTyping(channel.id);
+        if (setting('sendTyping', true) !== false) sendTyping(channel.id);
       }
     },
     onblur: () => setTimeout(closeSuggest, 150),
@@ -150,7 +172,10 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
         event.stopPropagation();
         replyTo(null);
       }
-      if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      // Enter sends (Shift+Enter is a new line), or, with "Send with Ctrl+Enter" on, Enter is a new line.
+      const ctrlSends = setting('sendKey', 'enter') === 'ctrlEnter';
+      const sends = ctrlSends ? (event.ctrlKey || event.metaKey) : !event.shiftKey;
+      if (event.key === 'Enter' && sends && !event.isComposing) {
         event.preventDefault();
         send();
       }
@@ -164,12 +189,33 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
   });
   const replyBar = h('div', { class: 'reply-bar' });
   const emojiButton = iconButton('smile', 'Emoji', () => openEmojiPicker(emojiButton, (value) => insertText(`${value} `), { keepOpen: true }));
-  const el = h('div', { class: 'composer' }, suggestBox, replyBar, tray,
+  // Pressing send never takes the focus from the box, so a phone keyboard stays up.
+  const sendButton = iconButton('send', 'Send', () => send(), 'send');
+  sendButton.addEventListener('pointerdown', (event) => event.preventDefault());
+  sendButton.addEventListener('mousedown', (event) => event.preventDefault());
+  // Feedback about the chat (a command's result, an error) shows here, inside the box, not as a pop-up.
+  const notice = h('div', { class: 'composer-notice', role: 'status' });
+  let noticeTimer = null;
+  function clearNotice() {
+    clearTimeout(noticeTimer);
+    notice.replaceChildren();
+    notice.className = 'composer-notice';
+  }
+  const el = h('div', { class: 'composer' }, suggestBox, notice, replyBar, tray,
     h('div', { class: 'composer-row' },
       iconButton('plus', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
       textarea,
       emojiButton,
-      iconButton('send', 'Send', () => send(), 'send')));
+      h('span', { class: 'char-count', 'aria-live': 'polite' }),
+      sendButton));
+
+  el.addEventListener('notice', (event) => {
+    const { message, kind } = event.detail;
+    clearNotice();
+    notice.className = `composer-notice ${kind}`;
+    notice.append(h('span', {}, message), iconButton('x', 'Dismiss', clearNotice));
+    noticeTimer = setTimeout(clearNotice, kind === 'error' ? 8000 : 4000);
+  });
 
   // Locked (timed out, or a read-only channel): the box stays where it is, greyed out, and says why.
   let locked = null;
@@ -241,6 +287,8 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     let content = textarea.value.trim();
     const batch = uploads;
     if (locked || (!content && !batch.length)) return;
+    closeSuggest();
+    clearNotice();
     if (content.startsWith('/') && !batch.length) {
       try {
         const result = await runCommand(channel, content, { openPoll: () => openPoll(channel) });

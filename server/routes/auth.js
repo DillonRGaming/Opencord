@@ -19,7 +19,7 @@ router.post('/register', limiter, async (req, res) => {
   if (users.getByUsername(username)) fail(409, 'That username is taken.');
 
   const user = users.create({ username, displayName, passwordHash: await auth.hashPassword(password) });
-  auth.startSession(req, res, user.id);
+  auth.startSession(req, res, user.id, { add: Boolean(req.body.add) });
   res.status(201).json(users.toMe(user));
 });
 
@@ -29,13 +29,23 @@ router.post('/login', limiter, async (req, res) => {
   const user = users.getByUsername(username);
   if (!user || !(await auth.verifyPassword(password, user.password_hash))) fail(401, 'Wrong username or password.');
 
-  auth.startSession(req, res, user.id);
+  auth.startSession(req, res, user.id, { add: Boolean(req.body.add) });
   res.json(users.toMe(user));
 });
 
 router.post('/logout', auth.requireAuth, (req, res) => {
-  auth.endSession(req, res);
+  const switched = auth.endSession(req, res);
   realtime.disconnectSessions([req.sessionHash]);
+  res.json({ switched });
+});
+
+// The accounts logged in on this browser, for the account switcher.
+router.get('/accounts', auth.requireAuth, (req, res) => {
+  res.json(auth.accountsOf(req, res).map(({ user, current }) => ({ ...users.toUser(user), current })));
+});
+
+router.post('/accounts/switch', auth.requireAuth, (req, res) => {
+  if (!auth.switchTo(req, res, text(req.body.userId, 'userId'))) fail(404, 'That account isn’t logged in here any more.');
   res.sendStatus(204);
 });
 

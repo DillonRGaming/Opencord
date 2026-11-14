@@ -3,7 +3,7 @@
 //
 // Each pair uses "perfect negotiation": either side can add or remove camera/screen at any time and the
 // connection renegotiates itself; when both offer at once, the "polite" side backs off.
-import { state, on, emit } from './store.js';
+import { on, emit, findChannel } from './store.js';
 import { voiceEmit, voiceSend } from './realtime.js';
 import { toast } from './ui.js';
 
@@ -124,7 +124,7 @@ export async function joinVoice(channel) {
   if (voice.channelId) leaveVoice();
   voice.connecting = true;
   voice.channelId = channel.id;
-  voice.serverId = channel.serverId;
+  voice.serverId = channel.serverId || null;
   emit('voice');
   try {
     mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
@@ -340,17 +340,16 @@ on('voice:signal', async ({ from, userId, data }) => {
 
 on('voice:peer-left', ({ socketId }) => dropPeer(socketId));
 
-// If the channel disappears or we lose the server, hang up.
-on('servers', () => {
+// If the channel disappears (or we lose the server, or leave the DM group), hang up.
+on('servers dms', () => {
   if (!voice.channelId || voice.connecting) return;
-  const server = state.servers.get(voice.serverId);
-  if (!server || !server.channels.some((c) => c.id === voice.channelId)) leaveVoice();
+  if (!findChannel(voice.channelId)) leaveVoice();
 });
 
 // After a reconnect the server has forgotten us: rejoin the same room.
 on('reload', () => {
   if (!voice.channelId || voice.connecting) return;
-  const channel = state.servers.get(voice.serverId)?.channels.find((c) => c.id === voice.channelId);
+  const channel = findChannel(voice.channelId);
   leaveVoice();
   if (channel) joinVoice(channel);
 });

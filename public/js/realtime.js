@@ -15,6 +15,12 @@ export function voiceEmit(event, payload) {
   return new Promise((resolve) => socket?.emit(event, payload, resolve));
 }
 
+// Whiteboard strokes. `reply` gets the server's answer for a finished stroke.
+export function boardSend(event, payload, reply) {
+  if (reply) socket?.emit(event, payload, reply);
+  else socket?.emit(event, payload);
+}
+
 export function voiceSend(event, payload) {
   socket?.emit(event, payload);
 }
@@ -65,12 +71,22 @@ export function connect() {
     if (!channel) {
       // First message of a DM someone else started.
       channel = await api.get(`/api/channels/${message.channelId}`).catch(() => null);
+      if (channel?.kind === 'post') {
+        state.posts.set(channel.id, channel);
+        emit('posts');
+        return emit('message:create', message);
+      }
       if (!channel || channel.type !== 'dm') return;
       state.dms.set(channel.id, channel);
       remember(...dmPeople(channel));
     }
     if (!channel.lastMessageId || message.id > channel.lastMessageId) channel.lastMessageId = message.id;
+    if (channel.kind === 'post') {
+      channel.replies = (channel.replies || 0) + 1;
+      emit('posts');
+    }
     if (message.author.id === state.me.id) markRead(channel.id, message.id);
+    else if (channel.type === 'dm') state.dmPings.set(channel.id, Math.min(100, (state.dmPings.get(channel.id) || 0) + 1));
     emit('message:create', message);
     if (channel.type === 'dm') emit('dms');
     emit('unread');
@@ -128,6 +144,15 @@ export function connect() {
     emit('members');
   });
 
+  socket.on('post:create', (post) => { state.posts.set(post.id, post); emit('posts'); });
+  socket.on('post:update', (post) => { state.posts.set(post.id, { ...state.posts.get(post.id), ...post }); emit('posts'); });
+  socket.on('post:delete', ({ id }) => {
+    state.posts.delete(id);
+    emit('posts');
+    if (state.route.postId === id) navigate(paths.channel(state.route.serverId, state.route.channelId));
+  });
+  for (const event of ['wb:live', 'wb:stroke', 'wb:erase', 'wb:clear', 'event:update', 'event:delete', 'music:update', 'wiki:update', 'wiki:delete']) socket.on(event, (payload) => emit(event, payload));
+
   socket.on('channel:create', upsertChannel);
   socket.on('channel:update', upsertChannel);
   socket.on('channel:delete', ({ id, serverId }) => {
@@ -172,6 +197,7 @@ export function connect() {
     emit('voice');
   });
   socket.on('voice:signal', (payload) => emit('voice:signal', payload));
+  socket.on('call:ring', (payload) => emit('call:ring', payload));
   socket.on('voice:peer-left', (payload) => emit('voice:peer-left', payload));
 
   socket.on('read', ({ channelId, messageId }) => {

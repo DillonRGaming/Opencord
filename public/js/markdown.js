@@ -16,7 +16,13 @@ import { emojiByName } from './emojiData.js';
 // True when the text mentions me: @<my username>, @everyone or @here.
 export function mentionsMe(text) {
   const me = state.me?.username.replaceAll('.', '\\.');
-  return new RegExp(`(?<![\\w@])@(${me}|everyone|here)(?![a-z0-9_.])`, 'i').test(text);
+  if (new RegExp(`(?<![\\w@])@(${me}|everyone|here)(?![a-z0-9_.])`, 'i').test(text)) return true;
+  // A role I have.
+  for (const [, id] of text.matchAll(/<@&([\w-]{6,40})>/g)) {
+    const found = findRole(id);
+    if (found && myRoleIds(found.server.id).includes(id)) return true;
+  }
+  return false;
 }
 
 function userByName(name) {
@@ -195,6 +201,7 @@ const INLINE = new RegExp([
   /(?<![\w@])@(everyone|here|[a-z0-9_.]{2,32})/.source, // 19 mention
   /(?<![\w&#])#([a-z0-9_-]{1,100})/.source, // 20 channel
   /(?<![\w:]):([a-z0-9_]{2,32}):/.source, // 21 :emoji:
+  /<@&([\w-]{6,40})>/.source, // 22 role mention
 ].join('|'), 'gi');
 
 export function appendInline(parent, text) {
@@ -233,6 +240,7 @@ function inlineNode(m) {
   if (m[19] !== undefined) return mention(m[19], m[0]);
   if (m[20] !== undefined) return channelMention(m[20], m[0]);
   if (m[21] !== undefined) return emoji(m[21], m[0]);
+  if (m[22] !== undefined) return roleMention(m[22]);
   return null;
 }
 
@@ -245,6 +253,27 @@ function mention(name, whole) {
   return h('button', {
     type: 'button', class: `mention${me ? ' me' : ''}`, dataset: { userId: user.id }, title: `@${user.username}`,
   }, `@${user.displayName}`);
+}
+
+// <@&roleId>: the role's name in its colour. Lit up when I have the role.
+function findRole(id) {
+  for (const server of state.servers.values()) {
+    const role = server.roles?.find((r) => r.id === id);
+    if (role) return { role, server };
+  }
+  return null;
+}
+
+function myRoleIds(serverId) {
+  return state.members.get(serverId)?.find((m) => m.user.id === state.me?.id)?.roleIds || [];
+}
+
+function roleMention(id) {
+  const found = findRole(id);
+  if (!found) return h('span', { class: 'mention' }, '@deleted-role');
+  const { role, server } = found;
+  const mine = myRoleIds(server.id).includes(role.id);
+  return h('span', { class: `mention role${mine ? ' me' : ''}`, style: role.color ? { '--role': role.color } : null }, `@${role.name}`);
 }
 
 function channelMention(name, whole) {
@@ -272,7 +301,45 @@ function spoiler(text) {
 function link(url) {
   const trailing = /[.,!?;:)\]'"]+$/.exec(url)?.[0] || '';
   const href = url.slice(0, url.length - trailing.length);
+  const card = messageLinkCard(href);
+  if (card) return [card, trailing];
   return [h('a', { href, target: '_blank', rel: 'noopener noreferrer' }, href), trailing];
+}
+
+// A link to a message here (…/channels/<server>/<channel>?m=<id>) shows as a small quote of it.
+const linkedMessages = new Map(); // id → Promise<message | null>
+function messageLinkCard(href) {
+  let url;
+  try { url = new URL(href); } catch { return null; }
+  // /channels/<server>/<channel> or, for a post, /channels/<server>/<channel>/<post>: the chat is the last part.
+  const m = /^\/channels\/[^/]+\/[^/]+(?:\/([^/]+))?$/.exec(url.pathname);
+  const id = url.searchParams.get('m');
+  if (url.origin !== location.origin || !m || !id) return null;
+  const channelId = url.pathname.split('/').pop();
+  const card = h('button', {
+    type: 'button', class: 'message-link-card',
+    onclick: async () => {
+      const { navigate } = await import('./router.js');
+      const { jumpToMessage } = await import('./views/chat.js');
+      navigate(url.pathname);
+      jumpToMessage(channelId, id);
+    },
+  }, h('span', { class: 'message-link-loading' }, 'Linked message…'));
+  if (!linkedMessages.has(id)) linkedMessages.set(id, fetch(`/api/messages/${encodeURIComponent(id)}`).then((r) => (r.ok ? r.json() : null)).catch(() => null));
+  linkedMessages.get(id).then((msg) => {
+    if (!msg) {
+      card.replaceChildren(h('span', { class: 'message-link-loading' }, 'A message you can’t see, or that was deleted'));
+      return;
+    }
+    const plain = msg.content.replace(/\s+/g, ' ').slice(0, 220);
+    card.replaceChildren(
+      h('span', { class: 'message-link-head' },
+        msg.author.avatar ? h('img', { class: 'message-link-avatar', src: msg.author.avatar, alt: '' }) : null,
+        h('strong', {}, msg.author.displayName),
+        h('span', {}, msg.channelName ? `in #${msg.channelName}` : 'in a DM')),
+      h('span', { class: 'message-link-text' }, plain || (msg.attachments.length ? `📎 ${msg.attachments.map((a) => a.name).join(', ')}` : '…')));
+  });
+  return card;
 }
 
 const STAMP_FORMATS = {

@@ -1,5 +1,6 @@
 const http = require('node:http');
 const path = require('node:path');
+const fs = require('node:fs');
 const express = require('express');
 const config = require('./config');
 const db = require('./db');
@@ -35,13 +36,33 @@ app.use((req, res, next) => {
 
 app.use('/api', routes.api);
 app.use('/media', routes.media);
+// Scripts and styles are served under /v/<build>/…, where <build> changes whenever any file in public/
+// changes, so phones and Cloudflare (which keeps static files for hours whatever we say) always fetch the
+// new code. Relative imports inside the modules inherit the prefix.
+let build = { id: '', checked: 0 };
+function buildId() {
+  if (Date.now() - build.checked < 2000) return build.id;
+  let newest = 0;
+  for (const entry of fs.readdirSync(config.publicDir, { recursive: true, withFileTypes: true })) {
+    if (entry.isFile()) newest = Math.max(newest, fs.statSync(path.join(entry.parentPath, entry.name)).mtimeMs);
+  }
+  build = { id: Math.floor(newest).toString(36), checked: Date.now() };
+  return build.id;
+}
+app.use('/v/:build', express.static(config.publicDir, {
+  index: false,
+  setHeaders: (res) => res.set('Cache-Control', 'public, max-age=31536000, immutable'),
+}));
 app.use(express.static(config.publicDir, { index: false, setHeaders: (res) => res.set('Cache-Control', 'no-cache') }));
+
+const indexHtml = () => fs.readFileSync(path.join(config.publicDir, 'index.html'), 'utf8')
+  .replace(/(["(])\/(js|css)\//g, `$1/v/${buildId()}/$2/`);
 
 // Everything else is a page inside the single-page app (/channels/…, /invite/…).
 app.use((req, res, next) => {
-  if (req.method !== 'GET' || path.extname(req.path)) return next();
-  res.set('Cache-Control', 'no-cache');
-  res.sendFile('index.html', { root: config.publicDir });
+  if (!['GET', 'HEAD'].includes(req.method) || path.extname(req.path)) return next();
+  res.set({ 'Cache-Control': 'no-store', 'Content-Type': 'text/html; charset=utf-8' });
+  res.send(indexHtml());
 });
 
 app.use((req, res) => res.status(404).json({ error: 'Not found.' }));

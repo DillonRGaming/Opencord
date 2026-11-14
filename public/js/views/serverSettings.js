@@ -11,6 +11,7 @@ import {
 } from '../ui.js';
 import { openChannelPage } from './serverPages.js';
 import { openSectionedPage } from './settings.js';
+import { colorField } from '../colorPicker.js';
 import { rolesSection, memberRoleButton } from './roles.js';
 import { roleColor } from '../store.js';
 
@@ -36,7 +37,7 @@ export function openServerSettings(server) {
     let bannerColor = s.bannerColor;
     const name = h('input', { class: 'input', required: true, maxLength: 100, value: s.name });
     const description = h('textarea', { class: 'textarea', maxLength: 500, value: s.description || '', placeholder: 'What this server is about' });
-    const banner = h('input', { class: 'color-input', type: 'color', value: bannerColor || '#3a3a37', oninput: () => { bannerColor = banner.value; } });
+    const banner = colorField({ value: bannerColor, allowNone: true, label: 'Banner colour', onChange: (c) => { bannerColor = c; } });
 
     const changeIcon = async () => {
       const [file] = await pickFiles({ accept: 'image/png,image/jpeg,image/gif,image/webp' });
@@ -63,7 +64,7 @@ export function openServerSettings(server) {
           toast('Server saved.', 'ok');
         },
       }, field('Server name', name), field('Description', description),
-      settingRow('Banner colour', [banner, button('Clear', () => { bannerColor = null; banner.value = '#3a3a37'; }, 'ghost small')]))),
+      settingRow('Banner colour', banner))),
       settingsCard('Banner', bannerPreview,
         h('div', { class: 'button-row' }, button(s.banner ? 'Change banner' : 'Upload banner', changeBanner, 'ghost small'),
           s.banner && button('Remove', removeBanner, 'ghost small'))),
@@ -235,6 +236,9 @@ export function openServerSettings(server) {
     'server.banner': ['image', 'changed the server banner'], 'server.banner_remove': ['image', 'removed the server banner'],
     'role.create': ['tag', 'created the role'], 'role.update': ['tag', 'changed the role'], 'role.delete': ['tag', 'deleted the role'],
     'role.give': ['tag', 'gave a role to'], 'role.take': ['tag', 'took a role from'],
+    'channel.link': ['link', 'linked the channel'], 'channel.unlink': ['link', 'unlinked the channel'],
+    'webhook.create': ['link', 'made the webhook'], 'webhook.delete': ['link', 'deleted the webhook'],
+    'post.delete': ['trash', 'deleted the post'], 'event.delete': ['trash', 'deleted the event'], 'wiki.delete': ['trash', 'deleted the wiki page'],
     'server.transfer': ['crown', 'handed the server to'], 'member.join': ['userPlus', 'joined'], 'member.leave': ['logout', 'left'],
     'member.kick': ['logout', 'kicked'], 'member.ban': ['ban', 'banned'], 'member.unban': ['ban', 'unbanned'],
     'member.timeout': ['clock', 'timed out'], 'member.timeout_remove': ['clock', 'removed the timeout on'],
@@ -266,6 +270,71 @@ export function openServerSettings(server) {
     api.get(`/api/servers/${id}/audit-log`).then((rows) => { entries = rows; draw(); }).catch(() => {});
     return [settingsCard(null, settingRow('Show', segmented([['all', 'Everything'], ['members', 'Members'], ['channels', 'Channels'], ['other', 'Other']], filter, (v) => { filter = v; draw(); }))),
       settingsCard('Recent actions', list)];
+  }
+
+  // --- Community: greeting new members and who can do what ---
+  function community() {
+    const s = current();
+    const save = (fields) => attempt(() => api.patch(`/api/servers/${id}`, fields));
+    const texts = s.channels.filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position);
+    const channelSelect = h('select', {
+      class: 'input', 'aria-label': 'Welcome channel',
+      onchange: () => save({ welcomeChannelId: channelSelect.value || null }),
+    }, h('option', { value: '' }, 'Off'), texts.map((c) => h('option', { value: c.id, selected: c.id === s.welcomeChannelId }, `#${c.name}`)));
+    const message = h('textarea', {
+      class: 'textarea', maxLength: 500, rows: 2, value: s.welcomeMessage, placeholder: 'Welcome to {server}, {user}!',
+      onchange: () => save({ welcomeMessage: message.value }),
+    });
+    const WAITS = [[0, 'No wait'], [300, '5 min'], [600, '10 min'], [3600, '1 hour'], [86400, '1 day']];
+    return [
+      settingsCard('Welcome',
+        settingRow('Greet new members in', channelSelect),
+        field('Welcome message ({user} and {server} get filled in)', message)),
+      settingsCard('New members',
+        settingRow('Wait before they can post', segmented(WAITS, s.memberWait || 0, (v) => save({ memberWait: v })))),
+      settingsCard('Permissions',
+        settingRow('Who can make invites', segmented([[false, 'Everyone'], [true, 'Admins']], s.invitesAdminOnly, (v) => save({ invitesAdminOnly: v }))),
+        settingRow('Who can pin messages', segmented([[false, 'Everyone'], [true, 'Admins']], s.pinsAdminOnly, (v) => save({ pinsAdminOnly: v })))),
+    ];
+  }
+
+  // --- Webhooks: secret addresses other programs post into a channel with ---
+  function webhooks() {
+    const list = h('div', { class: 'manage-list' }, h('p', { class: 'loading' }, 'Loading…'));
+    const texts = current().channels.filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position);
+    const name = h('input', { class: 'input', maxLength: 32, placeholder: 'GitHub', required: true });
+    const channel = h('select', { class: 'input', 'aria-label': 'Channel' }, texts.map((c) => h('option', { value: c.id }, `#${c.name}`)));
+    const load = async () => {
+      const rows = await api.get(`/api/servers/${id}/webhooks`).catch(() => []);
+      list.replaceChildren(...(rows.length ? rows.map((hook) => {
+        const where = current().channels.find((c) => c.id === hook.channelId);
+        const url = `${location.origin}${hook.url}`;
+        return h('div', { class: 'manage-row' },
+          h('span', { class: 'attachment-icon' }, icon('link', 18)),
+          h('span', { class: 'manage-main' }, h('strong', {}, hook.name), h('span', {}, `Posts in #${where?.name || 'deleted-channel'}`)),
+          h('span', { class: 'manage-actions always' },
+            button('Copy URL', async () => { await copyText(url); toast('Webhook URL copied. Keep it secret.', 'ok'); }, 'ghost small'),
+            confirmButton({
+              label: 'Delete webhook', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+              onConfirm: async () => { await api.del(`/api/servers/${id}/webhooks/${hook.id}`); load(); },
+            })));
+      }) : [emptyState('link', 'No webhooks yet')]));
+    };
+    load();
+    return [
+      settingsCard('New webhook',
+        h('p', { class: 'muted' }, 'Other programs (GitHub, a build server, a script) can post into a channel by sending '
+          + 'POST {"content": "…"} to the webhook’s URL. Anyone with the URL can post, so keep it secret.'),
+        form({
+          submitLabel: 'Create webhook',
+          onSubmit: async () => {
+            await api.post(`/api/servers/${id}/webhooks`, { name: name.value, channelId: channel.value });
+            name.value = '';
+            load();
+          },
+        }, field('Name', name), field('Posts in', channel))),
+      settingsCard('Webhooks', list),
+    ];
   }
 
   // --- Bots ---
@@ -313,8 +382,9 @@ export function openServerSettings(server) {
     groups: [
       [server.name, [['overview', 'Overview', overview, 'name icon description banner'], ['channels', 'Channels', channels, 'order slowmode topic category voice'],
         ['emoji', 'Emoji', emoji, 'custom emoji sticker'], ['invites', 'Invites', invites, 'link code']]],
-      ['People', [['roles', 'Roles', () => rolesSection(id), 'roles colour color hoist permissions'], ['members', 'Members', members, 'kick ban owner admin timeout roles'], ['bans', 'Bans', bans, 'unban']]],
-      ['Tools', [['bots', 'Bot builder', bots, 'bot blocks scratch automation'], ['audit', 'Audit log', auditLog, 'history log actions']]],
+      ['People', [['community', 'Community', community, 'welcome greet new members wait invites pins permissions'],
+        ['roles', 'Roles', () => rolesSection(id), 'roles colour color hoist permissions mention'], ['members', 'Members', members, 'kick ban owner admin timeout roles'], ['bans', 'Bans', bans, 'unban']]],
+      ['Tools', [['bots', 'Bot builder', bots, 'bot blocks scratch automation'], ['webhooks', 'Webhooks', webhooks, 'webhook url integration github api'], ['audit', 'Audit log', auditLog, 'history log actions']]],
       server.ownerId === state.me.id && ['', [['delete', 'Delete server', remove, 'remove danger']]],
     ].filter(Boolean),
   });
