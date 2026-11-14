@@ -35,6 +35,18 @@ export const THEMES = [
   { id: 'moss', name: 'Moss' },
   { id: 'paper', name: 'Paper' },
   { id: 'oled', name: 'OLED' },
+  { id: 'slate', name: 'Slate' },
+  { id: 'ocean', name: 'Ocean' },
+  { id: 'dusk', name: 'Dusk' },
+  { id: 'plum', name: 'Plum' },
+  { id: 'rose', name: 'Rosewood' },
+  { id: 'ember', name: 'Ember' },
+  { id: 'mocha', name: 'Mocha' },
+  { id: 'teal', name: 'Teal' },
+  { id: 'sky', name: 'Sky' },
+  { id: 'mint', name: 'Mint' },
+  { id: 'blush', name: 'Blush' },
+  { id: 'lavender', name: 'Lavender' },
 ];
 
 // Themes that were renamed, so settings saved before keep working.

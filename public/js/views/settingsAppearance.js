@@ -12,6 +12,18 @@ const PREVIEW = {
   graphite: ['#121211', '#1a1a19', '#252523'],
   paper: ['#e9e5db', '#f6f3ec', '#fdfbf7'],
   oled: ['#000000', '#0b0b0b', '#171717'],
+  slate: ['#101114', '#15181b', '#1f2226'],
+  ocean: ['#0c1118', '#101820', '#19222c'],
+  dusk: ['#0f0e16', '#14131e', '#1d1c29'],
+  plum: ['#130f15', '#1a141d', '#251d28'],
+  rose: ['#150f10', '#1c1416', '#271d20'],
+  ember: ['#15100e', '#1d1613', '#29201c'],
+  mocha: ['#14120f', '#1c1815', '#27221e'],
+  teal: ['#0e1616', '#131e1e', '#1c2929'],
+  sky: ['#d6e3f0', '#edf2f8', '#f9fbfd'],
+  mint: ['#dbebe3', '#eef6f2', '#fafcfb'],
+  blush: ['#eed8dd', '#f7edf0', '#fdfafa'],
+  lavender: ['#dfd8ee', '#f1edf7', '#fbfafd'],
 };
 
 // A segmented control that saves straight to one setting.
