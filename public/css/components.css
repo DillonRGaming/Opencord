@@ -653,3 +653,15 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 /* Menu rows: what's on the left (dot, swatch, picture), the label filling the middle, the icon or tick on the right. */
 .menu-item .menu-label { flex: 1; min-width: 0; text-align: left; }
 .menu-item:has(.menu-dot), .menu-item:has(> .avatar), .menu-item:has(.menu-swatch) { justify-content: flex-start; gap: 0.6rem; }
+
+/* Role permissions: a switch per permission with a line under its name. */
+.role-perms { display: grid; gap: 2px; }
+.perm-row { display: flex; align-items: center; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+.perm-row:last-child { border-bottom: 0; }
+.perm-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.perm-text strong { font-size: 0.9rem; font-weight: 500; color: var(--text); }
+.perm-text span { font-size: 0.78rem; color: var(--text-faint); line-height: 1.4; }
+.role-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.role-picker-note { flex-basis: 100%; margin-top: 2px; font-size: 0.8rem; }
+.role-chip.pick { cursor: pointer; height: 30px; padding: 0 10px; }
+.role-chip.pick[aria-pressed="true"] { background: color-mix(in srgb, var(--role, var(--accent)) 24%, transparent); outline: 1px solid var(--role, var(--accent)); color: var(--text); }

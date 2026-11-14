@@ -3,7 +3,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, canModerate } from '../store.js';
+import { state, on, can, canPostIn } from '../store.js';
 import { navigate, paths, showNav } from '../router.js';
 import { formatStamp } from '../format.js';
 import { attempt, avatar, button, iconButton, pickFiles, toast } from '../ui.js';
@@ -82,7 +82,7 @@ function render() {
   const { channel } = view;
   const all = [...state.posts.values()].filter((p) => p.parentId === channel.id)
     .sort((a, b) => ((b.lastMessageId || b.id) > (a.lastMessageId || a.id) ? 1 : -1));
-  const canPost = !channel.readOnly || canModerate(view.serverId);
+  const canPost = canPostIn(view.serverId, channel);
 
   const search = h('input', {
     type: 'search', placeholder: 'Search posts', value: view.query, 'aria-label': 'Search posts',

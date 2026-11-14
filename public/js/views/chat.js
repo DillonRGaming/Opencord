@@ -5,7 +5,7 @@ import { icon } from '../icons.js';
 import { groupFace } from './sidebar.js';
 import { voice, joinVoice } from '../voice.js';
 import { ensureMembers } from './members.js';
-import { state, on, emit, isUnread, canModerate, markRead, dmName, roleColor } from '../store.js';
+import { state, on, emit, isUnread, canModerate, can, canPostIn, markRead, dmName, roleColor } from '../store.js';
 import { attempt, avatar, confirmButton, copyText, iconButton, toast } from '../ui.js';
 import { createComposer } from './composer.js';
 import { messageCard, messageRow, fullContent } from './message.js';
@@ -66,7 +66,7 @@ function header(channel, serverId) {
     tools);
 }
 
-const canDeletePost = (post, serverId) => post.authorId === state.me.id || canModerate(serverId);
+const canDeletePost = (post, serverId) => post.authorId === state.me.id || can(serverId, 'manageMessages');
 
 function searchBox(channel) {
   const input = h('input', {
@@ -166,7 +166,7 @@ function historyStart(channel) {
 function rowFor(v, index) {
   const message = v.messages[index];
   return messageRow(message, v.messages[index - 1], isMine(message), {
-    canDelete: v.serverId && canModerate(v.serverId),
+    canDelete: v.serverId && can(v.serverId, 'manageMessages'),
     serverId: v.serverId,
     onEdit: startEdit,
     onDelete: deleteMessage,
@@ -412,8 +412,8 @@ function updateLock(v) {
   if (left > 0 && !mod) {
     v.composer.setLocked(`You are timed out for ${timeLeft(left)}`);
     v.lockTimer = setTimeout(() => { if (view === v) updateLock(v); }, left > 120000 ? 30000 : 1000);
-  } else if (channel.readOnly && !mod) {
-    v.composer.setLocked('Only admins and the owner can post in this channel');
+  } else if (serverId && !canPostIn(serverId, channel.kind === 'post' ? state.servers.get(serverId)?.channels.find((c) => c.id === channel.parentId) || channel : channel) && channel.kind !== 'post') {
+    v.composer.setLocked('You can’t post in this channel');
   } else {
     v.composer.setLocked(null);
   }

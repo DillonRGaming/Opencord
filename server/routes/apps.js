@@ -12,7 +12,9 @@ const previews = require('../lib/previews');
 
 const router = express.Router();
 
-const isMod = (channel, userId) => ['owner', 'admin'].includes(servers.roleOf(channel.server_id, userId));
+const channels = require('../models/channels');
+// Changing or removing other people's events, songs and pages.
+const isMod = (channel, userId) => servers.can(channel.server_id, userId, 'manageMessages');
 
 function appChannel(id, userId, kind) {
   const channel = access.visibleChannel(id, userId);
@@ -22,9 +24,9 @@ function appChannel(id, userId, kind) {
 
 // Adding things: not while timed out, and only admins in an admins-only channel.
 function canAdd(channel, userId) {
-  if (isMod(channel, userId)) return;
+  if (servers.roleOf(channel.server_id, userId) !== 'member') return;
   if (servers.timeoutUntil(channel.server_id, userId)) fail(403, 'You are timed out.');
-  if (channel.read_only) fail(403, 'Only admins and the owner can add things here.');
+  if (!channels.canPost(userId, channel)) fail(403, 'You can’t add things here.');
 }
 
 const time = (value, label) => {

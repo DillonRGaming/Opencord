@@ -22,7 +22,7 @@ function ownedChannel(channelId, userId) {
   const channel = access.visibleChannel(channelId, userId);
   if (channel.type !== 'text') fail(400, "DMs can't be changed here.");
   if (channel.kind === 'post' && channel.owner_id === userId) return channel;
-  access.modServer(channel.server_id, userId);
+  access.permServer(channel.server_id, userId, 'manageChannels');
   return channel;
 }
 
@@ -98,7 +98,7 @@ router.post('/:id/posts', (req, res) => {
   if (!content && !attachmentIds.length) fail(400, 'Write something in the post.');
   if (servers.roleOf(parent.server_id, req.user.id) === 'member') {
     if (servers.timeoutUntil(parent.server_id, req.user.id)) fail(403, 'You are timed out.');
-    if (parent.read_only) fail(403, 'Only admins and the owner can post here.');
+    if (!channels.canPost(req.user.id, parent)) fail(403, 'You can’t start posts here.');
   }
   const post = channels.createPost(parent, req.user.id, title);
   postMessage(post, req.user.id, content, { attachmentIds: [...new Set(attachmentIds)] });
@@ -121,7 +121,7 @@ router.get('/:id/strokes', (req, res) => {
 
 router.delete('/:id/strokes', (req, res) => {
   const channel = whiteboard(req.params.id, req.user.id);
-  access.modServer(channel.server_id, req.user.id);
+  access.permServer(channel.server_id, req.user.id, 'manageMessages');
   channels.clearStrokes(channel.id);
   realtime.toServer(channel.server_id, 'wb:clear', { channelId: channel.id });
   audit.log(channel.server_id, req.user.id, 'channel.update', `#${channel.name}`, 'cleared the whiteboard');
@@ -141,6 +141,15 @@ router.patch('/:id', (req, res) => {
     fields.slowmode = req.body.slowmode;
   }
   if (req.body.readOnly !== undefined) fields.readOnly = req.body.readOnly ? 1 : 0;
+  // Who can see it / who can post: null for everyone, or a list of this server's role ids.
+  const roleList = (value, label) => {
+    if (value === null) return null;
+    const known = new Set(servers.roles(channel.server_id).map((r) => r.id));
+    if (!Array.isArray(value) || value.some((id) => !known.has(id))) fail(400, `${label} must be roles in this server.`);
+    return JSON.stringify([...new Set(value)]);
+  };
+  if (req.body.viewRoles !== undefined) fields.viewRoles = roleList(req.body.viewRoles, 'Who can see it');
+  if (req.body.postRoles !== undefined) fields.postRoles = roleList(req.body.postRoles, 'Who can post');
   if (channel.kind === 'post') {
     const post = channels.toPost(channels.update(channel.id, fields));
     realtime.toServer(channel.server_id, 'post:update', post);
@@ -148,7 +157,7 @@ router.patch('/:id', (req, res) => {
   }
   const json = channels.toChannel(channels.update(channel.id, fields));
   realtime.toServer(channel.server_id, 'channel:update', json);
-  const what = Object.keys(fields).map((k) => ({ readOnly: 'who can post', slowmode: `slowmode ${fields.slowmode}s` }[k] || k));
+  const what = Object.keys(fields).map((k) => ({ readOnly: 'who can post', postRoles: 'who can post', viewRoles: 'who can see it', slowmode: `slowmode ${fields.slowmode}s` }[k] || k));
   audit.log(channel.server_id, req.user.id, `${channel.kind === 'category' ? 'category' : 'channel'}.update`, label(channel), what.join(', '));
   res.json(json);
 });
@@ -214,7 +223,7 @@ router.post('/:id/messages', (req, res) => {
     if (until) fail(403, `You are timed out until ${new Date(until).toLocaleString()}.`);
     const newWait = newMemberWait(channel.server_id, req.user.id);
     if (newWait) fail(403, `New members can post in ${Math.ceil(newWait / 60)} minute${newWait > 60 ? 's' : ''}.`);
-    if (channel.read_only) fail(403, 'Only admins and the owner can post in this channel.');
+    if (!channels.canPost(req.user.id, channel)) fail(403, 'You can’t post in this channel.');
     const wait = channels.slowmodeWait(channel, req.user.id);
     if (wait) fail(429, `Slowmode is on. You can post again in ${wait}s.`, { retryAfterMs: wait * 1000 });
   }
@@ -242,7 +251,7 @@ router.post('/:id/polls', (req, res) => {
   if (hours < 0 || hours > 24 * 30) fail(400, 'Polls can run for up to 30 days.');
   if (channel.type === 'text' && servers.roleOf(channel.server_id, req.user.id) === 'member') {
     if (servers.timeoutUntil(channel.server_id, req.user.id)) fail(403, 'You are timed out.');
-    if (channel.read_only) fail(403, 'Only admins and the owner can post in this channel.');
+    if (!channels.canPost(req.user.id, channel)) fail(403, 'You can’t post in this channel.');
   }
   res.status(201).json(postMessage(channel, req.user.id, `📊 ${question}`, {
     poll: { question, options: cleaned, multi: Boolean(req.body.multi), closesAt: hours ? Date.now() + hours * 3600_000 : null },

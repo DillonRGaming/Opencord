@@ -120,6 +120,24 @@ function kindPicker(current, onPick) {
   return el;
 }
 
+// Tap roles to pick them: the chips light up. Used for "who can see it" and "who can post".
+function rolePicker(roles, picked, onChange, note) {
+  const chosen = new Set(picked);
+  const el = h('div', { class: 'role-picker' },
+    roles.length
+      ? roles.map((role) => h('button', {
+        type: 'button', class: 'role-chip pick', 'aria-pressed': String(chosen.has(role.id)), style: role.color ? { '--role': role.color } : null,
+        onclick: (event) => {
+          if (chosen.has(role.id)) chosen.delete(role.id); else chosen.add(role.id);
+          event.currentTarget.setAttribute('aria-pressed', String(chosen.has(role.id)));
+          onChange([...chosen]);
+        },
+      }, h('span', { class: 'role-dot', style: { background: role.color || 'var(--text-faint)' } }), role.name))
+      : h('span', { class: 'muted' }, 'This server has no roles yet. Make some in Server settings → Roles.'),
+    note && h('p', { class: 'muted role-picker-note' }, note));
+  return el;
+}
+
 // Linked channels: share this channel's messages with channels in your other servers.
 function linksCard(channel) {
   const body = h('div', { class: 'form' }, h('p', { class: 'loading' }, 'Loading…'));
@@ -155,6 +173,9 @@ export function openChannelPage(server, channel, options = {}) {
   let parentId = channel ? channel.parentId || null : options.parentId || null;
   let slowmode = channel?.slowmode || 0;
   let readOnly = Boolean(channel?.readOnly);
+  let viewRoles = channel?.viewRoles || null; // null = everyone
+  let postRoles = channel?.postRoles || [];
+  const roles = server.roles || [];
   const categories = server.channels.filter((c) => c.kind === 'category').sort((a, b) => a.position - b.position);
 
   const name = h('input', { class: 'input', required: true, maxLength: 100, value: channel?.name || '', placeholder: kind === 'category' ? 'Category name' : 'new-channel' });
@@ -166,7 +187,14 @@ export function openChannelPage(server, channel, options = {}) {
       segmented([[null, 'None'], ...categories.map((c) => [c.id, c.name])], parentId, (value) => { parentId = value; })),
     channel && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && field('Topic', topic),
     channel && kind === 'text' && settingRow('Slowmode', segmented(SLOWMODE, slowmode, (value) => { slowmode = value; })),
-    channel && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && settingRow({ posts: 'Who can start posts', calendar: 'Who can add events', music: 'Who can add songs', wiki: 'Who can write pages' }[kind] || 'Who can post', segmented([[false, 'Everyone'], [true, 'Admins and owner']], readOnly, (value) => { readOnly = value; })),
+    // Permissions, kept to two plain questions: who can see it, and who can post in it.
+    channel && kind !== 'category' && settingRow('Who can see it', segmented([[false, 'Everyone'], [true, 'Only some roles']], Boolean(viewRoles), (value) => {
+      viewRoles = value ? (viewRoles || []) : null;
+      drawExtras();
+    })),
+    channel && viewRoles && rolePicker(roles, viewRoles, (next) => { viewRoles = next; }, 'Admins and people who can manage channels always see it.'),
+    channel && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && settingRow({ posts: 'Who can start posts', calendar: 'Who can add events', music: 'Who can add songs', wiki: 'Who can write pages' }[kind] || 'Who can post', segmented([[false, 'Everyone'], [true, 'Only some roles']], readOnly, (value) => { readOnly = value; drawExtras(); })),
+    channel && readOnly && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && rolePicker(roles, postRoles, (next) => { postRoles = next; }, 'Admins and the owner always can.'),
   ].filter(Boolean));
 
   const editor = form({
@@ -174,8 +202,9 @@ export function openChannelPage(server, channel, options = {}) {
     onSubmit: async () => {
       if (channel) {
         const body = { name: name.value };
-        if (kind === 'text') Object.assign(body, { topic: topic.value, slowmode, readOnly });
-        if (['posts', 'calendar', 'music', 'wiki'].includes(kind)) Object.assign(body, { topic: topic.value, readOnly });
+        if (kind === 'text') Object.assign(body, { topic: topic.value, slowmode, readOnly, postRoles });
+        if (['posts', 'calendar', 'music', 'wiki'].includes(kind)) Object.assign(body, { topic: topic.value, readOnly, postRoles });
+        if (kind !== 'category') body.viewRoles = viewRoles;
         await api.patch(`/api/channels/${channel.id}`, body);
         if (kind !== 'category' && (parentId || null) !== (channel.parentId || null)) {
           await api.put(`/api/servers/${server.id}/channels/order`, { items: [{ id: channel.id, parentId }] });

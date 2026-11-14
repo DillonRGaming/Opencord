@@ -1,7 +1,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, emit, remember, roleOf } from '../store.js';
+import { state, on, emit, remember, roleOf, can } from '../store.js';
 import { openModerate } from './moderation.js';
 import { openBotBuilder } from './botBuilder.js';
 import { formatDate, formatStamp } from '../format.js';
@@ -377,16 +377,30 @@ export function openServerSettings(server) {
     })))];
   }
 
+  // Each section shows only for people with the permission it needs.
+  const allow = (perm, entry) => (can(id, perm) ? entry : null);
   const page = openSectionedPage({
     title: 'Server settings',
     groups: [
-      [server.name, [['overview', 'Overview', overview, 'name icon description banner'], ['channels', 'Channels', channels, 'order slowmode topic category voice'],
-        ['emoji', 'Emoji', emoji, 'custom emoji sticker'], ['invites', 'Invites', invites, 'link code']]],
-      ['People', [['community', 'Community', community, 'welcome greet new members wait invites pins permissions'],
-        ['roles', 'Roles', () => rolesSection(id), 'roles colour color hoist permissions mention'], ['members', 'Members', members, 'kick ban owner admin timeout roles'], ['bans', 'Bans', bans, 'unban']]],
-      ['Tools', [['bots', 'Bot builder', bots, 'bot blocks scratch automation'], ['webhooks', 'Webhooks', webhooks, 'webhook url integration github api'], ['audit', 'Audit log', auditLog, 'history log actions']]],
+      [server.name, [
+        allow('manageServer', ['overview', 'Overview', overview, 'name icon description banner']),
+        allow('manageChannels', ['channels', 'Channels', channels, 'order slowmode topic category voice']),
+        allow('manageServer', ['emoji', 'Emoji', emoji, 'custom emoji sticker']),
+        allow('manageServer', ['invites', 'Invites', invites, 'link code']),
+      ]],
+      ['People', [
+        allow('manageServer', ['community', 'Community', community, 'welcome greet new members wait invites pins permissions']),
+        allow('manageRoles', ['roles', 'Roles', () => rolesSection(id), 'roles colour color hoist permissions mention']),
+        (can(id, 'moderateMembers') || can(id, 'manageRoles')) ? ['members', 'Members', members, 'kick ban owner admin timeout roles'] : null,
+        allow('moderateMembers', ['bans', 'Bans', bans, 'unban']),
+      ]],
+      ['Tools', [
+        allow('manageBots', ['bots', 'Bot builder', bots, 'bot blocks scratch automation']),
+        allow('manageBots', ['webhooks', 'Webhooks', webhooks, 'webhook url integration github api']),
+        allow('viewAuditLog', ['audit', 'Audit log', auditLog, 'history log actions']),
+      ]],
       server.ownerId === state.me.id && ['', [['delete', 'Delete server', remove, 'remove danger']]],
-    ].filter(Boolean),
+    ].filter(Boolean).map(([label, entries]) => [label, entries.filter(Boolean)]).filter(([, entries]) => entries.length),
   });
 
   // Live changes (renames, new channels, members joining) redraw the open section, unless a field has focus.

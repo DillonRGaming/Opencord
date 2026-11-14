@@ -167,6 +167,10 @@ export function connect() {
     remember(member.user);
     const list = state.members.get(serverId);
     if (list) state.members.set(serverId, list.map((m) => (m.user.id === member.user.id ? { ...m, ...member } : m)));
+    if (member.user.id === state.me.id) {
+      state.myRoles[serverId] = member.roleIds || [];
+      emit('servers'); // my roles changed: channels and controls I can see may have too
+    }
     emit('members');
   });
 

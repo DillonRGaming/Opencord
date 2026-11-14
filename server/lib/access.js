@@ -29,4 +29,17 @@ function modServer(serverId, userId) {
   return server;
 }
 
-module.exports = { memberServer, ownedServer, modServer, visibleChannel };
+const PERMISSION_NAMES = {
+  manageServer: 'manage the server', manageChannels: 'manage channels', manageRoles: 'manage roles',
+  manageMessages: 'manage messages', moderateMembers: 'moderate members', manageBots: 'manage bots and webhooks',
+  viewAuditLog: 'see the audit log', createInvites: 'make invites',
+};
+
+// A member who has `perm` (through a role, or as an admin or the owner).
+function permServer(serverId, userId, perm) {
+  const server = memberServer(serverId, userId);
+  if (!servers.can(serverId, userId, perm)) fail(403, `You need permission to ${PERMISSION_NAMES[perm] || perm}.`);
+  return server;
+}
+
+module.exports = { memberServer, ownedServer, modServer, permServer, visibleChannel };

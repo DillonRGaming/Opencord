@@ -7,7 +7,8 @@ function recipients(content, audienceIds, authorId, replyAuthorId, serverId = nu
   const audience = new Set(audienceIds);
   audience.delete(authorId);
   if (replyAuthorId && audience.has(replyAuthorId)) out.set(replyAuthorId, 'reply');
-  if (/(?<![\w@])@(everyone|here)(?![a-z0-9_.])/i.test(content)) for (const id of audience) out.set(id, 'everyone');
+  const mayPingEveryone = !serverId || require('./servers').can(serverId, authorId, 'mentionEveryone');
+  if (mayPingEveryone && /(?<![\w@])@(everyone|here)(?![a-z0-9_.])/i.test(content)) for (const id of audience) out.set(id, 'everyone');
   const names = [...content.matchAll(/(?<![\w@])@([a-z0-9_.]{2,32})/gi)].map((m) => m[1].toLowerCase());
   if (names.length) {
     const rows = db.prepare('SELECT id FROM users WHERE username IN (SELECT value FROM json_each(?))').all(JSON.stringify(names));

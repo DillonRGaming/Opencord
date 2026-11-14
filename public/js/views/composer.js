@@ -5,10 +5,11 @@ import { sendTyping } from '../realtime.js';
 import { startUpload } from '../upload.js';
 import { icon } from '../icons.js';
 import { avatar, iconButton, pickFiles, toast } from '../ui.js';
-import { state, dmPeople, canModerate, setting } from '../store.js';
+import { state, dmPeople, canModerate, can, setting } from '../store.js';
 import { openPoll } from './poll.js';
 import { openEmojiPicker, customEmojis, customCode } from '../emojiPicker.js';
 import { searchEmoji } from '../emojiData.js';
+import { renderMarkdown, STAMP_STYLES, stampCode } from '../markdown.js';
 import { availableCommands, runCommand } from '../commands.js';
 
 const TYPING_EVERY_MS = 3000;
@@ -21,7 +22,7 @@ function suggestions(channel, trigger, query) {
     const people = channel.serverId
       ? (state.members.get(channel.serverId) || []).map((m) => m.user)
       : [state.me, ...dmPeople(channel)];
-    const specials = channel.serverId ? [{ special: 'everyone', label: '@everyone', sub: 'Notify everyone in this server' }, { special: 'here', label: '@here', sub: 'Notify everyone' }] : [];
+    const specials = channel.serverId && can(channel.serverId, 'mentionEveryone') ? [{ special: 'everyone', label: '@everyone', sub: 'Notify everyone in this server' }, { special: 'here', label: '@here', sub: 'Notify everyone' }] : [];
     // Roles: the mentionable ones, or all of them for admins. Inserted as <@&id>, shown as @Name.
     const server = channel.serverId && state.servers.get(channel.serverId);
     const roles = (server?.roles || []).filter((r) => (r.mentionable || canModerate(server.id)) && r.name.toLowerCase().includes(q));
@@ -189,6 +190,40 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
   });
   const replyBar = h('div', { class: 'reply-bar' });
   const emojiButton = iconButton('smile', 'Emoji', () => openEmojiPicker(emojiButton, (value) => insertText(`${value} `), { keepOpen: true }));
+
+  // A time everyone sees in their own time zone: pick it here, it goes into the message as <t:…>.
+  const timeBar = h('div', { class: 'time-bar', hidden: true });
+  const toLocalInput = (ms) => {
+    const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
+    return d.toISOString().slice(0, 16);
+  };
+  function openTimeBar() {
+    if (!timeBar.hidden) { timeBar.hidden = true; return; }
+    const start = Math.ceil((Date.now() + 3600_000) / 900_000) * 900_000; // the next quarter hour, an hour from now
+    const when = h('input', { class: 'input', type: 'datetime-local', value: toLocalInput(start), 'aria-label': 'When' });
+    const style = h('select', { class: 'input', 'aria-label': 'Show it as' }, STAMP_STYLES.map(([v, label]) => h('option', { value: v }, label)));
+    const preview = h('span', { class: 'time-preview' });
+    const draw = () => {
+      const ms = new Date(when.value).getTime();
+      preview.replaceChildren(Number.isFinite(ms) ? renderMarkdown(stampCode(ms, style.value)) : '');
+    };
+    when.addEventListener('input', draw);
+    style.addEventListener('change', draw);
+    timeBar.replaceChildren(icon('clock', 15), when, style, preview,
+      h('button', {
+        type: 'button', class: 'button accent small',
+        onclick: () => {
+          const ms = new Date(when.value).getTime();
+          if (!Number.isFinite(ms)) return;
+          insertText(`${stampCode(ms, style.value)} `);
+          timeBar.hidden = true;
+        },
+      }, 'Insert'),
+      iconButton('x', 'Close', () => { timeBar.hidden = true; }));
+    draw();
+    timeBar.hidden = false;
+  }
+  const timeButton = iconButton('clock', 'Insert a time', openTimeBar);
   // Pressing send never takes the focus from the box, so a phone keyboard stays up.
   const sendButton = iconButton('send', 'Send', () => send(), 'send');
   sendButton.addEventListener('pointerdown', (event) => event.preventDefault());
@@ -201,10 +236,11 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     notice.replaceChildren();
     notice.className = 'composer-notice';
   }
-  const el = h('div', { class: 'composer' }, suggestBox, notice, replyBar, tray,
+  const el = h('div', { class: 'composer' }, suggestBox, notice, timeBar, replyBar, tray,
     h('div', { class: 'composer-row' },
       iconButton('plus', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
       textarea,
+      timeButton,
       emojiButton,
       h('span', { class: 'char-count', 'aria-live': 'polite' }),
       sendButton));

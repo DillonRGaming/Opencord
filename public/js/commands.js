@@ -3,6 +3,7 @@
 import * as api from './api.js';
 import { state, canModerate } from './store.js';
 import { copyText, toast } from './ui.js';
+import { parseWhen, stampCode } from './markdown.js';
 
 const TIMEOUTS = { '1m': 60, '5m': 300, '10m': 600, '1h': 3600, '1d': 86400, '1w': 604800 };
 
@@ -13,6 +14,7 @@ export const COMMANDS = [
   { name: 'unflip', usage: '[message]', about: 'Adds ┬─┬ノ( º _ ºノ)' },
   { name: 'me', usage: 'action', about: 'Says it as an action, in italics' },
   { name: 'spoiler', usage: 'message', about: 'Hides the message until clicked' },
+  { name: 'time', usage: 'in 2h | tomorrow 8pm | 20:30 | 2026-11-20 19:00', about: 'Posts a time that shows in everyone’s own time zone' },
   { name: 'invite', usage: '', about: 'Makes an invite link and copies it', server: true },
   { name: 'kick', usage: '@user [reason]', about: 'Removes someone from the server', mod: true },
   { name: 'ban', usage: '@user [reason]', about: 'Bans someone from the server', mod: true },
@@ -60,6 +62,11 @@ export async function runCommand(channel, raw, { openPoll } = {}) {
   };
   const sid = channel.serverId;
 
+  if (name === 'time') {
+    const ms = parseWhen(args);
+    need(ms !== null, 'Try /time in 2h, /time tomorrow 8pm, /time 20:30 or /time 2026-11-20 19:00.');
+    return { send: `${stampCode(ms, 'F')} (${stampCode(ms, 'R')})` };
+  }
   switch (name) {
     case 'shrug': return { send: `${args} ¯\\\\\\_(ツ)\\_/¯`.trim() };
     case 'tableflip': return { send: `${args} (╯°□°)╯︵ ┻━┻`.trim() };

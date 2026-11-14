@@ -654,6 +654,49 @@ async function run() {
   await browser.expect(401, 'GET', '/api/users/@me');
   ok('linked channels copy, edit and delete; message links; bot menus; several accounts, switching, logout to the next');
 
+  // --- role and channel permissions ---
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/channels`, { name: 'nope' });
+  const builders = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Builders', perms: ['manageChannels', 'manageRoles', 'bogus'] });
+  assert.deepEqual(builders.perms, ['manageChannels', 'manageRoles']);
+  await alice.call('PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${builders.id}`);
+  const bobChannel = await bob.call('POST', `/api/servers/${server.id}/channels`, { name: 'bobs-room' });
+  await bob.expect(403, 'PATCH', `/api/servers/${server.id}`, { name: 'Bob’s now' }); // no manageServer
+  await bob.expect(403, 'GET', `/api/servers/${server.id}/audit-log`);
+  // A role manager who isn't an admin can't hand out permissions.
+  const plain = await bob.call('POST', `/api/servers/${server.id}/roles`, { name: 'Plain' });
+  await bob.expect(403, 'PATCH', `/api/servers/${server.id}/roles/${plain.id}`, { perms: ['manageServer'] });
+  await bob.expect(403, 'POST', `/api/servers/${server.id}/roles`, { name: 'Sneaky', perms: ['manageServer'] });
+
+  // A channel only one role can see: others can't read it or get its messages.
+  const vip = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'VIP' });
+  const secret = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'vip-room' });
+  await alice.call('PATCH', `/api/channels/${secret.id}`, { viewRoles: [vip.id] });
+  await alice.call('DELETE', `/api/servers/${server.id}/members/${bob.me.id}/roles/${builders.id}`);
+  await bob.expect(404, 'GET', `/api/channels/${secret.id}/messages`);
+  let leaked = false;
+  const spy = (m) => { if (m.channelId === secret.id) leaked = true; };
+  bSock.on('message:create', spy);
+  await alice.call('POST', `/api/channels/${secret.id}/messages`, { content: 'vips only' });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  bSock.off('message:create', spy);
+  assert.equal(leaked, false, 'a hidden channel’s messages don’t reach people who can’t see it');
+  await alice.call('PUT', `/api/servers/${server.id}/members/${bob.me.id}/roles/${vip.id}`);
+  assert.equal((await bob.call('GET', `/api/channels/${secret.id}/messages`))[0].content, 'vips only');
+
+  // Who can post: admins only, plus a picked role.
+  await alice.call('PATCH', `/api/channels/${secret.id}`, { readOnly: true, postRoles: [] });
+  await bob.expect(403, 'POST', `/api/channels/${secret.id}/messages`, { content: 'can I?' });
+  await alice.call('PATCH', `/api/channels/${secret.id}`, { postRoles: [vip.id] });
+  await bob.call('POST', `/api/channels/${secret.id}/messages`, { content: 'yes I can' });
+  await alice.expect(400, 'PATCH', `/api/channels/${secret.id}`, { viewRoles: ['not-a-role'] });
+
+  // @everyone only pings for people allowed to use it.
+  await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '@everyone hello?' });
+  assert.ok(!(await alice.call('GET', '/api/notifications')).some((n) => n.kind === 'everyone' && n.actorId === bob.me.id));
+  for (const id of [builders.id, plain.id, vip.id]) await alice.call('DELETE', `/api/servers/${server.id}/roles/${id}`);
+  for (const id of [bobChannel.id, secret.id]) await alice.call('DELETE', `/api/channels/${id}`);
+  ok('role permissions; hidden channels stay hidden; who can post; @everyone needs permission');
+
   // --- server icon, rename, kick, leave ---
   wait = nextEvent(bSock, 'server:update');
   const withIcon = await alice.call('PUT', `/api/servers/${server.id}/icon`, png);

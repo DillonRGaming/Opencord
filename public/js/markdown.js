@@ -362,5 +362,39 @@ function timestamp(seconds, style) {
   const ms = seconds * 1000;
   if (!Number.isFinite(ms) || Math.abs(ms) > 8.64e15) return null;
   const text = style === 'R' ? relative(ms) : new Intl.DateTimeFormat(undefined, STAMP_FORMATS[style]).format(ms);
-  return h('time', { class: 'md-time', dateTime: new Date(ms).toISOString(), title: new Date(ms).toLocaleString() }, text);
+  return h('time', { class: 'md-time', dateTime: new Date(ms).toISOString(), title: new Date(ms).toLocaleString(), dataset: style === 'R' ? { relative: String(ms) } : null }, text);
 }
+
+// "in 5 minutes" / "2 hours ago" times count along on their own.
+setInterval(() => {
+  for (const el of document.querySelectorAll('.md-time[data-relative]')) el.textContent = relative(Number(el.dataset.relative));
+}, 30_000);
+
+// --- making timestamps ---
+
+export const STAMP_STYLES = [['F', 'Day, date and time'], ['f', 'Date and time'], ['D', 'Date'], ['t', 'Time'], ['R', 'Relative (in 2 hours)']];
+
+// Reads "now", "in 2h", "in 30 minutes", "tomorrow 8pm", "20:30", "2026-11-20 19:00". Returns ms or null.
+export function parseWhen(text) {
+  const t = text.trim().toLowerCase();
+  if (!t || t === 'now') return Date.now();
+  const rel = /^in\s+(\d+(?:\.\d+)?)\s*(s|sec|seconds?|m|mins?|minutes?|h|hrs?|hours?|d|days?|w|weeks?)$/.exec(t);
+  if (rel) {
+    const unit = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 }[rel[2][0]];
+    return Date.now() + Number(rel[1]) * unit * 1000;
+  }
+  const clock = /^(today|tomorrow)?\s*(?:at\s+)?(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/.exec(t);
+  if (clock && (clock[1] || clock[3] || clock[4])) {
+    let hour = Number(clock[2]) % (clock[4] ? 12 : 24);
+    if (clock[4] === 'pm') hour += 12;
+    const d = new Date();
+    d.setHours(hour, Number(clock[3] || 0), 0, 0);
+    if (clock[1] === 'tomorrow' || (!clock[1] && d.getTime() < Date.now())) d.setDate(d.getDate() + 1);
+    return d.getTime();
+  }
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ t](\d{1,2}):(\d{2}))?$/.exec(t);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), Number(iso[4] || 0), Number(iso[5] || 0)).getTime();
+  return null;
+}
+
+export const stampCode = (ms, style = 'F') => `<t:${Math.floor(ms / 1000)}:${style}>`;

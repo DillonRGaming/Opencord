@@ -1,6 +1,6 @@
 // What each kind of thing offers on right-click. Views attach these with withMenu(el, () => …Menu(…)).
 import * as api from './api.js';
-import { state, emit, isUnread, markRead, canModerate, roleOf, dmName } from './store.js';
+import { state, emit, isUnread, markRead, canModerate, can, hasSettingsAccess, roleOf, dmName } from './store.js';
 import { paths } from './router.js';
 import * as actions from './actions.js';
 import { canEditRolesOf } from './views/roles.js';
@@ -76,7 +76,7 @@ export function userMenu(user, { serverId } = {}) {
 }
 
 export function categoryMenu(server, category) {
-  const mod = canModerate(server.id);
+  const mod = can(server.id, 'manageChannels');
   return [
     { label: 'Mark as read', icon: 'check', onClick: () => server.channels.filter((c) => c.parentId === category.id).forEach(ackChannel) },
     mod && '-',
@@ -87,7 +87,7 @@ export function categoryMenu(server, category) {
 }
 
 export function channelMenu(server, channel) {
-  const owner = canModerate(server.id);
+  const owner = can(server.id, 'manageChannels');
   return [
     { label: 'Mark as read', icon: 'check', onClick: () => ackChannel(channel) },
     { label: 'Copy link', icon: 'link', onClick: () => copy(`${location.origin}${paths.channel(server.id, channel.id)}`, 'Link') },
@@ -100,13 +100,14 @@ export function channelMenu(server, channel) {
 }
 
 export function serverMenu(server) {
-  const mod = canModerate(server.id);
+  const mod = can(server.id, 'manageChannels');
+  const settings = hasSettingsAccess(server.id);
   const isOwner = server.ownerId === state.me.id;
   return [
     { label: 'Mark as read', icon: 'check', onClick: () => server.channels.forEach(ackChannel) },
     { label: 'Invite people', icon: 'userPlus', onClick: async () => attempt(async () => (await views.server()).openInviteLink(server)) },
-    mod && '-',
-    mod && { label: 'Server settings', icon: 'settings', onClick: async () => (await views.settings()).openServerSettings(server) },
+    (mod || settings) && '-',
+    settings && { label: 'Server settings', icon: 'settings', onClick: async () => (await views.settings()).openServerSettings(server) },
     mod && { label: 'New channel', icon: 'plus', onClick: async () => (await views.server()).openChannelPage(server) },
     mod && { label: 'New category', icon: 'folder', onClick: async () => (await views.server()).openChannelPage(server, null, { kind: 'category' }) },
     !isOwner && '-',

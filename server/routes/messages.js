@@ -48,7 +48,7 @@ router.patch('/:id', (req, res) => {
 router.delete('/:id', (req, res) => {
   const { message, channel } = visibleMessage(req.params.id, req.user.id);
   const mine = message.author_id === req.user.id;
-  const moderator = channel.server_id && ['owner', 'admin'].includes(servers.roleOf(channel.server_id, req.user.id));
+  const moderator = channel.server_id && servers.can(channel.server_id, req.user.id, 'manageMessages');
   if (!mine && !moderator) fail(403, "You can't delete that message.");
 
   const files = attachments.pathsForMessage(message.id);
@@ -81,8 +81,8 @@ router.delete('/:id/reactions/:emoji', reactionRoute(false));
 function pinRoute(pinned) {
   return (req, res) => {
     const { message, channel } = visibleMessage(req.params.id, req.user.id);
-    if (channel.server_id && servers.get(channel.server_id)?.pins_admin_only && servers.roleOf(channel.server_id, req.user.id) === 'member') {
-      fail(403, 'Only admins can pin messages in this server.');
+    if (channel.server_id && servers.get(channel.server_id)?.pins_admin_only && !servers.can(channel.server_id, req.user.id, 'manageMessages')) {
+      fail(403, 'You need permission to pin messages in this server.');
     }
     const json = messages.serialize(messages.setPinned(message.id, pinned));
     realtime.toChannel(channel, 'message:update', json);

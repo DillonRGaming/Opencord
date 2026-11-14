@@ -1,12 +1,12 @@
 import { withMenu, showMenu } from '../contextMenu.js';
-import { setMe, listAccounts, switchAccount, addAccount } from '../actions.js';
+import { setMe, listAccounts, switchAccount, addAccount, removeRelation } from '../actions.js';
 import { categoryMenu, channelMenu, dmMenu, serverMenu } from '../menus.js';
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, isUnread, canModerate, sortedDms, relationsWith, dmName, dmPeople, findChannel } from '../store.js';
+import { state, on, isUnread, canModerate, can, canSeeChannel, hasSettingsAccess, sortedDms, relationsWith, dmName, dmPeople, findChannel } from '../store.js';
 import { navigate, paths } from '../router.js';
-import { attempt, avatar, confirmButton, iconButton } from '../ui.js';
+import { attempt, avatar, button, confirmButton, iconButton } from '../ui.js';
 import { voice, isSpeaking, leaveVoice, toggleMute, toggleDeafen } from '../voice.js';
 import { openChannelPage, openInviteLink } from './serverPages.js';
 import { openServerSettings } from './serverSettings.js';
@@ -72,20 +72,35 @@ function homeList() {
         h('span', { class: 'nav-label' }, dmName(dm), sub && h('span', { class: 'nav-sub' }, sub)),
         (state.voice.get(dm.id) || []).length > 0 && h('span', { class: 'dm-in-call', title: 'In a call' }, icon('phone', 15)),
         state.dmPings.get(dm.id) > 0 && route.channelId !== dm.id && state.me.settings?.dmPings !== false && h('span', { class: 'ping-badge inline' }, state.dmPings.get(dm.id) > 99 ? '99+' : state.dmPings.get(dm.id)));
-      })),
+      }),
+      blockedList()),
+  ];
+}
+
+// People you've blocked, under the DMs, only when there are any. They can't be opened, only unblocked.
+function blockedList() {
+  const blocked = relationsWith('blocked').sort((a, b) => a.user.displayName.localeCompare(b.user.displayName));
+  if (!blocked.length) return null;
+  return [
+    h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Blocked'), h('span', { class: 'heading-count' }, blocked.length)),
+    blocked.map(({ user }) => h('div', { class: 'nav-item blocked-row' },
+      avatar(user, { size: 32 }),
+      h('span', { class: 'nav-label' }, user.displayName, h('span', { class: 'nav-sub' }, `@${user.username}`)),
+      button('Unblock', () => attempt(() => removeRelation(user.id)), 'ghost small'))),
   ];
 }
 
 // What the server name opens: a short list folded out right under it, instead of a dropdown.
 function serverActions(server) {
-  const mod = canModerate(server.id);
+  const mod = can(server.id, 'manageChannels');
+  const settings = hasSettingsAccess(server.id);
   const owner = server.ownerId === state.me.id;
   const action = (props, ...children) => navItem({ ...props, onclick: () => { actionsFor = null; redraw(); props.onclick(); } }, ...children);
   return h('div', { class: 'server-actions' },
     action({ onclick: () => attempt(() => openInviteLink(server)) }, icon('userPlus', 18), h('span', { class: 'nav-label' }, 'Invite people')),
     mod && action({ onclick: () => openChannelPage(server) }, icon('plus', 18), h('span', { class: 'nav-label' }, 'New channel')),
     mod && action({ onclick: () => openChannelPage(server, null, { kind: 'category' }) }, icon('folder', 18), h('span', { class: 'nav-label' }, 'New category')),
-    mod && action({ onclick: () => openServerSettings(server) }, icon('settings', 18), h('span', { class: 'nav-label' }, 'Server settings')),
+    settings && action({ onclick: () => openServerSettings(server) }, icon('settings', 18), h('span', { class: 'nav-label' }, 'Server settings')),
     !owner && confirmButton({
       label: 'Leave server', confirmLabel: 'Click again to leave', className: 'nav-item danger',
       face: [icon('logout', 18), h('span', { class: 'nav-label' }, 'Leave server')],
@@ -123,7 +138,7 @@ function moveChannel(server, movedId, { beforeId = null, categoryId = undefined 
 }
 
 function draggable(server, channel) {
-  if (!canModerate(server.id)) return null;
+  if (!can(server.id, 'manageChannels')) return null;
   return (el) => {
     el.draggable = true;
     el.addEventListener('dragstart', (event) => { dragging = channel.id; event.dataTransfer.effectAllowed = 'move'; el.classList.add('dragging'); });
@@ -157,7 +172,7 @@ function voiceUsers(channelId) {
 
 function channelRow(server, channel) {
   const { route } = state;
-  const mod = canModerate(server.id);
+  const mod = can(server.id, 'manageChannels');
   const isVoice = channel.kind === 'voice';
   const connected = voice.channelId === channel.id;
   const row = navItem({
@@ -177,8 +192,8 @@ function channelRow(server, channel) {
 
 function serverList(server) {
   const open = actionsFor === server.id;
-  const mod = canModerate(server.id);
-  const all = sortChannels(server);
+  const mod = can(server.id, 'manageChannels');
+  const all = sortChannels(server).filter((c) => canSeeChannel(server.id, c)); // channels limited to roles I don't have stay hidden
   const categories = all.filter((c) => c.kind === 'category');
   const loose = all.filter((c) => c.kind !== 'category' && !categories.some((cat) => cat.id === c.parentId));
 

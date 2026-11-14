@@ -85,6 +85,11 @@ function drop(dragKey, targetKey, zone, folderOfTarget = null) {
   }
   const serverId = dragKey;
   entries = without(entries, serverId);
+  if (targetKey === 'end') {
+    // Dropped below everything (the empty space, or the + button): out of any folder, last in the list.
+    entries.push(serverId);
+    return saveLayout(entries);
+  }
   if (zone === 'into' && targetKey.startsWith('f:')) {
     entries.find((e) => keyOf(e) === targetKey)?.servers.push(serverId);
   } else if (zone === 'into') {
@@ -243,9 +248,36 @@ export function mountRail(el) {
       }, dm.kind === 'group' ? groupFace(dm, 44) : avatar(dm.recipient, { size: 44 }))),
       h('span', { class: 'rail-divider' }),
       ...railLayout().map((entry) => (typeof entry === 'string' ? serverItem(state.servers.get(entry)) : folderView(entry))),
-      item({ label: 'Add a server', onclick: openAddServer }, h('span', { class: 'rail-button add' }, icon('plus', 20))),
+      (() => {
+        const add = item({ label: 'Add a server', onclick: openAddServer }, h('span', { class: 'rail-button add' }, icon('plus', 20)));
+        add.classList.add('add-server');
+        return add;
+      })(),
     );
   }
+
+  // The empty space at the bottom of the rail (and the + button) take a drop too: that's how a server comes
+  // out of a folder that's last in the list.
+  const isEnd = (event) => event.target === el || event.target.closest?.('.rail-item.add-server');
+  el.addEventListener('dragover', (event) => {
+    if (!dragging || !isEnd(event)) return;
+    event.preventDefault();
+    el.classList.add('drop-end');
+  });
+  el.addEventListener('dragleave', (event) => { if (event.target === el) el.classList.remove('drop-end'); });
+  el.addEventListener('drop', (event) => {
+    el.classList.remove('drop-end');
+    if (!dragging || !isEnd(event)) return;
+    event.preventDefault();
+    if (dragging.startsWith('f:')) {
+      const entries = railLayout();
+      const folder = entries.find((e) => keyOf(e) === dragging);
+      saveLayout([...entries.filter((e) => e !== folder), folder]);
+    } else {
+      drop(dragging, 'end', 'after');
+    }
+    dragging = null;
+  });
 
   redrawRail = render;
   on('servers unread route relationships dms users me', render);

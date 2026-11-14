@@ -3,7 +3,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, canModerate } from '../store.js';
+import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, button, confirmButton, emptyList, field, form, iconButton, settingRow, settingsCard } from '../ui.js';
 import { openPage } from './page.js';
@@ -23,8 +23,8 @@ export function closeCalendar() {
   view = null;
 }
 
-const canAdd = () => !view.channel.readOnly || canModerate(view.serverId);
-const canEdit = (event) => event.creatorId === state.me.id || canModerate(view.serverId);
+const canAdd = () => canPostIn(view.serverId, view.channel);
+const canEdit = (event) => event.creatorId === state.me.id || can(view.serverId, 'manageMessages');
 
 function eventsOn(key) {
   return [...view.events.values()].filter((e) => {

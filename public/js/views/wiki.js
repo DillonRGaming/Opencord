@@ -4,7 +4,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, canModerate } from '../store.js';
+import { state, on, can, canPostIn } from '../store.js';
 import { navigate, paths, showNav } from '../router.js';
 import { formatStamp, renderMarkdown } from '../format.js';
 import { attempt, button, confirmButton, iconButton, toast } from '../ui.js';
@@ -17,7 +17,7 @@ export function closeWiki() {
   view = null;
 }
 
-const canWrite = () => !view.channel.readOnly || canModerate(view.serverId);
+const canWrite = () => canPostIn(view.serverId, view.channel);
 const byTitle = (title) => [...view.pages.values()].find((p) => p.title.toLowerCase() === title.trim().toLowerCase());
 const openPageId = () => state.route.postId;
 const go = (pageId) => navigate(pageId ? paths.post(view.serverId, view.channel.id, pageId) : paths.channel(view.serverId, view.channel.id));
@@ -86,7 +86,7 @@ function pageView(pageId) {
       h('div', { class: 'wiki-actions' },
         iconButton('history', 'History', () => openHistory(page)),
         canWrite() && button('Edit', () => { view.editing = { ...page }; render(); }, 'ghost small'),
-        canModerate(view.serverId) && confirmButton({
+        can(view.serverId, 'manageMessages') && confirmButton({
           label: 'Delete page', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
           onConfirm: async () => { await api.del(`/api/channels/${view.channel.id}/pages/${page.id}`); go(null); },
         }))),

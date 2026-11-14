@@ -4,7 +4,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, canModerate } from '../store.js';
+import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
@@ -154,7 +154,7 @@ function queueList() {
   const playingId = view.music?.playing?.itemId;
   const upNext = (view.music?.queue || []).filter((q) => q.id !== playingId);
   const input = h('input', { class: 'input', placeholder: 'Paste a YouTube link (or an audio file link from chat)', 'aria-label': 'Song link' });
-  const canAdd = !view.channel.readOnly || canModerate(view.serverId);
+  const canAdd = canPostIn(view.serverId, view.channel);
   const add = h('form', {
     class: 'music-add',
     onsubmit: (event) => {
@@ -181,7 +181,7 @@ function queueList() {
         h('span', { class: 'music-n' }, i + 1),
         h('div', { class: 'music-item-text' }, h('strong', {}, item.title), h('span', {}, adder?.displayName || '')),
         adder && avatar(adder, { size: 22 }),
-        (item.addedBy === state.me.id || canModerate(view.serverId)) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`))));
+        (item.addedBy === state.me.id || can(view.serverId, 'manageMessages')) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`))));
     }) : emptyList('music', 'Nothing up next'));
 }
 

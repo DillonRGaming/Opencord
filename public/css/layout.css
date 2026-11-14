@@ -267,3 +267,12 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
 .rail-item.drop-before::before { top: -7px; }
 .rail-item.drop-after::after { bottom: -7px; }
 .rail-item.drop-into > button { outline: 2px solid var(--accent); outline-offset: 3px; }
+.nav-item.blocked-row { cursor: default; }
+.nav-item.blocked-row:hover { background: none; color: var(--text-muted); }
+.nav-item.blocked-row > .avatar { opacity: 0.5; filter: grayscale(1); }
+.nav-item.blocked-row .button { flex: none; }
+/* Dropping below everything takes a server out of its folder: the + button shows the line. */
+.rail.drop-end .rail-item.add-server::before {
+  content: ""; position: absolute; left: 8px; right: 8px; top: -7px; height: 3px; border-radius: 2px; background: var(--accent);
+}
+.rail { padding-bottom: 24px; }

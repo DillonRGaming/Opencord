@@ -2,7 +2,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, memberRoles, roleOf, canModerate } from '../store.js';
+import { state, memberRoles, roleOf, canModerate, can, PERMISSIONS } from '../store.js';
 import { showMenu } from '../contextMenu.js';
 import { attempt, avatar, button, confirmButton, iconButton, switchControl } from '../ui.js';
 import { colorField } from '../colorPicker.js';
@@ -14,12 +14,15 @@ const isOwner = (serverId) => state.servers.get(serverId)?.ownerId === state.me.
 
 // Admins can hand out roles; only the owner can hand out (or take away) one with admin powers,
 // and only the owner can change the roles of another admin.
+// People who can manage roles but aren't admins hand out plain roles only (no admin powers, no permissions).
 function canGive(serverId, role) {
-  return canModerate(serverId) && (!role.admin || isOwner(serverId));
+  if (!can(serverId, 'manageRoles')) return false;
+  if (role.admin) return isOwner(serverId);
+  return canModerate(serverId) || !role.perms?.length;
 }
 
 export function canEditRolesOf(serverId, userId) {
-  if (!canModerate(serverId)) return false;
+  if (!can(serverId, 'manageRoles')) return false;
   const theirs = roleOf(serverId, userId);
   if (theirs === 'owner') return isOwner(serverId);
   return isOwner(serverId) || theirs === 'member' || userId === state.me.id;
@@ -64,6 +67,22 @@ let openRoleId = null; // the role whose editor is open in settings
 let memberQuery = '';
 
 const switchButton = switchControl;
+
+// What the role lets people do: one switch per permission, with a line saying what it means. Admin powers
+// include all of them. Only admins and the owner can change these.
+function permissionsBlock(serverId, role, save) {
+  const editable = canModerate(serverId) && (!role.admin || isOwner(serverId));
+  const perms = new Set(role.perms || []);
+  return h('div', { class: 'role-perms' },
+    h('div', { class: 'role-people-title' }, 'Permissions'),
+    role.admin && h('p', { class: 'muted' }, 'Admin powers include all of these.'),
+    PERMISSIONS.map(([key, name, about]) => h('label', { class: 'perm-row' },
+      h('span', { class: 'perm-text' }, h('strong', {}, name), h('span', {}, about)),
+      switchControl(role.admin || perms.has(key), (on) => {
+        if (on) perms.add(key); else perms.delete(key);
+        save({ perms: [...perms] });
+      }, name, !editable || role.admin))));
+}
 
 // A compact list of roles; tapping one opens its editor underneath (name, colour, switches and who has it).
 export function rolesSection(serverId) {
@@ -123,6 +142,7 @@ export function rolesSection(serverId) {
           switchButton(role.mentionable, (v) => save({ mentionable: v }), 'Mentionable', locked)),
         owner && h('label', { class: 'role-switch' }, h('span', {}, 'Admin powers'),
           switchButton(role.admin, (v) => save({ admin: v }), 'Admin powers'))),
+      permissionsBlock(serverId, role, save),
       h('div', { class: 'role-people' },
         h('div', { class: 'role-people-title' }, `People · ${has.length}`),
         has.length > 0 && h('div', { class: 'role-chips' }, has.map((m) => h('span', { class: 'role-chip person' },

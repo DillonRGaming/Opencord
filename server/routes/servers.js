@@ -53,7 +53,7 @@ router.post('/', (req, res) => {
 });
 
 router.patch('/:id', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const fields = {};
   const changed = [];
   if (req.body.name !== undefined) { fields.name = serverName(req.body.name); changed.push(`name → ${fields.name}`); }
@@ -99,7 +99,7 @@ router.post('/:id/owner', (req, res) => {
 });
 
 function setIcon(req, res, file) {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const updated = servers.update(server.id, { icon: file });
   if (server.icon) storage.remove(`icons/${server.icon}`);
   audit.log(server.id, req.user.id, file ? 'server.icon' : 'server.icon_remove', server.name);
@@ -107,7 +107,7 @@ function setIcon(req, res, file) {
 }
 
 router.put('/:id/icon', rawImage, (req, res) => {
-  access.modServer(req.params.id, req.user.id);
+  access.permServer(req.params.id, req.user.id, 'manageServer');
   setIcon(req, res, storage.saveImage('icons', req.body));
 });
 
@@ -116,7 +116,7 @@ router.delete('/:id/icon', (req, res) => {
 });
 
 function setBanner(req, res, file) {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const updated = servers.update(server.id, { banner: file });
   if (server.banner) storage.remove(`icons/${server.banner}`);
   audit.log(server.id, req.user.id, file ? 'server.banner' : 'server.banner_remove', server.name);
@@ -124,7 +124,7 @@ function setBanner(req, res, file) {
 }
 
 router.put('/:id/banner', rawImage, (req, res) => {
-  access.modServer(req.params.id, req.user.id);
+  access.permServer(req.params.id, req.user.id, 'manageServer');
   setBanner(req, res, storage.saveImage('icons', req.body));
 });
 
@@ -146,12 +146,22 @@ function roleFields(body) {
   if (body.hoist !== undefined) fields.hoist = Boolean(body.hoist);
   if (body.admin !== undefined) fields.admin = Boolean(body.admin);
   if (body.mentionable !== undefined) fields.mentionable = Boolean(body.mentionable);
+  if (body.perms !== undefined) {
+    if (!Array.isArray(body.perms)) fail(400, 'Permissions must be a list.');
+    fields.perms = [...new Set(body.perms.filter((p) => servers.PERMISSIONS.includes(p)))];
+  }
   return fields;
 }
 
 // Only the owner can hand out admin powers, through a role or otherwise.
+// Only the owner can manage roles with admin powers. People who can manage roles but aren't admins can
+// only handle plain roles (names, colours, who has them): permissions are for admins and the owner to give.
 function guardAdminRole(server, userId, role, fields = {}) {
   if ((role?.admin || fields.admin) && server.owner_id !== userId) fail(403, 'Only the owner can manage roles with admin powers.');
+  if (servers.roleOf(server.id, userId) === 'member') {
+    const carriesPerms = JSON.parse(role?.perms || '[]').length > 0;
+    if (fields.perms !== undefined || carriesPerms) fail(403, 'Only admins can manage roles that give permissions.');
+  }
 }
 
 function roleMembersChanged(server, roleId) {
@@ -161,7 +171,7 @@ function roleMembersChanged(server, roleId) {
 }
 
 router.post('/:id/roles', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageRoles');
   const fields = roleFields(req.body);
   if (!fields.name) fail(400, 'Give the role a name.');
   guardAdminRole(server, req.user.id, null, fields);
@@ -173,7 +183,7 @@ router.post('/:id/roles', (req, res) => {
 });
 
 router.put('/:id/roles/order', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageRoles');
   const ids = req.body.ids;
   const known = servers.roles(server.id).map((r) => r.id);
   if (!Array.isArray(ids) || ids.length !== known.length || !ids.every((id) => known.includes(id))) fail(400, 'Send every role id once.');
@@ -184,7 +194,7 @@ router.put('/:id/roles/order', (req, res) => {
 });
 
 router.patch('/:id/roles/:roleId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageRoles');
   const role = servers.getRole(server.id, req.params.roleId);
   if (!role) fail(404, 'Role not found.');
   const fields = roleFields(req.body);
@@ -196,7 +206,7 @@ router.patch('/:id/roles/:roleId', (req, res) => {
 });
 
 router.delete('/:id/roles/:roleId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageRoles');
   const role = servers.getRole(server.id, req.params.roleId);
   if (!role) fail(404, 'Role not found.');
   guardAdminRole(server, req.user.id, role);
@@ -209,7 +219,7 @@ router.delete('/:id/roles/:roleId', (req, res) => {
 });
 
 function assignRole(req, res, on) {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageRoles');
   const role = servers.getRole(server.id, req.params.roleId);
   if (!role) fail(404, 'Role not found.');
   const { userId } = req.params;
@@ -268,7 +278,7 @@ router.delete('/:id/members/@me', (req, res) => {
 });
 
 router.delete('/:id/members/:userId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
   const { userId } = req.params;
   if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
   canActOn(server, req.user.id, userId);
@@ -292,7 +302,7 @@ router.put('/:id/members/:userId/role', (req, res) => {
 });
 
 router.put('/:id/members/:userId/timeout', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
   const { userId } = req.params;
   if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
   canActOn(server, req.user.id, userId);
@@ -307,12 +317,12 @@ router.put('/:id/members/:userId/timeout', (req, res) => {
 });
 
 router.get('/:id/bans', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
   res.json(servers.bans(server.id));
 });
 
 router.put('/:id/bans/:userId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
   const { userId } = req.params;
   if (!users.get(userId)) fail(404, 'User not found.');
   if (servers.isMember(server.id, userId)) canActOn(server, req.user.id, userId);
@@ -325,7 +335,7 @@ router.put('/:id/bans/:userId', (req, res) => {
 });
 
 router.delete('/:id/bans/:userId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
   if (!servers.unban(server.id, req.params.userId)) fail(404, 'That user is not banned.');
   audit.log(server.id, req.user.id, 'member.unban', userName(req.params.userId));
   res.sendStatus(204);
@@ -337,7 +347,7 @@ const INVITE_EXPIRY = [0, 3600, 86400, 7 * 86400, 30 * 86400]; // seconds, 0 = n
 
 router.post('/:id/invites', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
-  if (server.invites_admin_only && servers.roleOf(server.id, req.user.id) === 'member') fail(403, 'Only admins can make invites in this server.');
+  if (server.invites_admin_only && !servers.can(server.id, req.user.id, 'createInvites')) fail(403, 'You need permission to make invites in this server.');
   const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
   if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');
   const expiresIn = req.body.expiresIn ?? 0;
@@ -348,12 +358,12 @@ router.post('/:id/invites', (req, res) => {
 });
 
 router.get('/:id/invites', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   res.json(servers.invites(server.id));
 });
 
 router.delete('/:id/invites/:code', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   if (!servers.removeInvite(server.id, req.params.code)) fail(404, 'Invite not found.');
   audit.log(server.id, req.user.id, 'invite.delete', req.params.code);
   res.sendStatus(204);
@@ -362,7 +372,7 @@ router.delete('/:id/invites/:code', (req, res) => {
 // --- channels and categories ---
 
 router.post('/:id/channels', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageChannels');
   const kind = req.body.kind ?? 'text';
   if (!KINDS.includes(kind)) fail(400, 'Unknown channel kind.');
   const name = kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
@@ -380,7 +390,7 @@ router.post('/:id/channels', (req, res) => {
 
 // Channel order and categories at once: [{ id, parentId }] top to bottom.
 router.put('/:id/channels/order', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageChannels');
   const items = req.body.items ?? (req.body.ids || []).map((id) => ({ id }));
   if (!Array.isArray(items) || items.some((i) => typeof i?.id !== 'string')) fail(400, 'items must be a list of { id, parentId }.');
   const own = new Map(channels.forServer(server.id).map((c) => [c.id, c]));
@@ -404,7 +414,7 @@ const emojiName = (value) => {
 };
 
 router.post('/:id/emojis', rawEmoji, (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const name = emojiName(String(req.query.name || ''));
   if (emojis.count(server.id) >= MAX_EMOJIS) fail(400, `A server can have up to ${MAX_EMOJIS} emoji.`);
   if (emojis.nameTaken(server.id, name)) fail(409, `There is already an emoji called :${name}:.`);
@@ -416,7 +426,7 @@ router.post('/:id/emojis', rawEmoji, (req, res) => {
 });
 
 router.patch('/:id/emojis/:emojiId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const emoji = emojis.get(req.params.emojiId);
   if (!emoji || emoji.server_id !== server.id) fail(404, 'Emoji not found.');
   const name = emojiName(req.body.name);
@@ -428,7 +438,7 @@ router.patch('/:id/emojis/:emojiId', (req, res) => {
 });
 
 router.delete('/:id/emojis/:emojiId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const emoji = emojis.get(req.params.emojiId);
   if (!emoji || emoji.server_id !== server.id) fail(404, 'Emoji not found.');
   emojis.remove(emoji.id);
@@ -447,12 +457,12 @@ function serverBot(server, botId) {
 }
 
 router.get('/:id/bots', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   res.json(bots.forServer(server.id));
 });
 
 router.post('/:id/bots', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   if (bots.forServer(server.id).length >= 10) fail(400, 'A server can have up to 10 bots.');
   const name = text(req.body.name, 'Bot name', { min: 1, max: 32 });
   const bot = bots.create(server.id, req.user.id, name);
@@ -463,7 +473,7 @@ router.post('/:id/bots', (req, res) => {
 });
 
 router.patch('/:id/bots/:botId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   const bot = serverBot(server, req.params.botId);
   const fields = {};
   if (req.body.enabled !== undefined) fields.enabled = Boolean(req.body.enabled);
@@ -486,7 +496,7 @@ router.patch('/:id/bots/:botId', (req, res) => {
 });
 
 router.delete('/:id/bots/:botId', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   const bot = serverBot(server, req.params.botId);
   const name = users.get(bot.user_id).display_name;
   bots.remove(bot);
@@ -498,7 +508,7 @@ router.delete('/:id/bots/:botId', (req, res) => {
 // --- audit log ---
 
 router.get('/:id/audit-log', (req, res) => {
-  const server = access.modServer(req.params.id, req.user.id);
+  const server = access.permServer(req.params.id, req.user.id, 'viewAuditLog');
   const before = typeof req.query.before === 'string' ? req.query.before : null;
   res.json(audit.list(server.id, { before }));
 });

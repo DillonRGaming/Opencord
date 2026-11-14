@@ -151,12 +151,30 @@ function toMember(row) {
   return { user: users.toUser(row), joinedAt: row.joined_at, role: row.role, timeoutUntil: timedOut, roleIds: memberRoleIds(row.server_id, row.id) };
 }
 
+// --- permissions ---
+// Each role can switch these on. The owner and admins (an admin role, or made admin) have all of them.
+const PERMISSIONS = ['manageServer', 'manageChannels', 'manageRoles', 'manageMessages', 'moderateMembers',
+  'manageBots', 'viewAuditLog', 'mentionEveryone', 'createInvites'];
+
+function permissionsOf(serverId, userId) {
+  const role = roleOf(serverId, userId);
+  if (!role) return new Set();
+  if (role !== 'member') return new Set(PERMISSIONS);
+  const rows = db.prepare(`SELECT roles.perms FROM member_roles JOIN roles ON roles.id = member_roles.role_id
+    WHERE member_roles.server_id = ? AND member_roles.user_id = ?`).all(serverId, userId);
+  const out = new Set();
+  for (const row of rows) for (const p of JSON.parse(row.perms || '[]')) if (PERMISSIONS.includes(p)) out.add(p);
+  return out;
+}
+
+const can = (serverId, userId, perm) => permissionsOf(serverId, userId).has(perm);
+
 // --- custom roles ---
 
 function toRole(row) {
   return {
     id: row.id, name: row.name, color: row.color, position: row.position, hoist: Boolean(row.hoist), admin: Boolean(row.admin),
-    mentionable: Boolean(row.mentionable),
+    mentionable: Boolean(row.mentionable), perms: JSON.parse(row.perms || '[]'),
   };
 }
 
@@ -169,20 +187,21 @@ function getRole(serverId, roleId) {
 }
 
 // New roles go to the top of the list (position 0 is the highest).
-function createRole(serverId, { name, color = null, hoist = false, admin = false }) {
+function createRole(serverId, { name, color = null, hoist = false, admin = false, mentionable = false, perms = [] }) {
   const id = newId();
   db.prepare('UPDATE roles SET position = position + 1 WHERE server_id = ?').run(serverId);
-  db.prepare('INSERT INTO roles (id, server_id, name, color, position, hoist, admin, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?)')
-    .run(id, serverId, name, color, hoist ? 1 : 0, admin ? 1 : 0, Date.now());
+  db.prepare('INSERT INTO roles (id, server_id, name, color, position, hoist, admin, mentionable, perms, created_at) VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?)')
+    .run(id, serverId, name, color, hoist ? 1 : 0, admin ? 1 : 0, mentionable ? 1 : 0, JSON.stringify(perms), Date.now());
   return getRole(serverId, id);
 }
 
-const ROLE_COLUMNS = { name: 'name', color: 'color', hoist: 'hoist', admin: 'admin', mentionable: 'mentionable' };
+const ROLE_COLUMNS = { name: 'name', color: 'color', hoist: 'hoist', admin: 'admin', mentionable: 'mentionable', perms: 'perms' };
 
 function updateRole(serverId, roleId, fields) {
   for (const [key, column] of Object.entries(ROLE_COLUMNS)) {
     if (fields[key] === undefined) continue;
-    const value = typeof fields[key] === 'boolean' ? Number(fields[key]) : fields[key];
+    const raw = Array.isArray(fields[key]) ? JSON.stringify(fields[key]) : fields[key];
+    const value = typeof raw === 'boolean' ? Number(raw) : raw;
     db.prepare(`UPDATE roles SET ${column} = ? WHERE server_id = ? AND id = ?`).run(value, serverId, roleId);
   }
   return getRole(serverId, roleId);
@@ -285,6 +304,7 @@ function toInvite(code, server) {
 }
 
 module.exports = {
+  PERMISSIONS, permissionsOf, can,
   toServer, get, create, forUser, idsForUser, update, remove,
   isMember, addMember, removeMember, members, member, shareServer,
   createInvite, getInvite, countInviteUse, toInvite, invites, inviteDead, removeInvite,

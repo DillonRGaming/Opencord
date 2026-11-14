@@ -63,7 +63,7 @@ function init(httpServer) {
       const channel = board(channelId);
       const row = channel && typeof id === 'string' && channels.getStroke(id);
       if (!row || row.channel_id !== channel.id) return;
-      if (row.user_id !== userId && !['owner', 'admin'].includes(servers.roleOf(channel.server_id, userId))) return;
+      if (row.user_id !== userId && !servers.can(channel.server_id, userId, 'manageMessages')) return;
       channels.removeStroke(id);
       toServer(channel.server_id, 'wb:erase', { channelId: channel.id, id });
     });
@@ -266,8 +266,11 @@ function toServer(serverId, event, payload) {
 
 // Channel audience: every server member, or both people in a DM.
 function toChannel(channel, event, payload) {
-  if (channel.type === 'dm') toUsers(channels.dmMemberIds(channel.id), event, payload);
-  else toServer(channel.server_id, event, payload);
+  if (channel.type === 'dm') return toUsers(channels.dmMemberIds(channel.id), event, payload);
+  // A channel limited to some roles (or a post in one) only reaches the people who can see it.
+  const rules = channel.kind === 'post' ? channels.get(channel.parent_id) || channel : channel;
+  if (rules.view_roles) return toUsers(servers.memberIds(channel.server_id).filter((id) => channels.canAccess(id, channel)), event, payload);
+  return toServer(channel.server_id, event, payload);
 }
 
 // Friends and server co-members of a user.

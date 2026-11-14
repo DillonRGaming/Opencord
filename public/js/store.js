@@ -15,6 +15,7 @@ export const state = {
   statuses: new Map(), // userId → 'online' / 'idle' / 'dnd'
   unreadNotifications: 0,
   posts: new Map(), // postId → Post, for posts channels that have been opened
+  myRoles: {}, // serverId → my role ids (kept up to date from member updates)
   dmPings: new Map(), // DM channelId → unread messages from others, shown as red counts
   voice: new Map(), // voice channelId → [{ userId, muted, deafened, speaking }]
   route: { name: 'home' },
@@ -51,6 +52,7 @@ export function load(data) {
   state.statuses = new Map(Object.entries(data.statuses || {}));
   state.unreadNotifications = data.unreadNotifications || 0;
   state.dmPings = new Map(Object.entries(data.dmPings || {}));
+  state.myRoles = data.myRoles || {};
   remember(data.me, ...data.relationships.map((r) => r.user), ...data.dms.flatMap(dmPeople));
 }
 
@@ -114,6 +116,51 @@ export function isOwner(serverId) {
   return state.servers.get(serverId)?.ownerId === state.me.id;
 }
 
+// --- permissions (the server checks them too; these decide what to show) ---
+
+export const PERMISSIONS = [
+  ['manageServer', 'Manage the server', 'Change the name, icon, banner, emoji, invites and community settings.'],
+  ['manageChannels', 'Manage channels', 'Create, edit, reorder and delete channels and categories, and see every channel.'],
+  ['manageRoles', 'Manage roles', 'Create plain roles and hand them out. Roles with permissions stay with admins.'],
+  ['manageMessages', 'Manage messages', 'Delete and pin anyone’s messages, and tidy up posts, events, songs and pages.'],
+  ['moderateMembers', 'Moderate members', 'Time out, kick and ban people (not admins).'],
+  ['manageBots', 'Manage bots and webhooks', 'Make and edit bots and webhooks.'],
+  ['viewAuditLog', 'See the audit log', 'See who changed what in the server.'],
+  ['mentionEveryone', 'Mention @everyone', 'Ping the whole server with @everyone and @here.'],
+  ['createInvites', 'Make invites', 'Make invite links, even when invites are set to admins only.'],
+];
+
+export function myRoleIds(serverId) {
+  return state.members.get(serverId)?.find((m) => m.user.id === state.me.id)?.roleIds || state.myRoles[serverId] || [];
+}
+
+// Owner and admins can do everything; everyone else gets what their roles switch on.
+export function can(serverId, perm) {
+  if (canModerate(serverId)) return true;
+  const server = state.servers.get(serverId);
+  const mine = myRoleIds(serverId);
+  return Boolean(server?.roles?.some((r) => mine.includes(r.id) && r.perms?.includes(perm)));
+}
+
+// Server settings opens for anyone with a permission it has a page for.
+export function hasSettingsAccess(serverId) {
+  return ['manageServer', 'manageChannels', 'manageRoles', 'moderateMembers', 'manageBots', 'viewAuditLog'].some((p) => can(serverId, p));
+}
+
+// Channels limited to some roles are hidden from everyone else.
+export function canSeeChannel(serverId, channel) {
+  if (!channel.viewRoles) return true;
+  if (can(serverId, 'manageChannels')) return true;
+  const mine = myRoleIds(serverId);
+  return channel.viewRoles.some((id) => mine.includes(id));
+}
+
+export function canPostIn(serverId, channel) {
+  if (!channel.readOnly || canModerate(serverId)) return true;
+  const mine = myRoleIds(serverId);
+  return (channel.postRoles || []).some((id) => mine.includes(id));
+}
+
 // Owner or admin.
 export function canModerate(serverId) {
   const server = state.servers.get(serverId);
@@ -147,7 +194,7 @@ export function upsertChannel(channel) {
 }
 
 export function hasUnread(server) {
-  return server.channels.some(isUnread);
+  return server.channels.some((c) => isUnread(c) && canSeeChannel(server.id, c));
 }
 
 // --- custom roles ---

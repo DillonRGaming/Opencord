@@ -14,6 +14,8 @@ function toChannel(row) {
     position: row.position,
     slowmode: row.slowmode,
     readOnly: Boolean(row.read_only),
+    viewRoles: row.view_roles ? JSON.parse(row.view_roles) : null,
+    postRoles: row.post_roles ? JSON.parse(row.post_roles) : null,
     lastMessageId: row.last_message_id,
   };
 }
@@ -142,7 +144,9 @@ function create(serverId, name, { kind = 'text', parentId = null } = {}) {
   return get(id);
 }
 
-const COLUMNS = { name: 'name', topic: 'topic', slowmode: 'slowmode', readOnly: 'read_only', parentId: 'parent_id' };
+const COLUMNS = {
+  name: 'name', topic: 'topic', slowmode: 'slowmode', readOnly: 'read_only', parentId: 'parent_id', viewRoles: 'view_roles', postRoles: 'post_roles',
+};
 
 function update(id, fields) {
   for (const [key, column] of Object.entries(COLUMNS)) {
@@ -201,10 +205,30 @@ function dmsForUser(userId) {
 }
 
 function canAccess(userId, channel) {
-  const sql = channel.type === 'dm'
-    ? 'SELECT 1 FROM dm_members WHERE channel_id = ? AND user_id = ?'
-    : 'SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?';
-  return Boolean(db.prepare(sql).get(channel.type === 'dm' ? channel.id : channel.server_id, userId));
+  if (channel.type === 'dm') return Boolean(db.prepare('SELECT 1 FROM dm_members WHERE channel_id = ? AND user_id = ?').get(channel.id, userId));
+  if (!db.prepare('SELECT 1 FROM server_members WHERE server_id = ? AND user_id = ?').get(channel.server_id, userId)) return false;
+  // A post follows its posts channel.
+  const rules = channel.kind === 'post' ? get(channel.parent_id) || channel : channel;
+  return canSee(userId, rules);
+}
+
+// Channels limited to some roles: those roles, plus admins and anyone who can manage channels.
+function canSee(userId, channel) {
+  if (!channel.view_roles) return true;
+  const servers = require('./servers'); // (servers needs this file too)
+  if (servers.can(channel.server_id, userId, 'manageChannels')) return true;
+  const mine = servers.memberRoleIds(channel.server_id, userId);
+  return JSON.parse(channel.view_roles).some((id) => mine.includes(id));
+}
+
+// Admins-only channels (read_only) also let in the roles picked for posting.
+function canPost(userId, channel) {
+  if (!channel.read_only) return true;
+  const servers = require('./servers');
+  if (servers.roleOf(channel.server_id, userId) !== 'member') return true;
+  const allowed = channel.post_roles ? JSON.parse(channel.post_roles) : [];
+  const mine = servers.memberRoleIds(channel.server_id, userId);
+  return allowed.some((id) => mine.includes(id));
 }
 
 function readStates(userId) {
@@ -237,5 +261,5 @@ module.exports = {
   reorder, slowmodeWait, notePost,
   toChannel, serialize, get, forServer, create, update, remove,
   toPost, posts, createPost, postIds, strokes, addStroke, getStroke, removeStroke, clearStrokes,
-  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, readStates, ack, dmUnreadCounts,
+  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, canPost, readStates, ack, dmUnreadCounts,
 };

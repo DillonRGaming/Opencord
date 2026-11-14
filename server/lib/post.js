@@ -14,7 +14,8 @@ function onPost(fn) {
 }
 
 function audienceIds(channel) {
-  return channel.type === 'dm' ? channels.dmMemberIds(channel.id) : servers.memberIds(channel.server_id);
+  if (channel.type === 'dm') return channels.dmMemberIds(channel.id);
+  return servers.memberIds(channel.server_id).filter((id) => channels.canAccess(id, channel));
 }
 
 function postMessage(channel, authorId, content, { attachmentIds = [], replyToId = null, poll = null, components = null } = {}) {

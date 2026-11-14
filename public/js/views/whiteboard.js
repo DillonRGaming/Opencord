@@ -5,7 +5,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { state, on, canModerate } from '../store.js';
+import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { confirmButton, iconButton, toast } from '../ui.js';
 import { boardSend } from '../realtime.js';
@@ -291,7 +291,7 @@ export function showWhiteboard(container, channel, serverId) {
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('whiteboard', 18), h('span', {}, channel.name)),
       h('div', { class: 'main-spacer' }),
-      canModerate(serverId) && confirmButton({
+      can(serverId, 'manageMessages') && confirmButton({
         label: 'Clear the board', confirmLabel: 'Clear for everyone?', face: icon('trash'), className: 'icon-button',
         onConfirm: () => api.del(`/api/channels/${channel.id}/strokes`),
       })),
