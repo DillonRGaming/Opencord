@@ -23,6 +23,11 @@ const PREVIEW = {
   sky: ['#d6e3f0', '#edf2f8', '#f9fbfd'],
   mint: ['#dbebe3', '#eef6f2', '#fafcfb'],
   blush: ['#eed8dd', '#f7edf0', '#fdfafa'],
+  wine: ['#160e0f', '#1e1214', '#2a1b1d'],
+  olive: ['#13140f', '#1a1c15', '#25271e'],
+  deepsea: ['#0c1517', '#111c1f', '#19272c'],
+  peach: ['#f2e0d4', '#f9f1eb', '#fdfbf9'],
+  sage: ['#e1e8de', '#f1f5f0', '#fbfcfa'],
   lavender: ['#dfd8ee', '#f1edf7', '#fbfafd'],
 };
 
@@ -83,7 +88,12 @@ export function appearancePage() {
   accents.press(current.accent);
 
   return [
-    settingsCard('Theme', h('div', { class: 'theme-grid' }, themes.elements),
+    // Dark themes, then light ones, each under its own heading.
+    settingsCard('Theme',
+      h('div', { class: 'theme-group-title' }, 'Dark'),
+      h('div', { class: 'theme-grid' }, themes.elements.filter((_, i) => !THEMES[i].light)),
+      h('div', { class: 'theme-group-title' }, 'Light'),
+      h('div', { class: 'theme-grid' }, themes.elements.filter((_, i) => THEMES[i].light)),
       settingRow('Accent colour', h('div', { class: 'swatches' }, accents.elements, picker))),
     settingsCard('Text',
       settingRow('Font', option('font', FONTS.map(([id, name]) => [id, name]), current)),

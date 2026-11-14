@@ -30,23 +30,29 @@ export const FONTS = [
 ];
 const pick = (value, options, fallback) => (options.includes(value) ? value : fallback);
 
+// Dark themes first, then light ones (the picker shows them in two groups).
 export const THEMES = [
   { id: 'graphite', name: 'Graphite' },
   { id: 'moss', name: 'Moss' },
-  { id: 'paper', name: 'Paper' },
   { id: 'oled', name: 'OLED' },
   { id: 'slate', name: 'Slate' },
   { id: 'ocean', name: 'Ocean' },
+  { id: 'deepsea', name: 'Deep Sea' },
+  { id: 'teal', name: 'Teal' },
+  { id: 'olive', name: 'Olive' },
   { id: 'dusk', name: 'Dusk' },
   { id: 'plum', name: 'Plum' },
+  { id: 'wine', name: 'Wine' },
   { id: 'rose', name: 'Rosewood' },
   { id: 'ember', name: 'Ember' },
   { id: 'mocha', name: 'Mocha' },
-  { id: 'teal', name: 'Teal' },
-  { id: 'sky', name: 'Sky' },
-  { id: 'mint', name: 'Mint' },
-  { id: 'blush', name: 'Blush' },
-  { id: 'lavender', name: 'Lavender' },
+  { id: 'paper', name: 'Paper', light: true },
+  { id: 'sky', name: 'Sky', light: true },
+  { id: 'mint', name: 'Mint', light: true },
+  { id: 'sage', name: 'Sage', light: true },
+  { id: 'lavender', name: 'Lavender', light: true },
+  { id: 'blush', name: 'Blush', light: true },
+  { id: 'peach', name: 'Peach', light: true },
 ];
 
 // Themes that were renamed, so settings saved before keep working.

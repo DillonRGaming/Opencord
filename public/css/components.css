@@ -665,3 +665,5 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .role-picker-note { flex-basis: 100%; margin-top: 2px; font-size: 0.8rem; }
 .role-chip.pick { cursor: pointer; height: 30px; padding: 0 10px; }
 .role-chip.pick[aria-pressed="true"] { background: color-mix(in srgb, var(--role, var(--accent)) 24%, transparent); outline: 1px solid var(--role, var(--accent)); color: var(--text); }
+.theme-group-title { margin-top: 4px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
+.theme-grid + .theme-group-title { margin-top: 10px; }

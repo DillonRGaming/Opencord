@@ -307,6 +307,91 @@
   --ok: #3f8a3a;
 }
 
+[data-theme="wine"] {
+  color-scheme: dark;
+  --bg-app: #160e0f;
+  --bg-panel: #1e1214;
+  --bg-raised: #2a1b1d;
+  --bg-input: #2a1b1d;
+  --hover: rgba(241, 228, 230, 0.04);
+  --active: rgba(241, 228, 230, 0.08);
+  --border: rgba(241, 228, 230, 0.08);
+  --text: #ebe5e6;
+  --text-muted: #a9989a;
+  --text-faint: #907f81;
+  --accent-ink: var(--accent);
+  --danger: #e08a7a;
+  --ok: #8fca86;
+}
+
+[data-theme="olive"] {
+  color-scheme: dark;
+  --bg-app: #13140f;
+  --bg-panel: #1a1c15;
+  --bg-raised: #25271e;
+  --bg-input: #25271e;
+  --hover: rgba(238, 241, 228, 0.04);
+  --active: rgba(238, 241, 228, 0.08);
+  --border: rgba(238, 241, 228, 0.08);
+  --text: #eaebe5;
+  --text-muted: #a5a998;
+  --text-faint: #8b907f;
+  --accent-ink: var(--accent);
+  --danger: #e08a7a;
+  --ok: #8fca86;
+}
+
+[data-theme="deepsea"] {
+  color-scheme: dark;
+  --bg-app: #0c1517;
+  --bg-panel: #111c1f;
+  --bg-raised: #19272c;
+  --bg-input: #19272c;
+  --hover: rgba(228, 238, 241, 0.04);
+  --active: rgba(228, 238, 241, 0.08);
+  --border: rgba(228, 238, 241, 0.08);
+  --text: #e5eaeb;
+  --text-muted: #98a5a9;
+  --text-faint: #7f8b90;
+  --accent-ink: var(--accent);
+  --danger: #e08a7a;
+  --ok: #8fca86;
+}
+
+[data-theme="peach"] {
+  color-scheme: light;
+  --bg-app: #f2e0d4;
+  --bg-panel: #f9f1eb;
+  --bg-raised: #fdfbf9;
+  --bg-input: #f3e8e0;
+  --hover: rgba(46, 34, 25, 0.04);
+  --active: rgba(46, 34, 25, 0.08);
+  --border: rgba(46, 34, 25, 0.1);
+  --text: #221b16;
+  --text-muted: #655a53;
+  --text-faint: #796f67;
+  --accent-ink: color-mix(in srgb, var(--accent) 45%, #221b16);
+  --danger: #b4452f;
+  --ok: #3f8a3a;
+}
+
+[data-theme="sage"] {
+  color-scheme: light;
+  --bg-app: #e1e8de;
+  --bg-panel: #f1f5f0;
+  --bg-raised: #fbfcfa;
+  --bg-input: #e8ece6;
+  --hover: rgba(32, 46, 25, 0.04);
+  --active: rgba(32, 46, 25, 0.08);
+  --border: rgba(32, 46, 25, 0.1);
+  --text: #1a2216;
+  --text-muted: #596553;
+  --text-faint: #6d7967;
+  --accent-ink: color-mix(in srgb, var(--accent) 45%, #1a2216);
+  --danger: #b4452f;
+  --ok: #3f8a3a;
+}
+
 *, *::before, *::after { box-sizing: border-box; }
 
 html[data-contrast="high"] { --text-muted: var(--text); --text-faint: color-mix(in srgb, var(--text) 80%, transparent); --border: color-mix(in srgb, var(--text) 30%, transparent); }
