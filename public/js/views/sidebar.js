@@ -17,6 +17,13 @@ import { openNewGroup } from './groups.js';
 
 // The server whose action list (under its name) is folded open, if any.
 let actionsFor = null;
+
+// Clicking anywhere else folds the server's menu (under its name) back up.
+document.addEventListener('pointerdown', (event) => {
+  if (!actionsFor || event.target.closest?.('.server-actions, .sidebar-header, .context-menu')) return;
+  actionsFor = null;
+  redraw();
+}, true);
 let redraw = () => {};
 
 // Folded categories survive reloads.
@@ -219,7 +226,7 @@ async function statusMenu(event) {
   const others = accounts.filter((a) => !a.current);
   showMenu({ clientX: box.left, clientY: box.top - 400, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
-      label: current === value ? `${label}  ✓` : label, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
+      label, checked: current === value, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
     })),
     '-',
     { label: state.me.statusText ? 'Change custom status' : 'Set a custom status', icon: 'pencil', onClick: () => openSettings('profile') },
@@ -227,6 +234,7 @@ async function statusMenu(event) {
     '-',
     ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), onClick: () => attempt(() => switchAccount(user.id)) })),
     { label: 'Add an account', icon: 'userPlus', onClick: () => addAccount() },
+    others.length > 0 && { label: 'Manage accounts', icon: 'settings', onClick: () => openSettings('account') },
   ]);
 }
 

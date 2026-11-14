@@ -561,7 +561,8 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .role-add-list { display: grid; gap: 2px; }
 .role-add-list:empty { display: none; }
 .role-add-person { display: flex; align-items: center; gap: 10px; min-height: 38px; padding: 0 10px; border-radius: var(--radius-small); text-align: left; color: var(--text-muted); }
-.role-add-person span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-add-person > span:not(.avatar) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.role-add-person > .avatar { flex: none; border-radius: 50%; }
 .role-add-person:hover { background: var(--hover); color: var(--text); }
 .role-edit-actions { display: flex; align-items: center; gap: 4px; padding-top: 10px; border-top: 1px solid var(--border); }
 /* An on/off switch. */
@@ -581,7 +582,7 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .color-field.empty { background: repeating-conic-gradient(var(--active) 0 25%, var(--bg-input) 0 50%) 50% / 10px 10px; }
 .color-field:disabled { opacity: 0.5; cursor: default; transform: none; }
 .color-picker {
-  position: fixed; z-index: 95; display: grid; gap: 12px; width: 248px; padding: 12px;
+  position: fixed; z-index: 95; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; width: 248px; padding: 12px;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
   touch-action: none;
 }
@@ -601,7 +602,7 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .cp-row { display: flex; align-items: center; gap: 8px; }
 .cp-preview { flex: none; width: 30px; height: 30px; border-radius: 8px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12); }
 .cp-hex {
-  flex: 1; min-width: 0; height: 30px; padding: 0 9px; border: 0; border-radius: 8px; outline: none;
+  flex: 1; width: 0; min-width: 0; height: 30px; padding: 0 9px; border: 0; border-radius: 8px; outline: none;
   background: var(--bg-input); color: var(--text); font-family: var(--mono); font-size: 0.84rem; text-transform: lowercase;
 }
 .cp-hex:focus { box-shadow: inset 0 0 0 1px var(--text-faint); }
@@ -629,12 +630,26 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 /* Settings pages: the section list and the open section scroll on their own. */
 .page-scroll:has(> .page-content > .settings-layout) { display: flex; flex-direction: column; overflow: hidden; }
 .page-content:has(> .settings-layout) { display: flex; flex: 1; min-height: 0; padding-bottom: 0; }
-.settings-layout { flex: 1; min-height: 0; align-items: stretch; }
+.settings-layout { flex: 1; min-width: 0; min-height: 0; align-items: stretch; }
 .settings-nav { position: static; align-content: start; min-height: 0; overflow-y: auto; padding-bottom: 2rem; scrollbar-width: thin; }
 .settings-main { align-content: start; min-height: 0; overflow-y: auto; padding: 0 4px 4rem 0; }
 @media (max-width: 799px) {
   .settings-layout { display: flex; flex-direction: column; }
-  .settings-nav { flex: none; overflow-y: hidden; padding-bottom: 2px; }
+  .settings-nav { flex: none; min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding-bottom: 2px; scrollbar-width: none; }
   .settings-main { flex: 1; }
 }
 .menu-item > .avatar { flex: none; margin-right: 2px; }
+.menu-item.checked > .icon:last-child { color: var(--accent-ink); }
+.context-menu:focus { outline: none; }
+
+/* --- one look for every small label (Bot, Owner, Admin, Open now, a command's bot, where a message came from) --- */
+.tag, .member-tag, .bot-tag, .suggest-tag, .relay-tag {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px; flex: none; height: 17px; padding: 0 6px;
+  border-radius: 5px; background: var(--active); color: var(--text-muted); vertical-align: middle; align-self: center;
+  font-size: 0.66rem; font-weight: 600; letter-spacing: 0.02em; line-height: 1; white-space: nowrap; text-transform: none; margin-left: 0;
+}
+.member-tag.bot, .bot-tag { background: var(--accent); color: var(--accent-text); text-transform: uppercase; letter-spacing: 0.04em; }
+.member-tag.timeout { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+/* Menu rows: what's on the left (dot, swatch, picture), the label filling the middle, the icon or tick on the right. */
+.menu-item .menu-label { flex: 1; min-width: 0; text-align: left; }
+.menu-item:has(.menu-dot), .menu-item:has(> .avatar), .menu-item:has(.menu-swatch) { justify-content: flex-start; gap: 0.6rem; }

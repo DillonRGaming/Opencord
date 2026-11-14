@@ -91,6 +91,16 @@ function switchTo(req, res, userId) {
   return true;
 }
 
+// Takes another account off this browser (and ends its session there).
+function removeAccount(req, res, userId) {
+  const others = otherTokens(req);
+  const target = others.find((t) => userOfToken(t)?.id === userId);
+  if (!target) return false;
+  sessions.remove(hashToken(target));
+  setOtherTokens(req, res, others.filter((t) => t !== target));
+  return true;
+}
+
 // Logging out of the open account carries on with the next one, if there is one. Returns whether it did.
 function endSession(req, res) {
   sessions.remove(req.sessionHash);
@@ -136,4 +146,4 @@ function sameOrigin(req, res, next) {
   next();
 }
 
-module.exports = { hashPassword, verifyPassword, startSession, endSession, authenticate, requireAuth, sameOrigin, accountsOf, switchTo };
+module.exports = { hashPassword, verifyPassword, startSession, endSession, authenticate, requireAuth, sameOrigin, accountsOf, switchTo, removeAccount };

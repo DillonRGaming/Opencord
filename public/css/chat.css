@@ -389,13 +389,6 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .suggest.hint .suggest-label { font-family: var(--mono); font-size: 0.84rem; }
 
 /* --- calls in DMs --- */
-.dm-call { flex: none; border-bottom: 1px solid var(--border); }
-.dm-call[hidden] { display: none; }
-.dm-call .vc-call { height: min(46vh, 420px); }
-.call-bar { display: flex; align-items: center; gap: 10px; padding: 10px 16px; }
-.call-bar-faces { display: flex; }
-.call-bar-faces .avatar + .avatar { margin-left: -8px; box-shadow: 0 0 0 2px var(--bg-panel); border-radius: 50%; }
-.call-bar-text { flex: 1; min-width: 0; font-size: 0.88rem; color: var(--ok); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ring-card {
   position: fixed; top: 16px; left: 50%; z-index: 120; display: flex; align-items: center; gap: 12px;
   width: min(380px, calc(100vw - 24px)); padding: 12px 12px 12px 14px; transform: translateX(-50%);
@@ -448,24 +441,32 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 }
 
 /* --- calendar channels --- */
-.calendar-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; padding: 1.25rem 1.5rem 3rem; }
+.calendar-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; padding: 1.25rem 1.5rem 3rem; }
 .cal-month { display: grid; gap: 10px; }
 .cal-bar { display: flex; align-items: center; gap: 4px; }
 .cal-bar h2 { flex: 1; font-size: 1.15rem; font-weight: 600; }
-.cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
-.cal-weekday { padding: 0 6px 2px; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-faint); }
-.cal-day {
-  position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-height: 88px; padding: 6px; text-align: left;
-  border-radius: var(--radius-small); background: var(--bg-raised); border: 1px solid transparent; overflow: hidden;
+.cal-grid {
+  display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); overflow: hidden;
+  border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised);
 }
-.cal-day:hover { border-color: var(--border); }
-.cal-day.other { background: transparent; color: var(--text-faint); }
-.cal-day.picked { border-color: var(--accent); }
-.cal-num { font-size: 0.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.cal-day.today .cal-num { display: inline-grid; place-items: center; align-self: flex-start; min-width: 22px; height: 22px; margin: -2px; border-radius: 11px; background: var(--accent); color: var(--accent-text); }
+.cal-weekday {
+  padding: 8px 10px; border-bottom: 1px solid var(--border); background: var(--bg-panel);
+  font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-faint);
+}
+.cal-day {
+  position: relative; display: flex; flex-direction: column; align-items: stretch; gap: 3px; min-width: 0; min-height: 92px; padding: 6px 6px 8px;
+  text-align: left; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); transition: background 0.12s;
+}
+.cal-grid > :nth-child(7n) { border-right: 0; }
+.cal-grid > :nth-last-child(-n+7) { border-bottom: 0; }
+.cal-day:hover { background: var(--hover); }
+.cal-day.other { background: color-mix(in srgb, var(--bg-panel) 60%, var(--bg-raised)); color: var(--text-faint); }
+.cal-day.picked { background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised)); box-shadow: inset 0 0 0 1px var(--accent); }
+.cal-num { display: inline-grid; place-items: center; align-self: flex-start; min-width: 24px; height: 24px; padding: 0 4px; border-radius: 12px; font-size: 0.8rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cal-day.today .cal-num { background: var(--accent); color: var(--accent-text); }
 .cal-events { display: grid; gap: 2px; min-width: 0; }
-.cal-chip { min-width: 0; padding: 1px 5px; border-radius: 4px; font-size: 0.72rem; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cal-more { font-size: 0.7rem; color: var(--text-faint); }
+.cal-chip { min-width: 0; padding: 2px 6px; border-radius: 5px; font-size: 0.72rem; background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cal-more { padding-left: 4px; font-size: 0.7rem; color: var(--text-faint); }
 .cal-dot { display: none; }
 .cal-list { display: grid; gap: 8px; }
 .cal-list-head { display: flex; align-items: center; justify-content: space-between; min-height: 32px; }
@@ -491,13 +492,16 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .rsvp.no[aria-pressed="true"] { background: color-mix(in srgb, var(--danger) 20%, transparent); color: var(--text); }
 .event-times { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .event-times[hidden] { display: none; }
-@media (max-width: 1100px) { .calendar-page { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 799px) {
+/* The calendar sizes itself by the space it has (the member list or a phone can make it narrow). */
+.page-scroll:has(> .calendar-page) { container-type: inline-size; }
+@container (max-width: 860px) { .calendar-page { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 560px) {
   .calendar-page { padding: 1rem 0.75rem 3rem; }
-  .cal-day { min-height: 46px; align-items: center; padding: 6px 2px; }
+  .cal-day { min-height: 50px; align-items: center; padding: 5px 2px; }
+  .cal-weekday { padding: 7px 0; text-align: center; }
+  .cal-num { align-self: center; }
   .cal-events { display: none; }
   .cal-dot { display: block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
-  .cal-day.today .cal-num { margin: -2px auto; }
 }
 
 /* --- music channels --- */
@@ -540,7 +544,7 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .wiki-layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; }
 .wiki-nav { display: flex; flex-direction: column; min-height: 0; padding: 12px 8px 12px 12px; border-right: 1px solid var(--border); }
 .wiki-nav-top { display: flex; gap: 4px; margin-bottom: 8px; }
-.wiki-nav-top .input { flex: 1; min-width: 0; padding: 0.45rem 0.7rem; }
+.wiki-nav-top .search-field { flex: 1; height: 34px; }
 .wiki-items { display: grid; align-content: start; gap: 2px; overflow-y: auto; }
 .wiki-item { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 4px 10px; border-radius: var(--radius-small); text-align: left; font-size: 0.88rem; color: var(--text-muted); }
 .wiki-item span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -645,3 +649,57 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .message-link-loading { font-size: 0.82rem; color: var(--text-faint); }
 .relay-tag { display: inline-flex; align-items: center; gap: 3px; align-self: center; padding: 1px 6px; border-radius: 5px; background: var(--active); color: var(--text-muted); font-size: 0.68rem; font-weight: 500; white-space: nowrap; }
 .bot-menu { width: auto; min-width: 12rem; max-width: 100%; padding: 0.4rem 0.6rem; font-size: 0.88rem; }
+
+/* One toolbar at a time: while a message's tools are open (clicked), hovering others doesn't open theirs. */
+.message-list:has(.message.selected) .message:not(.selected) .message-actions:not(:has(.armed)) { display: none; }
+.message-list:has(.message.selected) .message:not(.selected):hover { background: none; }
+
+/* --- posts channels --- */
+.posts-page { display: grid; align-content: start; gap: 12px; max-width: 780px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+.posts-top { display: flex; align-items: center; gap: 8px; }
+.posts-top .search-field { flex: 1; }
+.posts-top .button { flex: none; }
+.post-list { display: grid; gap: 8px; }
+.post-card {
+  display: flex; align-items: flex-start; gap: 14px; width: 100%; padding: 14px 16px; text-align: left;
+  border-radius: var(--radius); background: var(--bg-raised); transition: background 0.12s;
+}
+.post-card:hover { background: color-mix(in srgb, var(--bg-raised) 88%, var(--text) 5%); }
+.post-card-main { flex: 1; min-width: 0; display: grid; gap: 6px; }
+.post-title { font-size: 1rem; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.post-preview { font-size: 0.88rem; line-height: 1.45; color: var(--text-muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.post-meta { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 0.78rem; color: var(--text-faint); }
+.post-meta .avatar { flex: none; border-radius: 50%; }
+.post-meta .post-author { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; color: var(--text-muted); }
+.post-replies { display: inline-flex; align-items: center; gap: 4px; margin-left: auto; padding-left: 8px; }
+.post-thumb { flex: none; width: 76px; height: 76px; border-radius: var(--radius-small); object-fit: cover; background: var(--bg-input); }
+.post-draft { display: grid; gap: 10px; padding: 14px 16px; border-radius: var(--radius); background: var(--bg-raised); }
+.post-draft-title { font-weight: 600; }
+.post-draft .textarea { min-height: 96px; resize: vertical; }
+.post-draft-files { display: flex; flex-wrap: wrap; gap: 4px; }
+.post-draft-files:empty { display: none; }
+.post-draft-actions { display: flex; align-items: center; gap: 6px; }
+@media (max-width: 799px) {
+  .posts-page { padding: 0.9rem 0.75rem 3rem; }
+  .post-card { padding: 12px 14px; }
+  .post-thumb { width: 60px; height: 60px; }
+}
+
+/* A search box with its icon, the same everywhere (posts, wiki, members). */
+.search-field {
+  display: flex; align-items: center; gap: 8px; min-width: 0; height: 38px; padding: 0 12px;
+  border-radius: var(--radius-small); background: var(--bg-input); color: var(--text-faint);
+}
+.search-field:focus-within { outline: 1px solid var(--text-faint); }
+.search-field input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; font-size: 0.88rem; color: var(--text); }
+
+.icon-button.in-call { color: var(--ok); }
+.call-back { margin-left: -8px; }
+
+/* "X started a call" in a DM, with how long it lasted or a Join button while it's on. */
+.message.call-note { grid-template-columns: 36px minmax(0, 1fr); align-items: center; }
+.call-note-icon { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: color-mix(in srgb, var(--ok) 18%, transparent); color: var(--ok); }
+.call-note-icon.ended { background: var(--bg-raised); color: var(--text-faint); }
+.call-note-text { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; font-size: 0.9rem; color: var(--text-muted); }
+.call-note-text strong { color: var(--text); font-weight: 600; }
+.call-note-text time { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }

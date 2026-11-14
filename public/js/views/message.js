@@ -6,7 +6,8 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, roleColor } from '../store.js';
 import { mentionsMe, renderMarkdown, formatDay, formatSize, formatStamp, formatTime, sameDay } from '../format.js';
-import { attempt, avatar, iconButton } from '../ui.js';
+import { attempt, avatar, button, iconButton } from '../ui.js';
+import { voice } from '../voice.js';
 import { openLightbox } from './lightbox.js';
 import { pollView } from './poll.js';
 import { LANGUAGES, languageName, targetLanguage, translate, autoTranslateOn, worthTranslating } from '../translate.js';
@@ -253,9 +254,40 @@ function menuView(message, menu, index) {
 
 // One message. `previous` is the message above it (decides the day divider and whether the header repeats).
 // handlers: { canDelete, onEdit, onDelete, onProfile, onReply, onReact, onPin, onCopy, onJump }
+function duration(ms) {
+  const s = Math.max(1, Math.round(ms / 1000));
+  if (s < 60) return `${s} second${s === 1 ? '' : 's'}`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} minute${m === 1 ? '' : 's'}${s % 60 ? ` ${s % 60}s` : ''}`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+// A DM call, shown as a line in the chat rather than a normal message.
+function callNote(message, call) {
+  const { author } = message;
+  const ongoing = !call.endedAt;
+  const inIt = voice.channelId === message.channelId;
+  return h('div', { class: 'message-row', dataset: { id: message.id } },
+    h('div', { class: 'message call-note' },
+      h('span', { class: `call-note-icon${ongoing ? '' : ' ended'}` }, icon(ongoing ? 'phone' : 'phoneOff', 17)),
+      h('div', { class: 'call-note-text' },
+        h('span', {}, h('strong', {}, author.displayName), ' started a call',
+          ongoing ? '' : ` that lasted ${duration(call.endedAt - call.startedAt)}`),
+        h('time', { title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
+        ongoing && !inIt && button('Join', async () => {
+          const { joinVoice } = await import('../voice.js');
+          const { findChannel } = await import('../store.js');
+          const { navigate, paths } = await import('../router.js');
+          joinVoice(findChannel(message.channelId));
+          navigate(paths.dmCall(message.channelId));
+        }, 'accent small'))));
+}
+
 export function messageRow(message, previous, mine, handlers) {
+  const call = message.components?.[0]?.type === 'call' ? message.components[0] : null;
+  if (call) return callNote(message, call);
   const newDay = !previous || !sameDay(previous.createdAt, message.createdAt);
-  const grouped = !newDay && !message.replyTo && previous.author.id === message.author.id
+  const grouped = !newDay && !message.replyTo && previous.author.id === message.author.id && previous.components?.[0]?.type !== 'call'
     && message.createdAt - previous.createdAt < GROUP_MS;
   const { author } = message;
   const profile = () => handlers.onProfile(author);
@@ -299,7 +331,7 @@ export function messageRow(message, previous, mine, handlers) {
       message.poll ? pollView(message, handlers.onVote) : textBlock(message, mine),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView)),
       message.embeds?.length > 0 && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
-      message.components?.length > 0 && buttonsView(message),
+      message.components?.length > 0 && message.components[0].type !== 'call' && buttonsView(message),
       reactionSlot),
     toolbar(message, row, mine, handlers, (event) => openTray(event)),
   ].filter(Boolean));
@@ -328,6 +360,12 @@ document.addEventListener('click', (event) => {
   if (event.target.closest('.message-actions button')) setTimeout(closeMessageTools, 0);
   else if (!open.contains(event.target) && !event.target.closest('.emoji-picker, .menu')) closeMessageTools();
 });
+// On a phone, tapping a video, sound or picture puts the keyboard away instead of keeping the box focused.
+document.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch' || !event.target.closest?.('.message video, .message audio, .message .media, .message .attachment-card, .message .embed')) return;
+  if (document.activeElement?.matches?.('textarea, input')) document.activeElement.blur();
+}, true);
+
 document.addEventListener('touchmove', (event) => {
   if (event.target.closest?.('.scroller')) closeMessageTools();
 }, { passive: true });

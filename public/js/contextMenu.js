@@ -35,7 +35,8 @@ function row(item) {
   }
   const label = h('span', { class: 'menu-label' }, item.label);
   const el = h('button', {
-    type: 'button', role: 'menuitem', class: `menu-item${item.danger ? ' danger' : ''}`,
+    type: 'button', role: item.checked !== undefined ? 'menuitemcheckbox' : 'menuitem', 'aria-checked': item.checked !== undefined ? String(Boolean(item.checked)) : null,
+    class: `menu-item${item.danger ? ' danger' : ''}${item.checked ? ' checked' : ''}`,
     onclick: () => {
       if (item.confirm && !el.classList.contains('armed')) {
         el.classList.add('armed');
@@ -47,7 +48,7 @@ function row(item) {
     },
   }, item.face, item.dot && h('span', { class: `presence menu-dot ${item.dot}` }),
   item.swatch !== undefined && h('span', { class: 'menu-swatch', style: { background: item.swatch || 'var(--text-faint)' } }),
-  label, item.icon && icon(item.icon, 16));
+  label, item.checked ? icon('check', 16) : item.icon && icon(item.icon, 16));
   return el;
 }
 
@@ -60,7 +61,7 @@ export function showMenu(event, items) {
   event.stopPropagation();
   closeMenu();
 
-  const el = h('div', { class: 'context-menu', role: 'menu' }, clean.map(row));
+  const el = h('div', { class: 'context-menu', role: 'menu', tabIndex: -1 }, clean.map(row));
   document.body.append(el);
   const { innerWidth: w, innerHeight: vh } = window;
   const box = el.getBoundingClientRect();
@@ -72,7 +73,15 @@ export function showMenu(event, items) {
   window.addEventListener('blur', closeMenu);
   window.addEventListener('resize', closeMenu);
   document.addEventListener('wheel', outside, true);
-  el.querySelector('button')?.focus({ preventScroll: true });
+  // Focus the menu, not its first item, so nothing looks picked until you point at it (arrow keys still work).
+  el.focus({ preventScroll: true });
+  el.addEventListener('keydown', (e) => {
+    if (!['ArrowDown', 'ArrowUp'].includes(e.key)) return;
+    e.preventDefault();
+    const items = [...el.querySelectorAll('button')];
+    const at = items.indexOf(document.activeElement);
+    items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  });
 }
 
 // Gives `el` a right-click menu built fresh each time from `build()`. Links, fields, media and selected

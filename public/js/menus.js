@@ -33,7 +33,7 @@ function roleItems(server, user, member) {
   return ['-', ...roles.map((role) => {
     const has = member.roleIds?.includes(role.id);
     return {
-      label: `${role.name}${has ? '  ✓' : ''}`, swatch: role.color,
+      label: role.name, checked: has, swatch: role.color,
       onClick: () => attempt(() => (has ? api.del : api.put)(`/api/servers/${server.id}/members/${user.id}/roles/${role.id}`)),
     };
   })];

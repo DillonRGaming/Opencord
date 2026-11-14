@@ -2,6 +2,7 @@ import { state, emit } from './store.js';
 
 // /channels/@me            → friends page
 // /channels/@me/<dmId>     → a DM
+// /channels/@me/<dmId>/call → the call in a DM, full page
 // /channels/<serverId>/<channelId> → a server channel
 // /channels/<serverId>/<channelId>/<postId> → a post in a posts channel
 // /invite/<code>           → invite preview
@@ -11,13 +12,14 @@ export function parse(pathname) {
   if (parts[0] === 'channels' && parts[1] && parts[1] !== '@me') {
     return { name: 'server', serverId: parts[1], channelId: parts[2] || null, postId: parts[3] || null };
   }
-  if (parts[0] === 'channels' && parts[2]) return { name: 'dm', channelId: parts[2] };
+  if (parts[0] === 'channels' && parts[2]) return { name: 'dm', channelId: parts[2], call: parts[3] === 'call' };
   return { name: 'home' };
 }
 
 export const paths = {
   home: () => '/channels/@me',
   dm: (channelId) => `/channels/@me/${channelId}`,
+  dmCall: (channelId) => `/channels/@me/${channelId}/call`,
   channel: (serverId, channelId) => `/channels/${serverId}${channelId ? `/${channelId}` : ''}`,
   post: (serverId, channelId, postId) => `/channels/${serverId}/${channelId}/${postId}`,
 };

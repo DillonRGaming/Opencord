@@ -81,7 +81,7 @@ export function openGroupSettings(dm) {
         h('span', { class: 'manage-main' }, h('strong', {}, user.displayName, user.id === group.ownerId && h('span', { class: 'member-tag' }, 'Owner')),
           h('span', {}, `@${user.username}`)),
         owner && user.id !== state.me.id && h('span', { class: 'manage-actions' }, confirmButton({
-          label: 'Remove from group', confirmLabel: 'Remove', face: icon('x'), className: 'icon-button danger',
+          label: 'Remove from group', confirmLabel: 'Remove?', face: icon('x'), className: 'icon-button danger',
           onConfirm: () => api.del(`/api/dms/${group.id}/members/${user.id}`),
         })))))),
       people.length < GROUP_MAX && settingsCard('Add people', friendPicker({

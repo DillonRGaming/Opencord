@@ -89,7 +89,7 @@ export function openEmojiPicker(anchor, onPick, { keepOpen = false } = {}) {
   const top = a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8);
   el.style.left = `${left}px`;
   el.style.top = `${top}px`;
-  search.focus();
+  if (matchMedia('(hover: hover)').matches) search.focus();
 
   const outside = (event) => { if (!el.contains(event.target) && !anchor.contains(event.target)) closeEmojiPicker(); };
   document.addEventListener('pointerdown', outside, true);

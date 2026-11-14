@@ -5,7 +5,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, canModerate } from '../store.js';
 import { showNav } from '../router.js';
-import { attempt, avatar, button, confirmButton, field, form, iconButton, settingRow, settingsCard } from '../ui.js';
+import { attempt, avatar, button, confirmButton, emptyList, field, form, iconButton, settingRow, settingsCard } from '../ui.js';
 import { openPage } from './page.js';
 import { ensureMembers } from './members.js';
 
@@ -165,14 +165,14 @@ function sideList() {
     return h('section', { class: 'cal-list' },
       h('div', { class: 'cal-list-head' }, h('h3', {}, longDay.format(new Date(`${view.day}T00:00`))),
         canAdd() && iconButton('plus', 'New event on this day', () => openEventEditor(null, view.day))),
-      events.length ? events.map(eventCard) : h('p', { class: 'muted' }, 'Nothing on this day.'));
+      events.length ? events.map(eventCard) : emptyList('calendar', 'Nothing on this day'));
   }
   const now = Date.now();
   const upcoming = [...view.events.values()].filter((e) => (e.endsAt || e.startsAt + (e.allDay ? DAY_MS : 0)) >= now - 3_600_000)
     .sort((a, b) => a.startsAt - b.startsAt).slice(0, 20);
   return h('section', { class: 'cal-list' },
     h('div', { class: 'cal-list-head' }, h('h3', {}, 'Coming up')),
-    upcoming.length ? upcoming.map(eventCard) : h('p', { class: 'muted' }, view.loaded ? 'No events coming up.' : 'Loading…'));
+    upcoming.length ? upcoming.map(eventCard) : view.loaded ? emptyList('calendar', 'Nothing coming up', canAdd() ? 'Add an event with New event.' : null) : h('p', { class: 'loading' }, 'Loading…'));
 }
 
 function render() {

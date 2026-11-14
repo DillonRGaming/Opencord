@@ -489,12 +489,15 @@ async function run() {
   await bob.call('POST', `/api/channels/${dm.id}/ack`, { messageId: last.id });
   assert.equal((await bob.call('GET', '/api/bootstrap')).dmPings[dm.id], undefined);
   const ring = nextEvent(bSock, 'call:ring', (e) => e.channelId === dm.id);
+  const callNote = nextEvent(bSock, 'message:create', (m) => m.channelId === dm.id && m.components?.[0]?.type === 'call');
   const joined = await new Promise((resolve) => aSock.emit('voice:join', dm.id, resolve));
   assert.ok(joined.self && !joined.error);
   assert.equal((await ring).userId, alice.me.id);
-  wait = nextEvent(bSock, 'voice:state', (e) => e.channelId === dm.id && e.users.length === 0);
+  const note = await callNote;
+  assert.ok(note.components[0].startedAt && !note.components[0].endedAt);
+  wait = nextEvent(bSock, 'message:update', (m) => m.id === note.id && m.components[0].endedAt);
   aSock.emit('voice:leave');
-  await wait;
+  await wait; // the note now says how long the call lasted
   ok('DM pings count unread DMs; DM calls ring the other person');
 
   // --- bots can hand out and manage roles ---
@@ -639,6 +642,11 @@ async function run() {
   await browser.call('POST', '/api/auth/accounts/switch', { userId: accounts[1].id });
   assert.equal((await browser.call('GET', '/api/users/@me')).username, 'multi1');
   await browser.expect(404, 'POST', '/api/auth/accounts/switch', { userId: alice.me.id });
+  await browser.call('POST', '/api/auth/register', { username: 'multi3', password: 'password123', add: true });
+  const multi3 = (await browser.call('GET', '/api/auth/accounts')).find((a) => a.username === 'multi3');
+  await browser.call('POST', '/api/auth/accounts/switch', { userId: accounts[1].id });
+  await browser.call('POST', '/api/auth/accounts/remove', { userId: multi3.id });
+  assert.ok(!(await browser.call('GET', '/api/auth/accounts')).some((a) => a.username === 'multi3'), 'a removed account leaves the switcher');
   const loggedOut = await browser.call('POST', '/api/auth/logout');
   assert.equal(loggedOut.switched, true);
   assert.equal((await browser.call('GET', '/api/users/@me')).username, 'multi2');

@@ -64,7 +64,7 @@ export function openPanel({ title, build, onClose }) {
   pushLayer('panel');
   panel = mine;
   render();
-  el.querySelector('.side-body input:not([readonly]), .side-body textarea')?.focus();
+  if (matchMedia('(hover: hover)').matches) el.querySelector('.side-body input:not([readonly]), .side-body textarea')?.focus();
   return { close: () => { if (panel === mine) closePanel(); } };
 }
 

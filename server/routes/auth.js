@@ -44,6 +44,11 @@ router.get('/accounts', auth.requireAuth, (req, res) => {
   res.json(auth.accountsOf(req, res).map(({ user, current }) => ({ ...users.toUser(user), current })));
 });
 
+router.post('/accounts/remove', auth.requireAuth, (req, res) => {
+  if (!auth.removeAccount(req, res, text(req.body.userId, 'userId'))) fail(404, 'That account isn’t logged in here.');
+  res.sendStatus(204);
+});
+
 router.post('/accounts/switch', auth.requireAuth, (req, res) => {
   if (!auth.switchTo(req, res, text(req.body.userId, 'userId'))) fail(404, 'That account isn’t logged in here any more.');
   res.sendStatus(204);

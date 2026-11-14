@@ -1,9 +1,9 @@
 // The main area for a voice channel: a grid of tiles (camera, screen or avatar on a colour) and the
 // call controls along the bottom, or a "join" screen when you're not in the call yet.
 import { h } from '../dom.js';
-import { showNav } from '../router.js';
+import { showNav, navigate, paths } from '../router.js';
 import { icon } from '../icons.js';
-import { state, on } from '../store.js';
+import { state, on, dmName } from '../store.js';
 import { avatar, iconButton } from '../ui.js';
 import {
   voice, joinVoice, leaveVoice, toggleMute, toggleDeafen, toggleCamera, toggleScreen, localVideoStream, peerStream,
@@ -76,33 +76,33 @@ function render() {
   const { channel } = view;
   const people = state.voice.get(channel.id) || [];
   const inCall = voice.channelId === channel.id && !voice.connecting;
-  const header = h('header', { class: 'main-header' },
-    iconButton('back', 'Back', () => showNav(), 'back-button'),
-    h('div', { class: 'main-title' }, icon('volume', 18), h('span', {}, channel.name)),
-    h('div', { class: 'main-spacer' }));
+  const isDm = channel.type === 'dm';
+  const title = isDm ? dmName(channel) : channel.name;
+  // A DM call's page goes back to the chat; a voice channel's goes back to the channel list (on phones).
+  const back = isDm
+    ? iconButton('back', 'Back to chat', () => navigate(paths.dm(channel.id)), 'call-back')
+    : iconButton('back', 'Back', () => showNav(), 'back-button');
+  const header = h('header', { class: 'main-header' }, back,
+    h('div', { class: 'main-title' }, icon(isDm ? 'phone' : 'volume', 18), h('span', {}, title)),
+    h('div', { class: 'main-spacer' }),
+    isDm && iconButton('message', 'Back to chat', () => navigate(paths.dm(channel.id))));
 
-  if (view.compact) view.root.hidden = !inCall && !people.length;
-  if (!inCall && view.compact) {
-    // A DM: just a slim bar saying who's in the call, with a button to join.
-    view.tiles.clear();
-    const names = people.map((p) => state.users.get(p.userId)?.displayName || 'Someone');
-    view.root.replaceChildren(...(people.length ? [h('div', { class: 'call-bar' },
-      h('span', { class: 'call-bar-faces' }, people.slice(0, 4).map((p) => avatar(state.users.get(p.userId) || { id: p.userId, displayName: '?' }, { size: 28 }))),
-      h('span', { class: 'call-bar-text' }, `${names.slice(0, 3).join(', ')} ${people.length === 1 ? 'is' : 'are'} in a call`),
-      h('button', { type: 'button', class: 'button accent small', disabled: voice.connecting, onclick: () => joinVoice(channel) },
-        icon('phone', 16), voice.connecting ? 'Joining…' : 'Join'))] : []));
+  if (isDm && view.wasInCall && !inCall && !voice.connecting) {
+    view.wasInCall = false;
+    navigate(paths.dm(channel.id));
     return;
   }
+  view.wasInCall = inCall;
   if (!inCall) {
     view.tiles.clear();
     view.root.replaceChildren(header, h('div', { class: 'vc-lobby' },
       h('div', { class: 'vc-lobby-faces' }, people.length
         ? people.slice(0, 6).map((p) => avatar(state.users.get(p.userId) || { id: p.userId, displayName: '?' }, { size: 64 }))
         : h('span', { class: 'empty-icon' }, icon('volume', 30))),
-      h('h2', {}, channel.name),
+      h('h2', {}, title),
       people.length > 0 && h('p', {}, `${people.map((p) => state.users.get(p.userId)?.displayName || 'Someone').slice(0, 3).join(', ')}${people.length > 3 ? ` and ${people.length - 3} more` : ''} ${people.length === 1 ? 'is' : 'are'} in the call.`),
       h('button', { type: 'button', class: 'button primary vc-join', disabled: voice.connecting, onclick: () => joinVoice(channel) },
-        voice.connecting ? 'Connecting…' : 'Join voice')));
+        voice.connecting ? 'Connecting…' : isDm ? (people.length ? 'Join call' : 'Start call') : 'Join voice')));
     return;
   }
 
@@ -110,9 +110,11 @@ function render() {
   let grid = view.root.querySelector('.vc-grid');
   if (!grid) {
     grid = h('div', { class: 'vc-grid' });
-    view.root.replaceChildren(h('div', { class: 'vc-call' }, !view.compact && iconButton('back', 'Back', () => showNav(), 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls()));
+    // DM calls keep their header (with the way back to the chat); voice channels go edge to edge.
+    view.root.replaceChildren(...[isDm && header, h('div', { class: 'vc-call' }, !isDm && iconButton('back', 'Back', () => showNav(), 'back-button vc-back'), h('div', { class: 'vc-stage' }, grid), controls())].filter(Boolean));
   } else {
     view.root.querySelector('.vc-bar').replaceWith(controls());
+    if (isDm) view.root.querySelector('.main-header')?.replaceWith(header);
   }
   const seen = new Set();
   for (const person of people) {
@@ -151,12 +153,6 @@ on('voice voice:media voice:speaking users', render);
 
 export function closeVoiceView() {
   view = null;
-}
-
-// The call area at the top of a DM: hidden with no call, a bar when others are in one, the full call once you join.
-export function mountCallStage(el, channel) {
-  view = { channel, serverId: null, tiles: new Map(), focus: null, compact: true, root: el };
-  render();
 }
 
 export function showVoice(container, channel, serverId) {

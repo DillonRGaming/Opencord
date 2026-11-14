@@ -3,7 +3,6 @@ import { h } from '../dom.js';
 import { showNav, navigate, paths } from '../router.js';
 import { icon } from '../icons.js';
 import { groupFace } from './sidebar.js';
-import { mountCallStage } from './voiceView.js';
 import { voice, joinVoice } from '../voice.js';
 import { ensureMembers } from './members.js';
 import { state, on, emit, isUnread, canModerate, markRead, dmName, roleColor } from '../store.js';
@@ -26,7 +25,11 @@ function header(channel, serverId) {
   const back = iconButton('back', 'Back', () => showNav(), 'back-button');
   const inThisCall = voice.channelId === channel.id;
   const tools = [
-    channel.type === 'dm' && !inThisCall && iconButton('phone', (state.voice.get(channel.id) || []).length ? 'Join call' : 'Start a call', () => joinVoice(channel)),
+    // DM calls open as their own page.
+    channel.type === 'dm' && iconButton('phone', inThisCall ? 'Back to the call' : (state.voice.get(channel.id) || []).length ? 'Join call' : 'Start a call', () => {
+      if (!inThisCall) joinVoice(channel);
+      navigate(paths.dmCall(channel.id));
+    }, inThisCall ? 'in-call' : ''),
     searchBox(channel),
     iconButton('pin', 'Pinned messages', () => showPins(channel)),
     serverId && membersButton(),
@@ -437,8 +440,6 @@ export function showChat(container, channel, serverId = null) {
     // Same chat (for example a phone coming back from the channel list): keep it, refresh the header.
     view.channel = channel;
     view.root.querySelector('.main-header').replaceWith(header(channel, serverId));
-    const stage = view.root.querySelector('.dm-call');
-    if (stage) mountCallStage(stage, channel);
     updateLock(view);
     ack(view);
     return;
@@ -495,10 +496,7 @@ export function showChat(container, channel, serverId = null) {
     },
   }, v.scroller, v.typingEl, v.composer.el);
 
-  // DMs have a call area above the messages: hidden until someone's in a call.
-  const callStage = channel.type === 'dm' && h('div', { class: 'dm-call', hidden: true });
-  container.replaceChildren(...[header(channel, serverId), callStage, chat].filter(Boolean));
-  if (callStage) mountCallStage(callStage, channel);
+  container.replaceChildren(header(channel, serverId), chat);
 
   view = v;
   v.translateKey = translateKey();

@@ -127,7 +127,8 @@ button.main-title:hover { background: var(--hover); }
   display: flex; align-items: center; gap: 8px; flex: none; height: 38px; padding: 0 12px;
   border-radius: var(--radius-small); background: var(--bg-input); color: var(--text-faint);
 }
-.member-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; font-size: 0.86rem; color: var(--text); }
+.member-search:focus-within { outline: 1px solid var(--text-faint); }
+.member-search input { flex: 1; min-width: 0; padding: 0; border: 0; outline: none; background: none; font-size: 0.88rem; color: var(--text); }
 .side-body.members { gap: 0; padding: 0 8px 12px; }
 .side-body.members .member-search { margin: 0 4px 6px; }
 .member { min-height: 46px; }

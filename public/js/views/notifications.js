@@ -62,7 +62,7 @@ export async function openNotifications() {
       h('div', { class: 'notifications-tools' },
         segmented([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); }),
         confirmButton({
-          label: 'Clear all', confirmLabel: 'Clear them all?', className: 'button ghost small',
+          label: 'Clear all', confirmLabel: 'Click again to clear', className: 'button ghost small',
           onConfirm: async () => {
             await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
             load();

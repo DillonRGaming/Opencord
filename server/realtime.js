@@ -84,9 +84,10 @@ function init(httpServer) {
       socket.data.voice = channel.id;
       socket.join(voiceRoom(channel.id));
       announceVoice(channel);
-      // The first person into a DM call rings everyone else in the DM.
+      // The first person into a DM call rings everyone else in the DM, and the chat gets a "started a call" line.
       if (channel.type === 'dm' && !peers.length) {
         for (const other of channels.dmMemberIds(channel.id)) if (other !== userId) toUser(other, 'call:ring', { channelId: channel.id, userId });
+        startCallMessage(channel, userId);
       }
       reply?.({ self: socket.id, peers: [...room.entries()].filter(([id]) => id !== socket.id && !id.startsWith('bot:')).map(([id, p]) => ({ socketId: id, ...p })), skip: peers.length });
     });
@@ -152,6 +153,28 @@ function voiceStatesFor(userId) {
     .map((c) => voiceState(c.id));
 }
 
+// DM calls are noted in the chat: "X started a call", then how long it lasted once everyone has left.
+const callMessages = new Map(); // DM channelId → message id
+function startCallMessage(channel, userId) {
+  try {
+    const { postMessage } = require('./lib/post');
+    const message = postMessage(channel, userId, '', { components: [{ type: 'call', startedAt: Date.now() }] });
+    callMessages.set(channel.id, message.id);
+  } catch (err) {
+    console.error('Call message failed:', err.message);
+  }
+}
+function endCallMessage(channelId) {
+  const id = callMessages.get(channelId);
+  callMessages.delete(channelId);
+  const messages = require('./models/messages');
+  const row = id && messages.get(id);
+  if (!row?.components) return;
+  const parts = JSON.parse(row.components);
+  parts[0] = { ...parts[0], endedAt: Date.now() };
+  toChannel(channels.get(channelId), 'message:update', messages.serialize(messages.setComponents(id, parts)));
+}
+
 function leaveVoice(socket) {
   const channelId = socket.data.voice;
   if (!channelId) return;
@@ -160,6 +183,7 @@ function leaveVoice(socket) {
   const room = voice.get(channelId);
   room?.delete(socket.id);
   if (room && !room.size) voice.delete(channelId);
+  if (callMessages.has(channelId) && ![...(room?.keys() || [])].some((id) => !id.startsWith('bot:'))) endCallMessage(channelId);
   io.to(voiceRoom(channelId)).emit('voice:peer-left', { socketId: socket.id });
   announceVoice(channels.get(channelId));
 }

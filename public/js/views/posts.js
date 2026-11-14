@@ -6,7 +6,7 @@ import { icon } from '../icons.js';
 import { state, on, canModerate } from '../store.js';
 import { navigate, paths, showNav } from '../router.js';
 import { formatStamp } from '../format.js';
-import { attempt, avatar, iconButton, pickFiles, toast } from '../ui.js';
+import { attempt, avatar, button, iconButton, pickFiles, toast } from '../ui.js';
 import { startUpload } from '../upload.js';
 import { MESSAGE_MAX } from './composer.js';
 
@@ -25,8 +25,8 @@ function postCard(post) {
   h('div', { class: 'post-card-main' },
     h('h3', { class: 'post-title' }, post.title),
     post.preview && h('p', { class: 'post-preview' }, post.preview),
-    h('div', { class: 'post-meta' }, avatar(author, { size: 18 }), h('span', {}, author.displayName),
-      h('span', { class: 'post-dot' }, '·'), h('span', {}, formatStamp(post.createdAt)),
+    h('div', { class: 'post-meta' }, avatar(author, { size: 18 }), h('span', { class: 'post-author' }, author.displayName),
+      h('span', {}, '·'), h('span', {}, formatStamp(post.createdAt)),
       h('span', { class: 'post-replies' }, icon('message', 14), String(post.replies || 0)))),
   post.image && h('img', { class: 'post-thumb', src: post.image, alt: '', loading: 'lazy' }));
 }
@@ -85,7 +85,7 @@ function render() {
   const canPost = !channel.readOnly || canModerate(view.serverId);
 
   const search = h('input', {
-    class: 'input', type: 'search', placeholder: 'Search posts', value: view.query, 'aria-label': 'Search posts',
+    type: 'search', placeholder: 'Search posts', value: view.query, 'aria-label': 'Search posts',
     oninput: () => { view.query = search.value; drawList(); },
   });
   const list = h('div', { class: 'post-list' });
@@ -103,10 +103,10 @@ function render() {
     h('header', { class: 'main-header' },
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('posts', 18), h('span', {}, channel.name)),
-      channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' })),
+      channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
+      canPost && !view.drafting && button('New post', () => { view.drafting = true; render(); }, 'accent small')),
     h('div', { class: 'page-scroll' }, h('div', { class: 'posts-page' },
-      h('div', { class: 'posts-top' }, search,
-        canPost && !view.drafting && h('button', { type: 'button', class: 'button accent small', onclick: () => { view.drafting = true; render(); } }, icon('plus', 16), 'New post')),
+      h('div', { class: 'posts-top' }, h('label', { class: 'search-field' }, icon('search', 16), search)),
       view.drafting && draftBox(),
       list)));
 }

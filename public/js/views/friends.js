@@ -20,7 +20,7 @@ function rowButtons({ user, status }) {
     return [
       iconButton('message', 'Message', () => attempt(() => actions.openDm(user.id))),
       confirmButton({
-        label: 'Remove friend', confirmLabel: 'Remove', face: icon('x'), className: 'icon-button danger',
+        label: 'Remove friend', confirmLabel: 'Remove?', face: icon('x'), className: 'icon-button danger',
         onConfirm: () => actions.removeRelation(user.id),
       }),
     ];

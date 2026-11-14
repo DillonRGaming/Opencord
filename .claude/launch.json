@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "opencord-test",
+      "runtimeExecutable": "/home/dillon/.local/bin/node",
+      "runtimeArgs": ["server/index.js"],
+      "env": { "PORT": "3200", "DATA_DIR": "/tmp/claude-1000/-home-dillon-Documents-Opencord/34febd12-a090-4934-a088-ab7f24ca9b53/scratchpad/ocdata" },
+      "port": 3200
+    }
+  ]
+}

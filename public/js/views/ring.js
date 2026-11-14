@@ -62,7 +62,7 @@ on('call:ring', async ({ channelId, userId }) => {
     h('button', { type: 'button', class: 'ring-button decline', title: 'Decline', 'aria-label': 'Decline', onclick: stop }, icon('phoneOff', 20)),
     h('button', {
       type: 'button', class: 'ring-button accept', title: 'Accept', 'aria-label': 'Accept',
-      onclick: () => { stop(); navigate(paths.dm(channelId)); joinVoice(channel); },
+      onclick: () => { stop(); joinVoice(channel); navigate(paths.dmCall(channelId)); },
     }, icon('phone', 20)));
   document.body.append(el);
   ringing = { channelId, el, sound: ringSound(), timer: setTimeout(stop, 30_000) };

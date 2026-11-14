@@ -33,7 +33,8 @@ export function openPage({ title, content, actions, onClose }) {
   column.append(el);
   column.classList.add('page-open');
   document.body.dataset.panel = 'main';
-  el.querySelector('.page-content input:not([readonly]):not([type="color"]), .page-content textarea')?.focus();
+  // Only with a mouse: on a touch screen, focusing a box pops the keyboard up over what you opened.
+  if (matchMedia('(hover: hover)').matches) el.querySelector('.page-content input:not([readonly]):not([type="color"]), .page-content textarea')?.focus();
   return { el, close: () => { if (current === mine) closePage(); } };
 }
 

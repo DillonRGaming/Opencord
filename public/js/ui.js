@@ -196,6 +196,25 @@ export function segmented(options, current, onChange) {
   return el;
 }
 
+// What an empty list shows, the same everywhere: an icon, a line, and maybe a hint under it.
+export function emptyList(iconName, title, text = null) {
+  return h('div', { class: 'empty-state small' }, h('span', { class: 'empty-icon' }, icon(iconName, 22)), h('strong', {}, title), text && h('span', {}, text));
+}
+
+// An on/off switch: the one control for every yes/no setting.
+export function switchControl(on, onChange, label, disabled = false) {
+  const el = h('button', {
+    type: 'button', class: `switch${on ? ' on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': label, disabled,
+    onclick: () => {
+      const next = el.getAttribute('aria-checked') !== 'true';
+      el.setAttribute('aria-checked', String(next));
+      el.classList.toggle('on', next);
+      onChange(next);
+    },
+  }, h('span', { class: 'switch-knob' }));
+  return el;
+}
+
 // Settings pages are built from these: a card per topic, and rows of "label … control" inside it.
 export function settingsCard(title, ...children) {
   return h('section', { class: 'settings-card' }, title && h('h2', { class: 'settings-card-title' }, title), children);

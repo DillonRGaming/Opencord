@@ -96,6 +96,8 @@ export async function switchAccount(userId) {
   location.href = '/channels/@me';
 }
 
+export const removeAccount = (userId) => api.post('/api/auth/accounts/remove', { userId });
+
 export async function addAccount() {
   const { showAuth } = await import('./views/auth.js');
   showAuth(document.getElementById('app'), null, { add: true });

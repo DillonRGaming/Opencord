@@ -292,7 +292,7 @@ export function showWhiteboard(container, channel, serverId) {
       h('div', { class: 'main-title' }, icon('whiteboard', 18), h('span', {}, channel.name)),
       h('div', { class: 'main-spacer' }),
       canModerate(serverId) && confirmButton({
-        label: 'Clear the board', confirmLabel: 'Clear it for everyone?', face: icon('trash'), className: 'icon-button',
+        label: 'Clear the board', confirmLabel: 'Clear for everyone?', face: icon('trash'), className: 'icon-button',
         onConfirm: () => api.del(`/api/channels/${channel.id}/strokes`),
       })),
     h('div', { class: 'wb-wrap' }, stage, toolbar));

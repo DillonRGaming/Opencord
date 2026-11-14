@@ -6,7 +6,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, canModerate } from '../store.js';
 import { showNav } from '../router.js';
-import { attempt, avatar, iconButton, toast } from '../ui.js';
+import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
 
 let view = null; // { root, channel, serverId, music, offset, listening, player, playerFor, progress, timer }
@@ -123,8 +123,7 @@ function sync(force = false) {
 function nowPlaying() {
   const item = current();
   if (!item) {
-    return h('section', { class: 'music-now empty' }, h('span', { class: 'empty-icon' }, icon('music', 26)),
-      h('strong', {}, 'Nothing playing'), h('span', { class: 'muted' }, 'Add a YouTube link below to start the music.'));
+    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', 'Add a YouTube link below to start the music.'));
   }
   const paused = Boolean(view.music.playing.pausedAt);
   const adder = state.users.get(item.addedBy);
@@ -183,7 +182,7 @@ function queueList() {
         h('div', { class: 'music-item-text' }, h('strong', {}, item.title), h('span', {}, adder?.displayName || '')),
         adder && avatar(adder, { size: 22 }),
         (item.addedBy === state.me.id || canModerate(view.serverId)) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`))));
-    }) : h('p', { class: 'muted' }, 'The queue is empty.'));
+    }) : emptyList('music', 'Nothing up next'));
 }
 
 // The player lives in its own slot that redraws never touch: moving an embed in the page reloads it,

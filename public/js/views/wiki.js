@@ -52,7 +52,7 @@ function newPage(title = '') {
 
 function pageList() {
   const search = h('input', {
-    class: 'input', type: 'search', placeholder: 'Search pages', value: view.query, 'aria-label': 'Search pages',
+    type: 'search', placeholder: 'Search pages', value: view.query, 'aria-label': 'Search pages',
     oninput: () => { view.query = search.value; drawItems(); },
   });
   const items = h('div', { class: 'wiki-items' });
@@ -65,8 +65,7 @@ function pageList() {
     }, icon('file', 15), h('span', {}, p.title))) : [h('p', { class: 'muted wiki-none' }, view.loaded ? (q ? 'No pages match.' : 'No pages yet.') : 'Loading…')]));
   };
   drawItems();
-  return h('nav', { class: 'wiki-nav' }, h('div', { class: 'wiki-nav-top' }, search,
-    canWrite() && iconButton('plus', 'New page', () => newPage())), items);
+  return h('nav', { class: 'wiki-nav' }, h('div', { class: 'wiki-nav-top' }, h('label', { class: 'search-field' }, icon('search', 16), search)), items);
 }
 
 // --- one page ---
@@ -173,14 +172,15 @@ function render() {
     : pageId ? pageView(pageId)
       : h('div', { class: 'empty-state small wiki-welcome' }, h('span', { class: 'empty-icon' }, icon('book', 26)),
         h('strong', {}, channel.name), h('span', {}, view.pages.size ? 'Pick a page, or start a new one.' : 'No pages yet.'),
-        canWrite() && button('New page', () => newPage(), 'accent small'));
+        null);
   view.root.replaceChildren(
     h('header', { class: 'main-header' },
       pageId || view.editing
         ? iconButton('back', 'All pages', () => { view.editing = null; if (pageId) go(null); else render(); }, 'wiki-back')
         : iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('book', 18), h('span', {}, channel.name)),
-      channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' })),
+      channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
+      canWrite() && !view.editing && button('New page', () => newPage(), 'accent small')),
     h('div', { class: `wiki-layout${pageId || view.editing ? ' reading' : ''}` }, pageList(), h('div', { class: 'page-scroll wiki-main' }, main)));
 }
 

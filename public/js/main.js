@@ -84,6 +84,11 @@ async function showMain(main) {
   closeApps();
   if (route.name === 'dm') {
     const dm = state.dms.get(route.channelId);
+    if (dm && route.call) {
+      closeChat();
+      return showVoice(main, dm, null);
+    }
+    closeVoiceView();
     if (dm) return showChat(main, dm);
     // A DM that has no messages yet isn't in the list, so ask for it.
     const fetched = await api.get(`/api/channels/${route.channelId}`).catch(() => null);

@@ -4,7 +4,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, memberRoles, roleOf, canModerate } from '../store.js';
 import { showMenu } from '../contextMenu.js';
-import { attempt, avatar, button, confirmButton, iconButton } from '../ui.js';
+import { attempt, avatar, button, confirmButton, iconButton, switchControl } from '../ui.js';
 import { colorField } from '../colorPicker.js';
 import { ensureMembers } from './members.js';
 
@@ -63,12 +63,7 @@ export function roleChips(serverId, user) {
 let openRoleId = null; // the role whose editor is open in settings
 let memberQuery = '';
 
-function switchButton(on, onChange, label, disabled = false) {
-  return h('button', {
-    type: 'button', class: `switch${on ? ' on' : ''}`, role: 'switch', 'aria-checked': String(on), 'aria-label': label, disabled,
-    onclick: () => onChange(!on),
-  }, h('span', { class: 'switch-knob' }));
-}
+const switchButton = switchControl;
 
 // A compact list of roles; tapping one opens its editor underneath (name, colour, switches and who has it).
 export function rolesSection(serverId) {
@@ -142,7 +137,7 @@ export function rolesSection(serverId) {
         iconButton('arrowDown', 'Move down', () => move(index, 1), index === roles.length - 1 ? 'hidden-action' : ''),
         h('span', { class: 'main-spacer' }),
         !locked && confirmButton({
-          label: 'Delete role', confirmLabel: 'Delete it?', className: 'button ghost small',
+          label: 'Delete role', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
           onConfirm: () => api.del(`/api/servers/${serverId}/roles/${role.id}`),
         })));
   };
@@ -179,7 +174,7 @@ export function memberRoleButton(serverId, user) {
     const box = event.currentTarget.getBoundingClientRect();
     showMenu({ clientX: box.left, clientY: box.bottom + 4, preventDefault() {}, stopPropagation() {} },
       server.roles.filter((r) => canGive(serverId, r)).map((role) => ({
-        label: `${role.name}${mine.includes(role) ? '  ✓' : ''}`, swatch: role.color,
+        label: role.name, checked: mine.includes(role), swatch: role.color,
         onClick: () => setRole(serverId, user.id, role.id, !mine.includes(role)),
       })));
   });

@@ -92,7 +92,7 @@ export function openServerSettings(server) {
           iconButton('arrowDown', 'Move down', () => move(index, 1), index === list.length - 1 ? 'hidden-action' : ''),
           iconButton('pencil', `Edit #${channel.name}`, () => openChannelPage(current(), channel)),
           confirmButton({
-            label: 'Delete channel', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+            label: 'Delete channel', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
             onConfirm: () => api.del(`/api/channels/${channel.id}`),
           }))))),
       h('div', {}, button('New channel', () => openChannelPage(current()), 'ghost small')))];
@@ -117,9 +117,9 @@ export function openServerSettings(server) {
         avatar(invite.creator, { size: 32 }),
         h('span', { class: 'manage-main' }, h('strong', { class: 'mono' }, invite.code), h('span', {}, `${invite.creator.displayName} · ${limits.join(' · ')}`)),
         h('span', { class: 'manage-actions' },
-          iconButton('copy', 'Copy link', async () => { await copyText(link); toast('Invite link copied.', 'ok'); }),
+          iconButton('link', 'Copy link', async () => { await copyText(link); toast('Invite link copied.', 'ok'); }),
           confirmButton({
-            label: 'Revoke invite', confirmLabel: 'Revoke', face: icon('trash'), className: 'icon-button danger',
+            label: 'Revoke invite', confirmLabel: 'Revoke?', face: icon('trash'), className: 'icon-button danger',
             onConfirm: async () => { await api.del(`/api/servers/${id}/invites/${invite.code}`); load(); },
           })));
     };
@@ -169,7 +169,7 @@ export function openServerSettings(server) {
             !owner && iAmOwner && !user.bot && iconButton('shield', role === 'admin' ? 'Remove admin' : 'Make admin',
               () => attempt(() => api.put(`/api/servers/${id}/members/${user.id}/role`, { role: role === 'admin' ? 'member' : 'admin' })), role === 'admin' ? 'on' : ''),
             !owner && iAmOwner && !user.bot && confirmButton({
-              label: 'Make owner', confirmLabel: 'Hand over', face: icon('crown'), className: 'icon-button',
+              label: 'Make owner', confirmLabel: 'Hand over?', face: icon('crown'), className: 'icon-button',
               onConfirm: async () => { await api.post(`/api/servers/${id}/owner`, { userId: user.id }); page.close(); toast(`${user.displayName} owns the server now.`, 'ok'); },
             }),
             outranks && (timeoutUntil
@@ -223,7 +223,7 @@ export function openServerSettings(server) {
           h('img', { class: 'manage-emoji', src: e.url, alt: e.name }),
           h('span', { class: 'manage-main' }, h('span', { class: 'emoji-name-field' }, ':', nameInput, ':')),
           h('span', { class: 'manage-actions' }, confirmButton({
-            label: 'Delete emoji', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+            label: 'Delete emoji', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
             onConfirm: () => api.del(`/api/servers/${id}/emojis/${e.id}`),
           })));
       })) : emptyState('smile', 'No custom emoji yet')),
@@ -315,7 +315,7 @@ export function openServerSettings(server) {
           h('span', { class: 'manage-actions always' },
             button('Copy URL', async () => { await copyText(url); toast('Webhook URL copied. Keep it secret.', 'ok'); }, 'ghost small'),
             confirmButton({
-              label: 'Delete webhook', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+              label: 'Delete webhook', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
               onConfirm: async () => { await api.del(`/api/servers/${id}/webhooks/${hook.id}`); load(); },
             })));
       }) : [emptyState('link', 'No webhooks yet')]));
@@ -351,7 +351,7 @@ export function openServerSettings(server) {
           button('Edit blocks', () => openBotBuilder(current(), bot), 'ghost small'),
           iconButton(bot.enabled ? 'play' : 'x', bot.enabled ? 'Turn off' : 'Turn on', () => attempt(async () => { await api.patch(`/api/servers/${id}/bots/${bot.id}`, { enabled: !bot.enabled }); load(); }), bot.enabled ? 'on' : ''),
           confirmButton({
-            label: 'Delete bot', confirmLabel: 'Delete', face: icon('trash'), className: 'icon-button danger',
+            label: 'Delete bot', confirmLabel: 'Delete?', face: icon('trash'), className: 'icon-button danger',
             onConfirm: async () => { await api.del(`/api/servers/${id}/bots/${bot.id}`); load(); },
           })))) : [emptyState('bot', 'No bots yet')]));
     };

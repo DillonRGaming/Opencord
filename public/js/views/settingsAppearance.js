@@ -2,7 +2,7 @@ import { h, debounce } from '../dom.js';
 import { state } from '../store.js';
 import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, FONTS, THEMES } from '../theme.js';
-import { button, segmented, settingRow, settingsCard } from '../ui.js';
+import { button, segmented, settingRow, settingsCard, switchControl } from '../ui.js';
 import { colorField } from '../colorPicker.js';
 import { LANGUAGES, targetLanguage } from '../translate.js';
 
@@ -15,9 +15,15 @@ const PREVIEW = {
 };
 
 // A segmented control that saves straight to one setting.
+// Yes/no settings get a switch (the same control everywhere); real choices get a row of buttons.
 function option(key, options, current) {
+  const onOff = options.length === 2 && options.every(([v]) => typeof v === 'boolean')
+    && options.every(([, label]) => ['On', 'Off', 'Show', 'Hide', 'Yes', 'No'].includes(label));
+  if (onOff) return switchControl(Boolean(current[key]), (value) => changeSettings({ [key]: value }), key);
   return segmented(options, current[key], (value) => changeSettings({ [key]: value }));
 }
+
+const toggle = (on, onChange) => switchControl(on, onChange, 'On or off');
 
 function slider(key, current, { min, max, step = 1, unit = 'px' }) {
   const label = h('span', { class: 'range-value' }, `${current[key]}${unit}`);
@@ -157,7 +163,7 @@ function quietHoursCard(current) {
   const from = h('input', { class: 'input time-input', type: 'time', value: q.from, onchange: () => { q.from = from.value; save(); } });
   const to = h('input', { class: 'input time-input', type: 'time', value: q.to, onchange: () => { q.to = to.value; save(); } });
   return settingsCard('Quiet hours',
-    settingRow('Quiet hours', segmented([[true, 'On'], [false, 'Off']], q.on, (value) => { q.on = value; save(); })),
+    settingRow('Quiet hours', toggle(q.on, (value) => { q.on = value; save(); })),
     settingRow('From', from), settingRow('Until', to));
 }
 
@@ -166,7 +172,7 @@ export function notificationsPage() {
   const status = h('span', { class: 'range-value' }, 'Notification' in window ? Notification.permission.replace('default', 'not asked yet') : 'not supported');
   return [
     settingsCard('Desktop',
-      settingRow('Show desktop notifications', segmented([[true, 'On'], [false, 'Off']], current.desktopNotifications !== false, async (value) => {
+      settingRow('Show desktop notifications', toggle(current.desktopNotifications !== false, async (value) => {
         changeSettings({ desktopNotifications: value });
         if (value && 'Notification' in window && Notification.permission === 'default') {
           status.textContent = await Notification.requestPermission();
@@ -176,11 +182,11 @@ export function notificationsPage() {
         status.textContent = await Notification.requestPermission();
       }, 'ghost small')])),
     settingsCard('Sound',
-      settingRow('Play a sound', segmented([[true, 'On'], [false, 'Off']], current.notificationSound !== false, (value) => changeSettings({ notificationSound: value })))),
+      settingRow('Play a sound', toggle(current.notificationSound !== false, (value) => changeSettings({ notificationSound: value })))),
     settingsCard('Direct messages',
-      settingRow('Notify me about new DMs', segmented([[true, 'On'], [false, 'Off']], current.dmNotifications !== false, (value) => changeSettings({ dmNotifications: value }))),
-      settingRow('Red counts on unread DMs', segmented([[true, 'Show'], [false, 'Hide']], current.dmPings !== false, (value) => changeSettings({ dmPings: value }))),
-      settingRow('Ring when someone calls', segmented([[true, 'On'], [false, 'Off']], current.callRing !== false, (value) => changeSettings({ callRing: value })))),
+      settingRow('Notify me about new DMs', toggle(current.dmNotifications !== false, (value) => changeSettings({ dmNotifications: value }))),
+      settingRow('Red counts on unread DMs', toggle(current.dmPings !== false, (value) => changeSettings({ dmPings: value }))),
+      settingRow('Ring when someone calls', toggle(current.callRing !== false, (value) => changeSettings({ callRing: value })))),
     quietHoursCard(current),
   ];
 }
