@@ -704,11 +704,4 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .call-note-text strong { color: var(--text); font-weight: 600; }
 .call-note-text time { font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
 
-/* Picking a time to put in a message. */
-.time-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 8px 0 12px; color: var(--text-muted); }
-.time-bar[hidden] { display: none; }
-.time-bar .input { width: auto; min-width: 0; padding: 0.35rem 0.5rem; font-size: 0.84rem; background: var(--bg-panel); }
-.time-preview { flex: 1; min-width: 8rem; font-size: 0.84rem; color: var(--text); }
-.time-bar .icon-button { width: 28px; height: 28px; }
 .md-time { padding: 0 4px; border-radius: 5px; background: var(--active); color: var(--text); }
-@media (max-width: 799px) { .composer-row .icon-button[aria-label="Insert a time"] { display: none; } }

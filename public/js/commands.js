@@ -14,7 +14,7 @@ export const COMMANDS = [
   { name: 'unflip', usage: '[message]', about: 'Adds ┬─┬ノ( º _ ºノ)' },
   { name: 'me', usage: 'action', about: 'Says it as an action, in italics' },
   { name: 'spoiler', usage: 'message', about: 'Hides the message until clicked' },
-  { name: 'time', usage: 'in 2h | tomorrow 8pm | 20:30 | 2026-11-20 19:00', about: 'Posts a time that shows in everyone’s own time zone' },
+  { name: 'timestamp', usage: 'in 2h | tomorrow 8pm | 20:30 | 2026-11-20 19:00', about: 'Posts a time that shows in everyone’s own time zone' },
   { name: 'invite', usage: '', about: 'Makes an invite link and copies it', server: true },
   { name: 'kick', usage: '@user [reason]', about: 'Removes someone from the server', mod: true },
   { name: 'ban', usage: '@user [reason]', about: 'Bans someone from the server', mod: true },
@@ -62,9 +62,9 @@ export async function runCommand(channel, raw, { openPoll } = {}) {
   };
   const sid = channel.serverId;
 
-  if (name === 'time') {
+  if (name === 'timestamp') {
     const ms = parseWhen(args);
-    need(ms !== null, 'Try /time in 2h, /time tomorrow 8pm, /time 20:30 or /time 2026-11-20 19:00.');
+    need(ms !== null, 'Try /timestamp in 2h, /timestamp tomorrow 8pm, /timestamp 20:30 or /timestamp 2026-11-20 19:00.');
     return { send: `${stampCode(ms, 'F')} (${stampCode(ms, 'R')})` };
   }
   switch (name) {

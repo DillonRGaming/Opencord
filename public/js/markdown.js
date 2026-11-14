@@ -372,7 +372,6 @@ setInterval(() => {
 
 // --- making timestamps ---
 
-export const STAMP_STYLES = [['F', 'Day, date and time'], ['f', 'Date and time'], ['D', 'Date'], ['t', 'Time'], ['R', 'Relative (in 2 hours)']];
 
 // Reads "now", "in 2h", "in 30 minutes", "tomorrow 8pm", "20:30", "2026-11-20 19:00". Returns ms or null.
 export function parseWhen(text) {
