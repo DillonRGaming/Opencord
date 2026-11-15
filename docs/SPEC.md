@@ -126,6 +126,7 @@ Bootstrap & users
   `dms` = DM channels with at least one message, newest first. `online` = online users among friends + server co-members.
 - `GET /api/users/@me` → `Me`
 - `PATCH /api/users/@me {displayName?, bio? (≤190), statusText? (≤128), bannerColor? ('#rrggbb'|null), settings? (object, ≤64 KB, replaces)}` → `Me`
+- `PUT /api/users/@me/avatar/default/:n` (n = 1–10) → `Me`: picks a built-in avatar (`/avatars/<n>.svg`, the logo on a colour; stored as `@default/<n>`). New accounts get a random one.
 - `PUT /api/users/@me/avatar` raw image body (≤10 MB; png/jpeg/gif/webp detected from magic bytes) → `Me`; `DELETE` → `Me`
 - `PUT /api/users/@me/password {currentPassword, newPassword}` → 204 (kills other sessions)
 - `GET /api/users/:id` → `User`

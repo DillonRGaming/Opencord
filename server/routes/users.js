@@ -76,13 +76,20 @@ router.patch('/users/@me', (req, res) => {
 
 function setAvatar(req, res, file) {
   const user = users.update(req.user.id, { avatar: file });
-  if (req.user.avatar) storage.remove(`avatars/${req.user.avatar}`);
+  if (req.user.avatar && !users.isDefaultAvatar(req.user.avatar)) storage.remove(`avatars/${req.user.avatar}`);
   announce(user);
   res.json(users.toMe(user));
 }
 
 router.put('/users/@me/avatar', rawImage, (req, res) => {
   setAvatar(req, res, storage.saveImage('avatars', req.body));
+});
+
+// Picks one of the built-in avatars (1 to DEFAULT_AVATARS).
+router.put('/users/@me/avatar/default/:n', (req, res) => {
+  const n = Number(req.params.n);
+  if (!Number.isInteger(n) || n < 1 || n > users.DEFAULT_AVATARS) fail(400, 'No such default avatar.');
+  setAvatar(req, res, users.defaultAvatar(n));
 });
 
 router.delete('/users/@me/avatar', (req, res) => {

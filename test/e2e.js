@@ -305,8 +305,14 @@ async function run() {
 
   // --- profile ---
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==', 'base64');
+  assert.match(bob.me.avatar, /^\/avatars\/([1-9]|10)\.svg$/, 'new accounts start with a default avatar');
+  assert.equal((await alice.request('GET', bob.me.avatar)).headers.get('content-type'), 'image/svg+xml');
+  let me = await bob.call('PUT', '/api/users/@me/avatar/default/7');
+  assert.equal(me.avatar, '/avatars/7.svg');
+  await bob.expect(400, 'PUT', '/api/users/@me/avatar/default/11');
+  await bob.expect(400, 'PUT', '/api/users/@me/avatar/default/0');
   wait = nextEvent(aSock, 'user:update', (u) => u.id === bob.me.id);
-  let me = await bob.call('PUT', '/api/users/@me/avatar', png);
+  me = await bob.call('PUT', '/api/users/@me/avatar', png);
   assert.match(me.avatar, /^\/media\/avatars\/.+\.png$/);
   assert.equal((await wait).avatar, me.avatar);
   assert.equal((await alice.request('GET', me.avatar)).headers.get('content-type'), 'image/png');
@@ -323,7 +329,7 @@ async function run() {
   assert.equal((await alice.call('GET', `/api/users/${bob.me.id}`)).displayName, 'Bobby');
   me = await bob.call('DELETE', '/api/users/@me/avatar');
   assert.equal(me.avatar, null);
-  ok('avatar upload/replace/remove, profile + settings');
+  ok('default avatars, avatar upload/replace/remove, profile + settings');
 
   // --- password change logs out other sessions ---
   const bob2 = new Client();

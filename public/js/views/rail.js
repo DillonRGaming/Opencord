@@ -242,7 +242,7 @@ export function mountRail(el) {
         active: route.name !== 'server', unread: homeUnread, label: 'Friends and direct messages',
         onclick: () => navigate(paths.home(), { panel: 'nav' }),
         pings: relationsWith('incoming').length,
-      }, h('span', { class: 'rail-button' }, icon('logo', 22))),
+      }, h('span', { class: 'rail-button' }, icon('logo', 30))),
       ...pinged.map((dm) => item({
         label: dmName(dm), pings: state.dmPings.get(dm.id), onclick: () => navigate(paths.dm(dm.id)),
       }, dm.kind === 'group' ? groupFace(dm, 44) : avatar(dm.recipient, { size: 44 }))),

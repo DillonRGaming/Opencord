@@ -1,12 +1,30 @@
 const db = require('../db');
 const { newId } = require('../lib/ids');
 
+// Built-in avatars (the logo on a colour) live in public/avatars/<n>.svg and are stored as "@default/<n>".
+// Everyone starts with a random one.
+const DEFAULT_AVATARS = 10;
+const DEFAULT_PREFIX = '@default/';
+
+function isDefaultAvatar(value) {
+  return typeof value === 'string' && value.startsWith(DEFAULT_PREFIX);
+}
+
+function avatarUrl(value) {
+  if (!value) return null;
+  return isDefaultAvatar(value) ? `/avatars/${value.slice(DEFAULT_PREFIX.length)}.svg` : `/media/avatars/${value}`;
+}
+
+function defaultAvatar(n = 1 + Math.floor(Math.random() * DEFAULT_AVATARS)) {
+  return `${DEFAULT_PREFIX}${n}`;
+}
+
 function toUser(row) {
   return {
     id: row.id,
     username: row.username,
     displayName: row.display_name,
-    avatar: row.avatar ? `/media/avatars/${row.avatar}` : null,
+    avatar: avatarUrl(row.avatar),
     bannerColor: row.banner_color,
     bio: row.bio,
     statusText: row.status_text,
@@ -29,8 +47,8 @@ function toMe(row) {
 
 function create({ username, displayName, passwordHash }) {
   const id = newId();
-  db.prepare('INSERT INTO users (id, username, display_name, password_hash, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(id, username, displayName, passwordHash, Date.now());
+  db.prepare('INSERT INTO users (id, username, display_name, password_hash, avatar, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(id, username, displayName, passwordHash, defaultAvatar(), Date.now());
   return get(id);
 }
 
@@ -89,4 +107,5 @@ function touchLastSeen(id) {
 }
 
 module.exports = {
+  DEFAULT_AVATARS, isDefaultAvatar, defaultAvatar,
   settingOf, touchLastSeen, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

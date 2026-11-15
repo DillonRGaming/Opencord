@@ -67,7 +67,7 @@ export function showAuth(root, invite, { add = false } = {}) {
 
     root.replaceChildren(h('div', { class: 'auth' },
       h('main', { class: 'auth-main' },
-        h('div', { class: 'auth-brand' }, icon('logo', 28), 'Opencord'),
+        h('div', { class: 'auth-brand' }, icon('logo', 34), 'Opencord'),
         h('div', { class: 'auth-body' },
           h('h1', { class: 'auth-title' }, add ? (login ? 'Add an account' : 'Make another account') : login ? 'Welcome back' : 'Sign up'),
           h('p', { class: 'auth-lead' }, add ? 'You stay logged in to your other accounts and can switch between them any time.'

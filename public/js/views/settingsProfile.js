@@ -38,11 +38,32 @@ export function profilePage() {
     const [file] = await pickFiles({ accept: IMAGE_TYPES });
     if (!file) return;
     await attempt(async () => setMe(await api.putFile('/api/users/@me/avatar', file)));
+    drawDefaults();
+    draw();
+  }
+
+  // The built-in avatars: the logo on each colour. Clicking one sets it straight away.
+  const DEFAULT_AVATARS = 10;
+  const defaults = h('div', { class: 'swatches avatar-swatches' });
+  function drawDefaults() {
+    defaults.replaceChildren(...Array.from({ length: DEFAULT_AVATARS }, (_, i) => {
+      const src = `/avatars/${i + 1}.svg`;
+      return h('button', {
+        type: 'button', class: 'swatch avatar-swatch', 'aria-label': `Default avatar ${i + 1}`,
+        'aria-pressed': String(state.me.avatar === src),
+        onclick: () => pickDefault(i + 1),
+      }, h('img', { src, alt: '', draggable: false }));
+    }));
+  }
+  async function pickDefault(n) {
+    await attempt(async () => setMe(await api.put(`/api/users/@me/avatar/default/${n}`)));
+    drawDefaults();
     draw();
   }
 
   async function removeAvatar() {
     await attempt(async () => setMe(await api.del('/api/users/@me/avatar')));
+    drawDefaults();
     draw();
   }
 
@@ -56,11 +77,13 @@ export function profilePage() {
     },
   },
   settingsCard('Avatar', settingRow('Profile picture',
-    [button('Change', changeAvatar, 'ghost small'), button('Remove', removeAvatar, 'ghost small')])),
+    [button('Upload', changeAvatar, 'ghost small'), button('Remove', removeAvatar, 'ghost small')]),
+    settingRow('Or pick one', defaults)),
   settingsCard('About you', field('Display name', displayName), field('Status', statusText), field('About me', bio)),
   settingsCard('Banner', settingRow('Banner colour',
     [banner, button('Use accent colour', () => { bannerColor = null; banner.value = null; banner.style.background = state.me.settings.accent || DEFAULTS.accent; draw(); }, 'ghost small')])));
 
+  drawDefaults();
   draw();
   editor.classList.add('settings-content');
   return [h('div', { class: 'profile-editor' }, editor,

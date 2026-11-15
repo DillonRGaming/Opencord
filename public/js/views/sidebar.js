@@ -54,7 +54,7 @@ function homeList() {
   const pending = relationsWith('incoming').length;
   const dms = sortedDms();
   return [
-    h('div', { class: 'sidebar-header brand' }, icon('logo', 22), h('span', { class: 'sidebar-title' }, 'Opencord')),
+    h('div', { class: 'sidebar-header brand' }, icon('logo', 20), h('span', { class: 'sidebar-title' }, 'Opencord')),
     h('div', { class: 'sidebar-scroll' },
       navItem({ active: route.name === 'home', onclick: () => navigate(paths.home()) },
         icon('users', 18), h('span', { class: 'nav-label' }, 'Friends'), pending > 0 && h('span', { class: 'badge' }, pending)),
