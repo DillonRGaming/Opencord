@@ -48,7 +48,8 @@ function row(item) {
     },
   }, item.face, item.dot && h('span', { class: `presence menu-dot ${item.dot}` }),
   item.swatch !== undefined && h('span', { class: 'menu-swatch', style: { background: item.swatch || 'var(--text-faint)' } }),
-  label, item.checked ? icon('check', 16) : item.icon && icon(item.icon, 16));
+  label, item.badge > 0 && h('span', { class: 'ping-badge menu-badge' }, item.badge > 99 ? '99+' : item.badge),
+  item.checked ? icon('check', 16) : item.icon && icon(item.icon, 16));
   return el;
 }
 

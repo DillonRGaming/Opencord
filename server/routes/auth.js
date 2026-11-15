@@ -4,6 +4,8 @@ const auth = require('../lib/auth');
 const rateLimit = require('../lib/rateLimit');
 const { fail, text } = require('../lib/http');
 const users = require('../models/users');
+const channels = require('../models/channels');
+const notifications = require('../models/notifications');
 const realtime = require('../realtime');
 
 const router = express.Router();
@@ -41,7 +43,11 @@ router.post('/logout', auth.requireAuth, (req, res) => {
 
 // The accounts logged in on this browser, for the account switcher.
 router.get('/accounts', auth.requireAuth, (req, res) => {
-  res.json(auth.accountsOf(req, res).map(({ user, current }) => ({ ...users.toUser(user), current })));
+  // `pings` for the other accounts: unread DMs plus unread notifications, so the switcher can show a red count.
+  res.json(auth.accountsOf(req, res).map(({ user, current }) => ({
+    ...users.toUser(user), current,
+    pings: current ? 0 : Object.values(channels.dmUnreadCounts(user.id)).reduce((a, b) => a + b, 0) + notifications.unreadCount(user.id),
+  })));
 });
 
 router.post('/accounts/remove', auth.requireAuth, (req, res) => {

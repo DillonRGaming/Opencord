@@ -679,3 +679,9 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .role-chip.pick[aria-pressed="true"] { background: color-mix(in srgb, var(--role, var(--accent)) 24%, transparent); outline: 1px solid var(--role, var(--accent)); color: var(--text); }
 .theme-group-title { margin-top: 4px; font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
 .theme-grid + .theme-group-title { margin-top: 10px; }
+
+/* Unread counts for your other accounts */
+.user-panel-face { position: relative; display: inline-flex; flex-shrink: 0; }
+.account-pings { top: -5px; right: -7px; bottom: auto; box-shadow: 0 0 0 2px var(--bg-panel); }
+.account-pings.hidden { display: none; }
+.menu-badge { position: static; margin-left: auto; box-shadow: none; }

@@ -239,6 +239,7 @@ async function statusMenu(event) {
   // The other accounts logged in on this browser, to switch to.
   const accounts = await listAccounts().catch(() => []);
   const others = accounts.filter((a) => !a.current);
+  showOtherPings(accounts);
   showMenu({ clientX: box.left, clientY: box.top - 400, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
       label, checked: current === value, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
@@ -247,11 +248,29 @@ async function statusMenu(event) {
     { label: state.me.statusText ? 'Change custom status' : 'Set a custom status', icon: 'pencil', onClick: () => openSettings('profile') },
     { label: 'Your profile', icon: 'user', onClick: () => openProfile(state.me) },
     '-',
-    ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), onClick: () => attempt(() => switchAccount(user.id)) })),
+    ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), badge: user.pings, onClick: () => attempt(() => switchAccount(user.id)) })),
     { label: 'Add an account', icon: 'userPlus', onClick: () => addAccount() },
     others.length > 0 && { label: 'Manage accounts', icon: 'settings', onClick: () => openSettings('account') },
   ]);
 }
+
+// Unread DMs and notifications on your other accounts: a red count on your picture, checked every minute.
+let otherPings = 0;
+function otherPingsBadge() {
+  return h('span', { class: `ping-badge account-pings${otherPings ? '' : ' hidden'}`, title: 'Unread on your other accounts' },
+    otherPings > 99 ? '99+' : String(otherPings));
+}
+function showOtherPings(accounts) {
+  otherPings = accounts.filter((a) => !a.current).reduce((sum, a) => sum + (a.pings || 0), 0);
+  document.querySelector('.account-pings')?.replaceWith(otherPingsBadge());
+}
+async function checkOtherPings() {
+  if (!state.me || document.hidden) return;
+  showOtherPings(await listAccounts().catch(() => []));
+}
+setInterval(checkOtherPings, 60000);
+document.addEventListener('visibilitychange', checkOtherPings);
+setTimeout(checkOtherPings, 1500);
 
 // While you're in a call your picture gets a thin green ring, which lights up fully while you talk.
 // No call panel: the channel itself is green in the list, and there's a small hang-up button.
@@ -265,7 +284,7 @@ function userPanel() {
   }
   return h('div', { class: 'user-panel' },
     h('button', { type: 'button', class: 'user-panel-me', title: call ? `In voice: ${call.name}` : 'Set your status', onclick: statusMenu },
-      face,
+      h('span', { class: 'user-panel-face' }, face, otherPingsBadge()),
       h('span', { class: 'user-panel-names' }, h('strong', {}, me.displayName),
         h('span', {}, call ? h('span', { class: 'in-call-text' }, call.type === 'dm' ? `In a call with ${dmName(call)}` : `In ${call.name}`) : me.statusText || `@${me.username}`))),
     // In a call: mute, deafen and hang up sit right here, small, instead of a whole call panel.

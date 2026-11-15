@@ -35,6 +35,7 @@ function accountsCard() {
     list.replaceChildren(...accounts.map((user) => h('div', { class: 'manage-row' },
       avatar(user, { size: 36 }),
       h('span', { class: 'manage-main' }, h('strong', {}, user.displayName), h('span', {}, `@${user.username}`)),
+      user.pings > 0 && h('span', { class: 'ping-badge inline', title: 'Unread DMs and notifications' }, user.pings > 99 ? '99+' : user.pings),
       h('span', { class: 'manage-actions always' }, user.current
         ? h('span', { class: 'tag' }, 'Open now')
         : [
