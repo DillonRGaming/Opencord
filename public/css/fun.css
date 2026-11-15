@@ -22,8 +22,8 @@
 .voice-rec-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--danger); animation: rec-pulse 1s infinite alternate; }
 @keyframes rec-pulse { to { opacity: 0.3; } }
 .voice-rec-time { font-variant-numeric: tabular-nums; color: var(--text-muted); min-width: 3.2em; }
-.voice-rec-bars { flex: 1; display: flex; align-items: center; gap: 2px; height: 28px; }
-.voice-rec-bars span { flex: 1; min-height: 3px; height: 12%; border-radius: 2px; background: var(--accent); transition: height 0.08s; }
+.voice-recorder { container-type: inline-size; }
+.voice-wave.voice-rec-bars { min-width: 0; cursor: default; }
 
 /* --- voice messages --- */
 .voice-message {
@@ -41,6 +41,7 @@
 /* In narrow spots (pins, search, phones) 48 bars with 2px gaps leave no room for the bars, so the gaps shrink. */
 .voice-message { container-type: inline-size; }
 @container (max-width: 330px) { .voice-wave { gap: 1px; } }
+@container (max-width: 420px) { .voice-rec-bars { gap: 1px; } }
 @container (max-width: 240px) { .voice-wave { gap: 0; } .voice-wave span { border-radius: 0; } }
 
 /* --- GIF picker, Emoji Kitchen, stickers --- */

@@ -34,7 +34,8 @@ export async function recordVoice(composer, onDone) {
   analyser.fftSize = 256;
   ctx.createMediaStreamSource(stream).connect(analyser);
   const levels = new Uint8Array(analyser.frequencyBinCount);
-  const bars = h('div', { class: 'voice-rec-bars' }, Array.from({ length: 32 }, () => h('span')));
+  // Drawn like a sent voice message's waveform: same bars, scaled so the loudest one fills the height.
+  const bars = h('div', { class: 'voice-wave voice-rec-bars' }, Array.from({ length: 48 }, () => h('span', { class: 'played', style: { height: '10%' } })));
   const time = h('span', { class: 'voice-rec-time' }, '0:00');
   const started = Date.now();
   let frame = 0;
@@ -44,8 +45,13 @@ export async function recordVoice(composer, onDone) {
     let peak = 0;
     for (const v of levels) peak = Math.max(peak, Math.abs(v - 128));
     history.push(peak / 128);
-    if (history.length > 32) history.shift();
-    [...bars.children].forEach((bar, i) => { bar.style.height = `${12 + (history[i] || 0) * 88}%`; });
+    if (history.length > 48) history.shift();
+    const top = Math.max(...history, 0.05);
+    const offset = 48 - history.length; // new sound comes in from the right
+    [...bars.children].forEach((bar, i) => {
+      const p = history[i - offset];
+      bar.style.height = `${p === undefined ? 10 : Math.max(10, (p / top) * 100)}%`;
+    });
     const secs = (Date.now() - started) / 1000;
     time.textContent = fmt(secs);
     if (secs >= MAX_SECONDS) finish(true);
