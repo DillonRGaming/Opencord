@@ -1,6 +1,6 @@
 import { withMenu, showMenu } from '../contextMenu.js';
-import { setMe, listAccounts, switchAccount, addAccount, removeRelation } from '../actions.js';
-import { categoryMenu, channelMenu, dmMenu, serverMenu } from '../menus.js';
+import { setMe, listAccounts, switchAccount, addAccount, removeRelation, openDm } from '../actions.js';
+import { categoryMenu, channelMenu, dmMenu, serverMenu, userMenu } from '../menus.js';
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
@@ -73,8 +73,19 @@ function homeList() {
         (state.voice.get(dm.id) || []).length > 0 && h('span', { class: 'dm-in-call', title: 'In a call' }, icon('phone', 15)),
         state.dmPings.get(dm.id) > 0 && route.channelId !== dm.id && state.me.settings?.dmPings !== false && h('span', { class: 'ping-badge inline' }, state.dmPings.get(dm.id) > 99 ? '99+' : state.dmPings.get(dm.id)));
       }),
+      friendsWithoutDm(dms),
       blockedList()),
   ];
+}
+
+// Friends you haven't messaged yet show up under your DMs too; clicking one opens the chat.
+function friendsWithoutDm(dms) {
+  const talking = new Set(dms.filter((dm) => dm.kind !== 'group').map((dm) => dm.recipient?.id));
+  return relationsWith('friend').filter(({ user }) => !talking.has(user.id))
+    .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName))
+    .map(({ user }) => navItem({ onclick: () => attempt(() => openDm(user.id)), menu: () => userMenu(user) },
+      avatar(user, { size: 32, presence: true }),
+      h('span', { class: 'nav-label' }, user.displayName, user.statusText && h('span', { class: 'nav-sub' }, user.statusText))));
 }
 
 // People you've blocked, under the DMs, only when there are any. They can't be opened, only unblocked.
