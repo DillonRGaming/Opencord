@@ -331,6 +331,10 @@ router.post('/:id/ack', (req, res) => {
   channels.ack(req.user.id, channel.id, messageId);
   notifications.markChannelRead(req.user.id, channel.id);
   realtime.toUser(req.user.id, 'read', { channelId: channel.id, messageId });
+  if (channel.type === 'dm' && channel.kind !== 'group') {
+    const otherId = channels.dmMemberIds(channel.id).find((id) => id !== req.user.id);
+    if (channels.receiptsOn(req.user.id, otherId)) realtime.toUser(otherId, 'dm:seen', { channelId: channel.id, messageId });
+  }
   res.sendStatus(204);
 });
 

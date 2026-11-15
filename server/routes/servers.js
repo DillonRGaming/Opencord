@@ -8,6 +8,7 @@ const channels = require('../models/channels');
 const users = require('../models/users');
 const emojis = require('../models/emojis');
 const audit = require('../models/audit');
+const notes = require('../models/notes');
 const attachments = require('../models/attachments');
 const realtime = require('../realtime');
 const bots = require('../lib/bots');
@@ -314,6 +315,27 @@ router.put('/:id/members/:userId/timeout', (req, res) => {
   audit.log(server.id, req.user.id, seconds ? 'member.timeout' : 'member.timeout_remove', userName(userId),
     [seconds && `for ${seconds >= 86400 ? `${seconds / 86400}d` : seconds >= 3600 ? `${seconds / 3600}h` : `${seconds / 60}m`}`, req.body.reason].filter(Boolean).join(' · '));
   res.json(servers.member(server.id, userId));
+});
+
+// Moderator notes about a member: only people who can moderate members can read or write them.
+router.get('/:id/members/:userId/notes', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
+  res.json(notes.list(server.id, req.params.userId));
+});
+
+router.post('/:id/members/:userId/notes', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
+  const { userId } = req.params;
+  if (!users.get(userId)) fail(404, 'User not found.');
+  const note = notes.add(server.id, userId, req.user.id, text(req.body.content, 'Note', { min: 1, max: 1000 }));
+  audit.log(server.id, req.user.id, 'member.note', userName(userId));
+  res.status(201).json(note);
+});
+
+router.delete('/:id/members/:userId/notes/:noteId', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'moderateMembers');
+  if (!notes.remove(server.id, req.params.noteId)) fail(404, 'Note not found.');
+  res.sendStatus(204);
 });
 
 router.get('/:id/bans', (req, res) => {

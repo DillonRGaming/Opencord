@@ -531,6 +531,15 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .role-dot { width: 10px; height: 10px; flex: none; border-radius: 50%; }
 .menu-swatch { width: 12px; height: 12px; flex: none; border-radius: 50%; order: -1; }
 .profile-roles { display: grid; gap: 0.45rem; }
+.profile-last-seen { margin: -0.2rem 0 0; font-size: 0.78rem; color: var(--text-faint); }
+.mod-notes { display: grid; gap: 0.45rem; }
+.mod-notes-list { display: grid; gap: 0.4rem; max-height: 14rem; overflow-y: auto; }
+.mod-notes-empty { margin: 0; font-size: 0.8rem; color: var(--text-faint); }
+.mod-note { padding: 0.45rem 0.6rem; border-radius: var(--radius-small); background: var(--bg-raised); border: 1px solid var(--border); }
+.mod-note p { margin: 0; font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.mod-note-meta { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 0.7rem; color: var(--text-faint); }
+.mod-notes-add { display: flex; gap: 6px; align-items: flex-end; }
+.mod-notes-input { flex: 1; min-width: 0; resize: vertical; }
 .profile-roles-title { font-size: 0.72rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint); }
 .role-chips { display: flex; flex-wrap: wrap; gap: 4px; }
 .role-chip {

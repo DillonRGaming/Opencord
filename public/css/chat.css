@@ -260,6 +260,11 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .md-code-body { display: flex; overflow-x: auto; padding: 0.6em 0.9em; }
 .md-code-lines { flex: none; padding-right: 0.9em; margin-right: 0.9em; border-right: 1px solid var(--border); color: var(--text-faint); text-align: right; user-select: none; }
 .md-code-body code { flex: 1; min-width: 0; }
+.md-code-tools { display: flex; gap: 2px; }
+.md-code.folded .md-code-body { max-height: 15.5em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 65%, transparent); mask-image: linear-gradient(#000 65%, transparent); }
+/* Read receipt under your last DM */
+.seen-mark { display: flex; align-items: center; justify-content: flex-end; gap: 3px; padding: 0 16px 2px; font-size: 0.7rem; color: var(--text-faint); }
+.seen-mark svg { color: var(--accent-ink); }
 .md-emoji { width: 1.4em; height: 1.4em; vertical-align: -0.35em; object-fit: contain; }
 .message-content.jumbo .md-emoji { width: 3rem; height: 3rem; }
 .md-time { padding: 0 3px; border-radius: 4px; background: var(--active); }

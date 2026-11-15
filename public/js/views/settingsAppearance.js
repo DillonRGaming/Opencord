@@ -64,6 +64,7 @@ function choices(values, build) {
 const OTHER_DEFAULTS = {
   timestamps: 'hover', jumboEmoji: true, spoilers: 'click', linkPreviews: true, mediaSize: 'normal', underlineLinks: false,
   sendKey: 'enter', showTyping: true, translateAuto: false, bubbles: false, dmsFrom: 'servers', sendTyping: true, friendRequestsFrom: 'everyone',
+  readReceipts: false, showLastSeen: false,
 };
 const settingsNow = () => ({ ...DEFAULTS, ...OTHER_DEFAULTS, ...state.me.settings });
 
@@ -152,7 +153,9 @@ export function privacyPage() {
   return [
     settingsCard('Messages',
       settingRow('Who can DM you', option('dmsFrom', [['servers', 'Friends and server members'], ['friends', 'Friends only']], current)),
-      settingRow('Let others see when you’re typing', option('sendTyping', [[true, 'Yes'], [false, 'No']], current))),
+      settingRow('Let others see when you’re typing', option('sendTyping', [[true, 'Yes'], [false, 'No']], current)),
+      settingRow('Read receipts in DMs (you only see theirs if you share yours)', option('readReceipts', [[false, 'Off'], [true, 'On']], current)),
+      settingRow('Show when I was last online', option('showLastSeen', [[false, 'No'], [true, 'Yes']], current))),
     settingsCard('Friends',
       settingRow('Who can send you friend requests', option('friendRequestsFrom', [['everyone', 'Everyone'], ['servers', 'People in my servers'], ['nobody', 'Nobody']], current))),
   ];

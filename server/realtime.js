@@ -244,7 +244,15 @@ function setIdle(socket, idle) {
 function addSocket(userId, change) {
   const count = (socketCounts.get(userId) || 0) + change;
   if (count > 0) socketCounts.set(userId, count);
-  else socketCounts.delete(userId);
+  else {
+    socketCounts.delete(userId);
+    // Invisible people never looked online, so going offline mustn't give them away either.
+    if (change < 0 && chosenPresence(userId) !== 'invisible') {
+      users.touchLastSeen(userId);
+      const user = users.get(userId);
+      if (user) toAudience(userId, 'user:update', users.toUser(user));
+    }
+  }
   announcePresence(userId);
 }
 

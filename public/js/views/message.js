@@ -16,7 +16,8 @@ import { remote } from '../fun.js';
 import { LANGUAGES, languageName, targetLanguage, translate, autoTranslateOn, worthTranslating } from '../translate.js';
 
 const GROUP_MS = 7 * 60 * 1000;
-const LONG_MESSAGE = 3000;
+const LONG_MESSAGE = 1500; // characters, or…
+const LONG_LINES = 20; // …lines, before a message folds behind Show more
 
 // One click away in the hover bar, then the full set in the reaction tray.
 const QUICK = ['👍', '❤️', '😂'];
@@ -148,7 +149,9 @@ function contentView(message) {
   const edited = () => message.editedAt && h('span', { class: 'message-edited', title: formatStamp(message.editedAt) }, '(edited)');
   const content = h('div', { class: 'message-content' }, renderMarkdown(message.content), edited());
   if (EMOJI_ONLY.test(message.content.trim())) content.classList.add('jumbo');
-  if (!message.truncated && message.content.length <= LONG_MESSAGE) return content;
+  // Code blocks fold on their own, so they don't count toward the length here.
+  const prose = message.content.replace(/```[\s\S]*?```/g, '');
+  if (!message.truncated && prose.length <= LONG_MESSAGE && prose.split('\n').length <= LONG_LINES) return content;
 
   content.classList.add('collapsed');
   let open = false;

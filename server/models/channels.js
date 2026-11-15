@@ -31,7 +31,10 @@ function toDm(row, viewerId) {
       createdAt: row.created_at,
     };
   }
-  return { id: row.id, type: 'dm', kind: 'dm', recipient: users.toUser(users.get(others[0])), lastMessageId: row.last_message_id };
+  return {
+    id: row.id, type: 'dm', kind: 'dm', recipient: users.toUser(users.get(others[0])), lastMessageId: row.last_message_id,
+    seenId: seenBy(row.id, viewerId, others[0]),
+  };
 }
 
 const createGroup = db.transaction((ownerId, memberIds, name = '') => {
@@ -249,6 +252,16 @@ function dmUnreadCounts(userId) {
 }
 
 // Read states only move forwards.
+// Read receipts, 1:1 DMs only: how far `otherId` has read, if both people turned receipts on. Otherwise null.
+function receiptsOn(viewerId, otherId) {
+  return Boolean(otherId) && users.settingOf(viewerId, 'readReceipts', false) && users.settingOf(otherId, 'readReceipts', false);
+}
+
+function seenBy(channelId, viewerId, otherId) {
+  if (!receiptsOn(viewerId, otherId)) return null;
+  return db.prepare('SELECT last_read_id FROM read_states WHERE user_id = ? AND channel_id = ?').get(otherId, channelId)?.last_read_id || null;
+}
+
 function ack(userId, channelId, messageId) {
   db.prepare(`
     INSERT INTO read_states (user_id, channel_id, last_read_id) VALUES (?, ?, ?)
@@ -261,5 +274,5 @@ module.exports = {
   reorder, slowmodeWait, notePost,
   toChannel, serialize, get, forServer, create, update, remove,
   toPost, posts, createPost, postIds, strokes, addStroke, getStroke, removeStroke, clearStrokes,
-  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, canPost, readStates, ack, dmUnreadCounts,
+  getOrCreateDm, dmMemberIds, dmsForUser, canAccess, canPost, readStates, ack, receiptsOn, dmUnreadCounts,
 };

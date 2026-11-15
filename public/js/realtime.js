@@ -179,6 +179,12 @@ export function connect() {
     state.dms.set(dm.id, dm);
     emit('dms');
   });
+  socket.on('dm:seen', ({ channelId, messageId }) => {
+    const dm = state.dms.get(channelId);
+    if (!dm || (dm.seenId && dm.seenId >= messageId)) return;
+    dm.seenId = messageId;
+    emit('dm:seen', dm);
+  });
   socket.on('dm:delete', ({ id }) => {
     state.dms.delete(id);
     emit('dms');

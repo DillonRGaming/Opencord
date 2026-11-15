@@ -248,6 +248,16 @@ function redrawRow(v, index) {
 function drawAll(v) {
   v.list.replaceChildren(...v.messages.map((_, index) => rowFor(v, index)));
   drawTop(v);
+  drawSeen(v);
+}
+
+// Read receipts (1:1 DMs, only when both people turned them on): a small tick under your last message once they've read it.
+function drawSeen(v) {
+  v.list.querySelector('.seen-mark')?.remove();
+  const dm = state.dms.get(v.channel.id);
+  const last = v.messages.at(-1);
+  if (!dm?.seenId || dm.kind === 'group' || !last || !isMine(last) || dm.seenId < last.id) return;
+  findRow(v, last.id)?.append(h('div', { class: 'seen-mark', title: 'Seen' }, icon('check', 12), 'Seen'));
 }
 
 function drawTop(v) {
@@ -414,8 +424,16 @@ on('message:create', (message) => {
   stopTyping(v, message.author.id);
   v.messages.push(message);
   v.list.append(rowFor(v, v.messages.length - 1));
+  drawSeen(v);
   if (v.stick || isMine(message)) scrollToBottom(v);
   ack(v);
+});
+
+on('dm:seen dms', () => {
+  if (!view?.ready) return;
+  const stick = view.stick;
+  drawSeen(view);
+  if (stick) scrollToBottom(view);
 });
 
 on('message:update', (message) => {
@@ -429,6 +447,7 @@ on('message:update', (message) => {
   if (index === -1) return;
   view.messages[index] = message;
   redrawRow(view, index);
+  drawSeen(view);
   if (pinsFor === message.channelId) showPins(view.channel);
 });
 
@@ -445,6 +464,7 @@ on('message:delete', ({ id }) => {
   findRow(view, id)?.remove();
   view.messages.splice(index, 1);
   redrawRow(view, index);
+  drawSeen(view);
 });
 
 on('typing', ({ channelId, userId }) => {

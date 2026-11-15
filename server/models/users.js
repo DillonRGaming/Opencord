@@ -11,7 +11,16 @@ function toUser(row) {
     bio: row.bio,
     statusText: row.status_text,
     bot: Boolean(row.is_bot),
+    lastSeen: row.last_seen && settingFrom(row, 'showLastSeen', false) ? row.last_seen : null,
   };
+}
+
+function settingFrom(row, key, fallback) {
+  try {
+    return JSON.parse(row.settings || '{}')[key] ?? fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 function toMe(row) {
@@ -72,12 +81,12 @@ function audienceIds(userId) {
 // One of someone's settings (they're stored as JSON), or `fallback`.
 function settingOf(userId, key, fallback) {
   const row = db.prepare('SELECT settings FROM users WHERE id = ?').get(userId);
-  try {
-    return JSON.parse(row?.settings || '{}')[key] ?? fallback;
-  } catch {
-    return fallback;
-  }
+  return row ? settingFrom(row, key, fallback) : fallback;
+}
+
+function touchLastSeen(id) {
+  db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(Date.now(), id);
 }
 
 module.exports = {
-  settingOf, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };
+  settingOf, touchLastSeen, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

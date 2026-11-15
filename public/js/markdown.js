@@ -173,6 +173,8 @@ function list(lines) {
 }
 
 // A code block: highlighted, with line numbers once it's more than a couple of lines, and a copy button.
+const CODE_FOLD_LINES = 15;
+
 function codeBlock(lang, code) {
   const lines = code.replace(/\n$/, '').split('\n');
   const pre = h('pre', { class: `md-code${lines.length > 2 ? ' numbered' : ''}` });
@@ -190,7 +192,18 @@ function codeBlock(lang, code) {
       setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
     },
   }, 'Copy');
-  pre.append(h('div', { class: 'md-code-head' }, h('span', { class: 'md-code-lang' }, lang || 'code'), copy),
+  // Long blocks start folded; the button in the header opens them.
+  const fold = lines.length > CODE_FOLD_LINES && h('button', {
+    type: 'button', class: 'md-code-copy', 'aria-expanded': 'false',
+    onclick: (event) => {
+      event.stopPropagation();
+      const open = pre.classList.toggle('folded') === false;
+      fold.textContent = open ? 'Collapse' : `Expand (${lines.length} lines)`;
+      fold.setAttribute('aria-expanded', String(open));
+    },
+  }, `Expand (${lines.length} lines)`);
+  if (fold) pre.classList.add('folded');
+  pre.append(h('div', { class: 'md-code-head' }, h('span', { class: 'md-code-lang' }, lang || 'code'), h('span', { class: 'md-code-tools' }, fold || '', copy)),
     h('div', { class: 'md-code-body' }, gutter || '', h('code', {}, highlight(code, lang))));
   return pre;
 }

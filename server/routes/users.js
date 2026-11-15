@@ -60,8 +60,16 @@ router.patch('/users/@me', (req, res) => {
     fields.settings = JSON.stringify(settings);
     if (Buffer.byteLength(fields.settings) > MAX_SETTINGS_BYTES) fail(413, 'Settings are too large (64 KB at most).');
   }
+  const receiptsBefore = users.settingOf(req.user.id, 'readReceipts', false);
   const user = users.update(req.user.id, fields);
   announce(user);
+  // Turning read receipts on or off changes what both sides of each 1:1 DM can see.
+  if (users.settingOf(user.id, 'readReceipts', false) !== receiptsBefore) {
+    for (const dm of channels.dmsForUser(user.id).filter((d) => d.kind !== 'group')) {
+      const row = channels.get(dm.id);
+      for (const id of channels.dmMemberIds(row.id)) realtime.toUser(id, 'dm:update', channels.serialize(row, id));
+    }
+  }
   if (presence !== undefined) realtime.announcePresence(user.id);
   res.json(users.toMe(user));
 });

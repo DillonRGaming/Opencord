@@ -1,7 +1,9 @@
 import * as api from '../api.js';
-import { state, on, roleOf } from '../store.js';
+import { state, on, roleOf, can } from '../store.js';
+import { h } from '../dom.js';
+import { formatStamp } from '../format.js';
 import * as actions from '../actions.js';
-import { attempt, button, confirmButton } from '../ui.js';
+import { attempt, button, confirmButton, iconButton, toast } from '../ui.js';
 import { profileCard } from './profileCard.js';
 import { openPanel, refreshPanel } from './side.js';
 import { openSettings } from './settings.js';
@@ -36,15 +38,46 @@ function buttonsFor(user, serverId, close) {
   ].filter(Boolean);
 }
 
+// Moderator notes: private notes about a member, for people who can moderate members. Built once per open
+// profile so typing survives the panel refreshing.
+function modNotes(serverId, user) {
+  const base = `/api/servers/${serverId}/members/${user.id}/notes`;
+  const list = h('div', { class: 'mod-notes-list' }, h('p', { class: 'mod-notes-empty' }, 'Loading…'));
+  const input = h('textarea', { class: 'mod-notes-input', rows: 2, maxlength: 1000, placeholder: 'Add a note only moderators can see' });
+  let notes = [];
+  const draw = () => list.replaceChildren(...(notes.length ? notes.map((note) => h('div', { class: 'mod-note' },
+    h('p', {}, note.content),
+    h('div', { class: 'mod-note-meta' },
+      h('span', { title: formatStamp(note.createdAt) }, `${note.author?.displayName || 'Someone'} · ${formatStamp(note.createdAt)}`),
+      iconButton('trash', 'Delete note', () => attempt(async () => {
+        await api.del(`${base}/${note.id}`);
+        notes = notes.filter((n) => n.id !== note.id);
+        draw();
+      }))))) : [h('p', { class: 'mod-notes-empty' }, 'No notes yet.')]));
+  const add = () => attempt(async () => {
+    const content = input.value.trim();
+    if (!content) return;
+    notes.unshift(await api.post(base, { content }));
+    input.value = '';
+    draw();
+  });
+  input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); add(); } });
+  api.get(base).then((rows) => { notes = rows; draw(); }).catch((err) => toast(err.message));
+  return h('div', { class: 'mod-notes' },
+    h('div', { class: 'profile-roles-title' }, 'Moderator notes'), list,
+    h('div', { class: 'mod-notes-add' }, input, button('Add', add, 'ghost small')));
+}
+
 // Shows someone's profile in the side panel. `serverId` adds the Kick button for the server's owner.
 export function openProfile(user, { serverId } = {}) {
   showing = { userId: user.id, serverId };
+  const notes = serverId && user.id !== state.me.id && !user.bot && can(serverId, 'moderateMembers') ? modNotes(serverId, user) : null;
   const panel = openPanel({
     title: 'Profile',
     onClose: () => { showing = null; },
     build: () => {
       const fresh = state.users.get(user.id) || user;
-      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), serverId && roleChips(serverId, fresh));
+      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), [serverId && roleChips(serverId, fresh), notes].filter(Boolean));
     },
   });
 }
