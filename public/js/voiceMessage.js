@@ -40,18 +40,25 @@ export async function recordVoice(composer, onDone) {
   const started = Date.now();
   let frame = 0;
   const history = [];
+  // Loudness is read every frame, but a new bar only comes in every STEP ms (the loudest bit of that slice),
+  // on a fixed scale, so the bars move at a steady pace and don't resize as you talk.
+  const STEP = 120;
+  let slicePeak = 0;
+  let sliceStart = Date.now();
   const tick = () => {
     analyser.getByteTimeDomainData(levels);
-    let peak = 0;
-    for (const v of levels) peak = Math.max(peak, Math.abs(v - 128));
-    history.push(peak / 128);
-    if (history.length > 48) history.shift();
-    const top = Math.max(...history, 0.05);
-    const offset = 48 - history.length; // new sound comes in from the right
-    [...bars.children].forEach((bar, i) => {
-      const p = history[i - offset];
-      bar.style.height = `${p === undefined ? 10 : Math.max(10, (p / top) * 100)}%`;
-    });
+    for (const v of levels) slicePeak = Math.max(slicePeak, Math.abs(v - 128) / 128);
+    if (Date.now() - sliceStart >= STEP) {
+      history.push(Math.min(1, Math.sqrt(slicePeak) * 1.15)); // sqrt lifts quiet speech so it's still visible
+      if (history.length > 48) history.shift();
+      slicePeak = 0;
+      sliceStart = Date.now();
+      const offset = 48 - history.length; // new sound comes in from the right
+      [...bars.children].forEach((bar, i) => {
+        const p = history[i - offset];
+        bar.style.height = `${p === undefined ? 10 : Math.max(10, p * 100)}%`;
+      });
+    }
     const secs = (Date.now() - started) / 1000;
     time.textContent = fmt(secs);
     if (secs >= MAX_SECONDS) finish(true);
