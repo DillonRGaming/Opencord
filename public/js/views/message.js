@@ -409,9 +409,12 @@ export function messageCard(message, onJump) {
       h('strong', {}, message.author.displayName),
       h('time', { class: 'message-stamp' }, formatStamp(message.createdAt)),
       h('button', { type: 'button', class: 'jump', onclick: () => onJump(message.id) }, 'Jump')),
-    message.content && h('div', { class: 'message-card-text' }, renderMarkdown(message.content)),
-    message.attachments.length > 0 && h('div', { class: 'message-card-files' }, icon('paperclip', 14),
-      h('span', {}, message.attachments.map((a) => a.name).join(', '))));
+    // Stickers and GIFs show as the picture; other text as text.
+    message.content && (STICKER_LINK.test(message.content.trim())
+      ? h('div', { class: 'message-card-media' }, contentView(message))
+      : h('div', { class: 'message-card-text' }, renderMarkdown(message.content))),
+    // Files show as themselves: images, videos, voice notes and audio play right here.
+    message.attachments.length > 0 && h('div', { class: 'attachments message-card-media' }, message.attachments.map(attachmentView)));
 }
 
 // Tapping anywhere outside the open tools closes them, and so does using one of them or scrolling.
