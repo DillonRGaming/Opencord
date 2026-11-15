@@ -97,7 +97,7 @@ When rows with attachments are deleted (message, channel, server), delete the fi
 ## JSON shapes
 
 ```js
-User      { id, username, displayName, avatar /* url or null */, bannerColor, bio, statusText }
+User      { id, username, displayName, avatar /* url or null */, bannerColor, bannerPattern /* one of BANNER_PATTERNS in server/models/users.js, or null */, bannerPatternColor, bio, statusText }
 Me        User & { settings: {}, createdAt }
 Relation  { user: User, status: 'friend'|'incoming'|'outgoing'|'blocked', since }
 Server    { id, name, icon /* url|null */, ownerId, channels: Channel[] }

@@ -6,6 +6,9 @@ const { newId } = require('../lib/ids');
 const DEFAULT_AVATARS = 10;
 const DEFAULT_PREFIX = '@default/';
 
+// Patterns that can be drawn over a profile banner (public/js/patterns.js draws them).
+const BANNER_PATTERNS = ['dots', 'lines', 'chainlink', 'checks', 'waves', 'zigzag', 'plus'];
+
 function isDefaultAvatar(value) {
   return typeof value === 'string' && value.startsWith(DEFAULT_PREFIX);
 }
@@ -26,6 +29,8 @@ function toUser(row) {
     displayName: row.display_name,
     avatar: avatarUrl(row.avatar),
     bannerColor: row.banner_color,
+    bannerPattern: row.banner_pattern,
+    bannerPatternColor: row.banner_pattern_color,
     bio: row.bio,
     statusText: row.status_text,
     bot: Boolean(row.is_bot),
@@ -72,6 +77,8 @@ const COLUMNS = {
   bio: 'bio',
   statusText: 'status_text',
   bannerColor: 'banner_color',
+  bannerPattern: 'banner_pattern',
+  bannerPatternColor: 'banner_pattern_color',
   settings: 'settings',
   avatar: 'avatar',
   passwordHash: 'password_hash',
@@ -107,5 +114,5 @@ function touchLastSeen(id) {
 }
 
 module.exports = {
-  DEFAULT_AVATARS, isDefaultAvatar, defaultAvatar,
+  DEFAULT_AVATARS, BANNER_PATTERNS, isDefaultAvatar, defaultAvatar,
   settingOf, touchLastSeen, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

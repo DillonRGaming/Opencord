@@ -6,7 +6,7 @@ import { state } from './store.js';
 // Soft, light faces with dark letters. No blues.
 const AVATAR_COLORS = ['#e1c9a2', '#b9cfae', '#d8bfc4', '#d6dbd3', '#cdbfdc', '#e3b49c', '#c9cf9e', '#a9cbbb'];
 
-function colorFor(id) {
+export function colorFor(id) {
   let hash = 0;
   for (const char of id) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];

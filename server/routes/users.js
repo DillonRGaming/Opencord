@@ -42,7 +42,7 @@ router.get('/users/@me', (req, res) => {
 });
 
 router.patch('/users/@me', (req, res) => {
-  const { displayName, bio, statusText, bannerColor, settings, presence } = req.body;
+  const { displayName, bio, statusText, bannerColor, bannerPattern, bannerPatternColor, settings, presence } = req.body;
   const fields = {};
   if (presence !== undefined) {
     if (!['online', 'idle', 'dnd', 'invisible'].includes(presence)) fail(400, 'Status must be online, idle, dnd or invisible.');
@@ -54,6 +54,14 @@ router.patch('/users/@me', (req, res) => {
   if (bannerColor !== undefined) {
     if (bannerColor !== null && !/^#[0-9a-f]{6}$/i.test(bannerColor)) fail(400, 'Banner colour must look like #rrggbb.');
     fields.bannerColor = bannerColor;
+  }
+  if (bannerPattern !== undefined) {
+    if (bannerPattern !== null && !users.BANNER_PATTERNS.includes(bannerPattern)) fail(400, 'No such banner pattern.');
+    fields.bannerPattern = bannerPattern;
+  }
+  if (bannerPatternColor !== undefined) {
+    if (bannerPatternColor !== null && !/^#[0-9a-f]{6}$/i.test(bannerPatternColor)) fail(400, 'Pattern colour must look like #rrggbb.');
+    fields.bannerPatternColor = bannerPatternColor;
   }
   if (settings !== undefined) {
     if (settings === null || typeof settings !== 'object' || Array.isArray(settings)) fail(400, 'Settings must be an object.');

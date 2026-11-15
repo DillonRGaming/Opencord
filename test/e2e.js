@@ -325,6 +325,11 @@ async function run() {
   });
   assert.deepEqual([me.displayName, me.bannerColor, me.settings.theme], ['Bobby', '#ff8800', 'oled']);
   await bob.expect(400, 'PATCH', '/api/users/@me', { bannerColor: 'red' });
+  me = await bob.call('PATCH', '/api/users/@me', { bannerPattern: 'zigzag', bannerPatternColor: '#112233' });
+  assert.deepEqual([me.bannerPattern, me.bannerPatternColor], ['zigzag', '#112233']);
+  await bob.expect(400, 'PATCH', '/api/users/@me', { bannerPattern: 'tartan' });
+  await bob.expect(400, 'PATCH', '/api/users/@me', { bannerPatternColor: 'blue' });
+  assert.equal((await alice.call('GET', `/api/users/${bob.me.id}`)).bannerPattern, 'zigzag');
   await bob.expect(400, 'PATCH', '/api/users/@me', { bio: 'x'.repeat(191) });
   assert.equal((await alice.call('GET', `/api/users/${bob.me.id}`)).displayName, 'Bobby');
   me = await bob.call('DELETE', '/api/users/@me/avatar');
