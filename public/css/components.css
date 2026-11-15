@@ -681,7 +681,4 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .theme-grid + .theme-group-title { margin-top: 10px; }
 
 /* Unread counts for your other accounts */
-.user-panel-face { position: relative; display: inline-flex; flex-shrink: 0; }
-.account-pings { top: -5px; right: -7px; bottom: auto; box-shadow: 0 0 0 2px var(--bg-panel); }
-.account-pings.hidden { display: none; }
 .menu-badge { position: static; margin-left: auto; box-shadow: none; }
