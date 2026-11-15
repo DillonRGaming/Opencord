@@ -54,6 +54,29 @@ router.get('/preview-image', async (req, res) => {
   res.send(image.body);
 });
 
+// Pictures from the few sites Opencord's extras use (GIF previews, Emoji Kitchen, YouTube thumbnails), fetched by
+// the server so viewers' addresses aren't sent to those sites.
+const REMOTE_HOSTS = new Set(['media.tenor.com', 'media1.tenor.com', 'www.gstatic.com', 'i.ytimg.com']);
+const remoteCache = new Map(); // url → { type, body } (a few hundred small images)
+router.get('/remote', async (req, res) => {
+  const url = typeof req.query.url === 'string' ? req.query.url : '';
+  let host = '';
+  try { host = new URL(url).hostname; } catch { /* not a URL */ }
+  if (!REMOTE_HOSTS.has(host) || !url.startsWith('https://')) fail(404, 'Image not found.');
+  let image = remoteCache.get(url);
+  if (!image) {
+    const got = await previews.get(url, { maxBytes: 12 * 1024 * 1024 });
+    if (!got || !/^image\/(png|jpe?g|gif|webp)$/.test(got.type)) fail(404, 'Image not found.');
+    image = { type: got.type, body: got.body };
+    if (image.body.length < 2 * 1024 * 1024) {
+      if (remoteCache.size >= 400) remoteCache.delete(remoteCache.keys().next().value);
+      remoteCache.set(url, image);
+    }
+  }
+  res.set({ 'Content-Type': image.type, 'Cache-Control': 'private, max-age=604800', 'Content-Security-Policy': "default-src 'none'" });
+  res.send(image.body);
+});
+
 // Custom emoji are addressed by id, so a message keeps working after the emoji is renamed.
 router.get('/emojis/:id', (req, res) => {
   const emoji = emojis.get(req.params.id);

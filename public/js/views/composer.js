@@ -10,6 +10,8 @@ import { openPoll } from './poll.js';
 import { openEmojiPicker, customEmojis, customCode } from '../emojiPicker.js';
 import { searchEmoji } from '../emojiData.js';
 import { availableCommands, runCommand } from '../commands.js';
+import { openGifPicker, openKitchen } from '../fun.js';
+import { recordVoice } from '../voiceMessage.js';
 
 const TYPING_EVERY_MS = 3000;
 const SUGGEST_MAX = 8;
@@ -60,9 +62,23 @@ function autoGrow(textarea) {
   textarea.closest('.composer')?.classList.toggle('ready', Boolean(textarea.value.trim()) || textarea.closest('.composer').querySelector('.upload') !== null);
 }
 
+// Unsent text survives switching channels and reloading: one draft per channel (and per thread).
+const draftKey = (channelId, threadId) => `oc:draft:${channelId}${threadId ? `:${threadId}` : ''}`;
+function readDraft(key) {
+  try { return localStorage.getItem(key) || ''; } catch { return ''; }
+}
+function writeDraft(key, value) {
+  try {
+    if (value.trim()) localStorage.setItem(key, value);
+    else localStorage.removeItem(key);
+  } catch { /* storage off: drafts just don't stick */ }
+}
+
 // The message box. Files start uploading as soon as they are added; sending waits for them to finish.
-// options.onEditLast: called on Up arrow in an empty box.
-export function createComposer(channel, placeholder, { onEditLast } = {}) {
+// options.onEditLast: called on Up arrow in an empty box. options.threadId: the box posts into that thread.
+export function createComposer(channel, placeholder, { onEditLast, threadId = null } = {}) {
+  const draft = draftKey(channel.id, threadId);
+  let draftTimer = null;
   let uploads = [];
   let replying = null; // the message being answered
   let queue = Promise.resolve();
@@ -142,6 +158,8 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     oninput: () => {
       autoGrow(textarea);
       updateSuggest();
+      clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => writeDraft(draft, textarea.value), 300);
       if (textarea.value && Date.now() - lastTyping > TYPING_EVERY_MS) {
         lastTyping = Date.now();
         if (setting('sendTyping', true) !== false) sendTyping(channel.id);
@@ -202,13 +220,31 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     notice.replaceChildren();
     notice.className = 'composer-notice';
   }
+  // GIFs and Emoji Kitchen stickers are sent straight away as a link (the link shows as the picture).
+  const sendLink = (url) => {
+    if (locked) return;
+    queue = queue.then(() => deliver(url, [], replying?.id || null));
+    replyTo(null);
+  };
+  const gifButton = iconButton('gif', 'GIFs', () => openGifPicker(gifButton, sendLink));
+  const kitchenButton = iconButton('sparkles', 'Emoji Kitchen', () => openKitchen(kitchenButton, sendLink));
+  const micButton = iconButton('mic', 'Record a voice message', () => {
+    if (locked) return;
+    recordVoice(el, (file) => {
+      addFiles([file]);
+      send();
+    });
+  }, 'mic-button');
   const el = h('div', { class: 'composer' }, suggestBox, notice, replyBar, tray,
     h('div', { class: 'composer-row' },
       iconButton('plus', 'Attach files', async () => addFiles(await pickFiles({ multiple: true }))),
       textarea,
-      emojiButton,
+      h('div', { class: 'composer-tools' }, gifButton, kitchenButton, emojiButton),
       h('span', { class: 'char-count', 'aria-live': 'polite' }),
+      micButton,
       sendButton));
+  textarea.value = readDraft(draft);
+  if (textarea.value) requestAnimationFrame(() => autoGrow(textarea));
 
   el.addEventListener('notice', (event) => {
     const { message, kind } = event.detail;
@@ -294,6 +330,7 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
       try {
         const result = await runCommand(channel, content, { openPoll: () => openPoll(channel) });
         if (result?.done) {
+          writeDraft(draft, '');
           textarea.value = '';
           autoGrow(textarea);
           closeSuggest();
@@ -307,6 +344,8 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
     }
     const replyToId = replying?.id || null;
     replyTo(null);
+    clearTimeout(draftTimer);
+    writeDraft(draft, '');
     textarea.value = '';
     autoGrow(textarea);
     uploads = [];
@@ -321,14 +360,14 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
       if (files.some((upload) => upload.failed)) throw new Error("A file didn't upload. Remove it or add it again, then send.");
       if (!content && !files.length) return;
       await api.post(`/api/channels/${channel.id}/messages`, {
-        content, replyToId, attachmentIds: files.map((upload) => upload.attachment.id),
+        content, replyToId, threadId, attachmentIds: files.map((upload) => upload.attachment.id),
       });
       for (const upload of files) upload.el.remove();
       autoGrow(textarea);
     } catch (err) {
       // Put everything back so nothing typed or uploaded is lost.
       toast(err.message);
-      if (!textarea.value) textarea.value = content;
+      if (!textarea.value && !/^https:\/\/(media\.tenor\.com|www\.gstatic\.com)\//.test(content)) textarea.value = content;
       autoGrow(textarea);
       uploads = [...batch.filter((upload) => !upload.removed), ...uploads];
     }
@@ -336,6 +375,8 @@ export function createComposer(channel, placeholder, { onEditLast } = {}) {
 
   // Leaving the channel: stop anything still uploading.
   function destroy() {
+    clearTimeout(draftTimer);
+    if (!locked) writeDraft(draft, textarea.value);
     for (const upload of uploads) if (!upload.attachment) upload.handle.cancel();
   }
 

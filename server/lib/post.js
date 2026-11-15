@@ -18,15 +18,18 @@ function audienceIds(channel) {
   return servers.memberIds(channel.server_id).filter((id) => channels.canAccess(id, channel));
 }
 
-function postMessage(channel, authorId, content, { attachmentIds = [], replyToId = null, poll = null, components = null } = {}) {
-  let row = messages.create(channel.id, authorId, content, attachmentIds, replyToId);
+function postMessage(channel, authorId, content, { attachmentIds = [], replyToId = null, threadId = null, poll = null, components = null, game = null } = {}) {
+  let row = messages.create(channel.id, authorId, content, attachmentIds, replyToId, threadId);
   if (poll) messages.createPoll(row.id, poll);
+  if (game) require('../models/games').create(row.id, game);
   if (components) row = messages.setComponents(row.id, components);
   const json = messages.serialize(row);
   if (channel.slowmode) channels.notePost(channel.id, authorId);
   realtime.toChannel(channel, 'message:create', json);
+  // A new reply in a thread changes the count shown under the thread's first message.
+  if (threadId) realtime.toChannel(channel, 'message:update', messages.serialize(messages.get(threadId)));
 
-  const replyAuthor = replyToId ? messages.get(replyToId)?.author_id : null;
+  const replyAuthor = replyToId ? messages.get(replyToId)?.author_id : threadId ? messages.get(threadId)?.author_id : null;
   for (const [userId, kind] of notifications.recipients(content, audienceIds(channel), authorId, replyAuthor, channel.server_id)) {
     const note = notifications.create(userId, kind, row.id, authorId);
     realtime.toUser(userId, 'notification', { id: note.id, kind, readAt: null, createdAt: note.created_at, message: json, channel: channels.serialize(channel, userId) });

@@ -21,7 +21,7 @@ const channelName = (value) => text(value, 'Channel name', { min: 1, max: 100 })
 const categoryName = (value) => text(value, 'Category name', { min: 1, max: 100 });
 const withPresence = (member) => ({ ...member, online: realtime.isOnline(member.user.id), status: realtime.statusOf(member.user.id) });
 const HEX = /^#[0-9a-f]{6}$/i;
-const KINDS = ['text', 'voice', 'category', 'posts', 'whiteboard', 'calendar', 'music', 'wiki'];
+const KINDS = ['text', 'voice', 'category', 'posts', 'whiteboard', 'calendar', 'music', 'wiki', 'video'];
 const MAX_EMOJIS = 100;
 const TIMEOUTS = [60, 300, 600, 3600, 86400, 7 * 86400]; // seconds
 

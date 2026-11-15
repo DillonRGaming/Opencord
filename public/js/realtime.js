@@ -151,7 +151,7 @@ export function connect() {
     emit('posts');
     if (state.route.postId === id) navigate(paths.channel(state.route.serverId, state.route.channelId));
   });
-  for (const event of ['wb:live', 'wb:stroke', 'wb:erase', 'wb:clear', 'event:update', 'event:delete', 'music:update', 'wiki:update', 'wiki:delete']) socket.on(event, (payload) => emit(event, payload));
+  for (const event of ['wb:live', 'wb:stroke', 'wb:erase', 'wb:clear', 'event:update', 'event:delete', 'music:update', 'videos:update', 'wiki:update', 'wiki:delete']) socket.on(event, (payload) => emit(event, payload));
 
   socket.on('channel:create', upsertChannel);
   socket.on('channel:update', upsertChannel);

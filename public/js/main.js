@@ -22,6 +22,7 @@ import { showWhiteboard, closeWhiteboard } from './views/whiteboard.js';
 import { showCalendar, closeCalendar } from './views/calendar.js';
 import { showMusic, closeMusic } from './views/music.js';
 import { showWiki, closeWiki } from './views/wiki.js';
+import { showVideo, closeVideo } from './views/video.js';
 import './views/ring.js';
 
 const root = document.getElementById('app');
@@ -37,6 +38,7 @@ const APPS = {
   calendar: { show: showCalendar, close: closeCalendar },
   music: { show: showMusic, close: closeMusic },
   wiki: { show: showWiki, close: closeWiki },
+  video: { show: showVideo, close: closeVideo },
 };
 
 function closeApps(except = null) {

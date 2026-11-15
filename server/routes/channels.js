@@ -34,7 +34,7 @@ function newMemberWait(serverId, userId) {
   return Math.max(0, Math.ceil((joined + server.member_wait * 1000 - Date.now()) / 1000));
 }
 
-const NO_POSTING = ['category', 'voice', 'posts', 'whiteboard', 'calendar', 'music', 'wiki'];
+const NO_POSTING = ['category', 'voice', 'posts', 'whiteboard', 'calendar', 'music', 'wiki', 'video'];
 
 const label = (channel) => (channel.kind === 'category' || channel.kind === 'post' ? channel.name : `#${channel.name}`);
 
@@ -216,7 +216,15 @@ router.post('/:id/messages', (req, res) => {
   }
   if (!content && !attachmentIds.length) fail(400, "You can't send an empty message.");
   const replyToId = req.body.replyToId == null ? null : text(req.body.replyToId, 'replyToId');
+  const threadId = req.body.threadId == null ? null : text(req.body.threadId, 'threadId');
   if (NO_POSTING.includes(channel.kind)) fail(400, "You can't post in that channel.");
+  checkCanPost(channel, req.user);
+  res.status(201).json(postMessage(channel, req.user.id, content, { attachmentIds: [...new Set(attachmentIds)], replyToId, threadId }));
+});
+
+// Timeouts, new-member waits, channel permissions, slowmode and DM rules: everything that stops someone posting.
+function checkCanPost(channel, user) {
+  const req = { user };
   const role = channel.type === 'text' ? servers.roleOf(channel.server_id, req.user.id) : null;
   if (role === 'member') {
     const until = servers.timeoutUntil(channel.server_id, req.user.id);
@@ -235,8 +243,52 @@ router.post('/:id/messages', (req, res) => {
       fail(403, 'They only take messages from friends.');
     }
   }
+}
 
-  res.status(201).json(postMessage(channel, req.user.id, content, { attachmentIds: [...new Set(attachmentIds)], replyToId }));
+// A thread: the message it hangs off and every reply in it, oldest first.
+router.get('/:id/threads/:rootId', (req, res) => {
+  const channel = access.visibleChannel(req.params.id, req.user.id);
+  const root = messages.get(req.params.rootId);
+  if (!root || root.channel_id !== channel.id || root.thread_id) fail(404, 'Thread not found.');
+  res.json({ root: messages.serialize(root), messages: messages.threadMessages(root.id) });
+});
+
+// Start a game in chat. opponentId: who to play (null = the first person to make a move).
+router.post('/:id/games', (req, res) => {
+  const channel = access.visibleChannel(req.params.id, req.user.id);
+  if (NO_POSTING.includes(channel.kind)) fail(400, "You can't post in that channel.");
+  checkCanPost(channel, req.user);
+  const { GAMES } = require('../lib/games');
+  const kind = String(req.body.game || '');
+  if (!GAMES[kind]) fail(400, 'Unknown game.');
+  let opponent = null;
+  if (req.body.opponentId != null) {
+    opponent = users.get(text(req.body.opponentId, 'opponentId'));
+    if (!opponent || opponent.id === req.user.id) fail(400, 'Pick someone else to play against.');
+    const audience = channel.type === 'dm' ? channels.dmMemberIds(channel.id) : servers.memberIds(channel.server_id).filter((id) => channels.canAccess(id, channel));
+    if (!audience.includes(opponent.id)) fail(400, `${opponent.display_name} can’t see this channel.`);
+  }
+  const name = GAMES[kind].name;
+  const content = opponent ? `🎮 <@${req.user.id}> challenged @${opponent.username} to ${name}!` : `🎮 <@${req.user.id}> started a game of ${name}. Anyone can join!`;
+  res.status(201).json(postMessage(channel, req.user.id, content.replace(`<@${req.user.id}>`, `@${req.user.username}`), {
+    game: { kind, players: [req.user.id, opponent?.id || null] },
+  }));
+});
+
+// Share a location (from the browser's location, so it's as exact as the person's device makes it).
+router.post('/:id/location', (req, res) => {
+  const channel = access.visibleChannel(req.params.id, req.user.id);
+  if (NO_POSTING.includes(channel.kind)) fail(400, "You can't post in that channel.");
+  checkCanPost(channel, req.user);
+  const lat = Number(req.body.lat);
+  const lon = Number(req.body.lon);
+  if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) fail(400, 'That isn’t a place on Earth.');
+  const accuracy = Math.max(0, Math.min(100000, Math.round(Number(req.body.accuracy) || 0)));
+  const label = req.body.label ? text(req.body.label, 'Label', { max: 100 }) : '';
+  const round = (n) => Math.round(n * 1e6) / 1e6;
+  res.status(201).json(postMessage(channel, req.user.id, `📍 ${label || 'Shared a location'}`, {
+    components: [{ type: 'location', lat: round(lat), lon: round(lon), accuracy, label }],
+  }));
 });
 
 // Polls: a message with a question and 2–10 options. closesIn is hours (0 or missing = never).

@@ -23,11 +23,23 @@ export function closeMusic() {
 
 const current = () => view.music?.playing && view.music.queue.find((q) => q.id === view.music.playing.itemId);
 
-// Where the track should be right now, in seconds.
+// Where the track should be right now, in seconds of the track (the shared speed is part of it).
 function position() {
   const p = view.music?.playing;
   if (!p) return 0;
-  return Math.max(0, ((p.pausedAt || clock()) - p.startedAt) / 1000);
+  return Math.max(0, (((p.pausedAt || clock()) - p.startedAt) / 1000) * (p.rate || 1));
+}
+
+const rate = () => view.music?.playing?.rate || 1;
+
+// Volume is each listener's own, remembered in this browser.
+function savedVolume() {
+  try { const v = Number(localStorage.getItem('oc:musicVolume')); return Number.isFinite(v) && localStorage.getItem('oc:musicVolume') !== null ? v : 0.8; } catch { return 0.8; }
+}
+function applyVolume() {
+  if (!view?.player) return;
+  if (view.player.tagName === 'AUDIO') view.player.volume = view.volume;
+  else ytCommand('setVolume', [Math.round(view.volume * 100)]);
 }
 
 function control(action, extra = {}) {
@@ -107,9 +119,13 @@ function sync(force = false) {
   const want = position();
   if (item.kind === 'youtube') {
     if (force || Math.abs(view.progress.time - want) > 2.5) ytCommand('seekTo', [want, true]);
+    ytCommand('setPlaybackRate', [rate()]);
+    if (force) applyVolume();
     ytCommand(paused ? 'pauseVideo' : 'playVideo');
   } else {
     const audio = view.player;
+    if (audio.playbackRate !== rate()) audio.playbackRate = rate();
+    if (force) applyVolume();
     if (force || Math.abs(audio.currentTime - want) > 1.5) {
       try { audio.currentTime = want; } catch { /* not loaded yet */ }
     }
@@ -143,11 +159,109 @@ function nowPlaying() {
         h('span', {}, adder ? `Added by ${adder.displayName}` : ''),
         h('div', { class: 'music-time' }, h('span', { class: 'music-at' }, fmt(position())), bar, h('span', { class: 'music-length' }, fmt(view.progress?.duration))))),
     h('div', { class: 'music-controls' },
+      speedPicker(),
+      volumeSlider(),
+      iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : ''),
       view.listening
         ? iconButton('volume', 'Stop listening', () => { view.listening = false; view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'listening')
         : h('button', { type: 'button', class: 'button accent small', onclick: () => { view.listening = true; render(); sync(true); } }, icon('headphones', 16), 'Listen'),
       iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause'), 'music-main'),
       iconButton('skip', 'Skip', () => control('skip'))));
+}
+
+const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+// The speed is shared: everyone listening hears the same speed.
+function speedPicker() {
+  const select = h('select', {
+    class: 'input music-speed', 'aria-label': 'Speed', title: 'Speed (for everyone)',
+    onchange: () => control('rate', { rate: Number(select.value) }),
+  }, SPEEDS.map((sp) => h('option', { value: sp, selected: sp === rate() }, `${sp}×`)));
+  return h('label', { class: 'music-speed-wrap' }, icon('gauge', 16), select);
+}
+
+// Volume only changes your own player.
+function volumeSlider() {
+  const slider = h('input', {
+    type: 'range', min: 0, max: 1, step: 0.01, value: view.volume, class: 'music-volume', 'aria-label': 'Volume', title: 'Volume (just for you)',
+    oninput: () => {
+      view.volume = Number(slider.value);
+      try { localStorage.setItem('oc:musicVolume', String(view.volume)); } catch { /* fine */ }
+      slider.style.setProperty('--fill', `${view.volume * 100}%`);
+      applyVolume();
+    },
+  });
+  slider.style.setProperty('--fill', `${view.volume * 100}%`);
+  return h('label', { class: 'music-volume-wrap' }, icon('volume', 16), slider);
+}
+
+// --- lyrics (from lrclib.net, through the server) ---
+
+const lyricsCache = new Map(); // itemId → Promise<lyrics|null>
+
+function parseLrc(text) {
+  const lines = [];
+  for (const raw of text.split('\n')) {
+    const stamps = [...raw.matchAll(/\[(\d+):(\d+(?:\.\d+)?)\]/g)];
+    const words = raw.replace(/\[[^\]]*\]/g, '').trim();
+    for (const m of stamps) lines.push({ at: Number(m[1]) * 60 + Number(m[2]), text: words });
+  }
+  return lines.sort((a, b) => a.at - b.at);
+}
+
+function toggleLyrics() {
+  view.lyricsOpen = !view.lyricsOpen;
+  render();
+}
+
+function lyricsFor(item) {
+  if (!lyricsCache.has(item.id)) {
+    const duration = Number.isFinite(view.progress?.duration) ? Math.round(view.progress.duration) : 0;
+    lyricsCache.set(item.id, api.get(`/api/fun/lyrics?title=${encodeURIComponent(item.title)}${duration ? `&duration=${duration}` : ''}`).catch((err) => ({ error: err.message })));
+  }
+  return lyricsCache.get(item.id);
+}
+
+function lyricsPanel() {
+  const item = current();
+  const box = h('section', { class: 'music-lyrics' }, h('h3', {}, icon('lyrics', 16), 'Lyrics'), h('p', { class: 'muted' }, 'Looking for the lyrics…'));
+  if (!item) { box.lastChild.textContent = 'Nothing is playing.'; return box; }
+  lyricsFor(item).then((found) => {
+    if (!box.isConnected && !view) return;
+    box.lastChild.remove();
+    if (!found || found.error) {
+      box.append(h('p', { class: 'muted' }, found?.error || 'No lyrics found for this one.'));
+      return;
+    }
+    box.querySelector('h3').append(h('span', { class: 'muted music-lyrics-of' }, `${found.track} · ${found.artist}`));
+    if (found.instrumental) { box.append(h('p', { class: 'muted' }, '♪ Instrumental ♪')); return; }
+    const synced = found.synced ? parseLrc(found.synced) : [];
+    if (synced.length) {
+      box.classList.add('synced');
+      box.append(h('div', { class: 'lyrics-lines' }, synced.map((line) => h('button', {
+        type: 'button', class: 'lyrics-line', dataset: { at: line.at },
+        onclick: () => control('seek', { position: line.at }),
+        title: 'Jump here',
+      }, line.text || '♪'))));
+    } else {
+      box.append(h('div', { class: 'lyrics-plain' }, found.plain));
+    }
+  });
+  return box;
+}
+
+// Light up the line being sung and keep it in view.
+function followLyrics(pos) {
+  const lines = view.root.querySelectorAll('.lyrics-line');
+  if (!lines.length) return;
+  let active = null;
+  for (const line of lines) if (Number(line.dataset.at) <= pos + 0.25) active = line;
+  for (const line of lines) line.classList.toggle('active', line === active);
+  if (active && active !== view.activeLine) {
+    view.activeLine = active;
+    const list = active.parentElement;
+    list.scrollTo({ top: active.offsetTop - list.clientHeight / 2 + active.clientHeight / 2, behavior: 'smooth' });
+  }
 }
 
 function queueList() {
@@ -203,7 +317,15 @@ function render() {
     h('div', { class: 'main-title' }, icon('music', 18), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' })));
   const scroll = view.body.scrollTop;
-  view.body.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), queueList()));
+  // The lyrics box only redraws when the song changes, so it doesn't jump back to the top.
+  const item = current();
+  if (!view.lyricsOpen) view.lyricsBox = null;
+  else if (!view.lyricsBox || view.lyricsFor !== item?.id) {
+    view.lyricsBox = lyricsPanel();
+    view.lyricsFor = item?.id;
+    view.activeLine = null;
+  }
+  view.body.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
   view.body.scrollTop = scroll;
 }
 
@@ -214,6 +336,7 @@ function tick() {
   if (!at) return;
   const pos = view.listening && Number.isFinite(view.progress?.time) && view.progress.time > 0 ? view.progress.time : position();
   at.textContent = fmt(pos);
+  if (view.lyricsOpen) followLyrics(pos);
   view.root.querySelector('.music-length').textContent = fmt(view.progress?.duration);
   const fill = view.root.querySelector('.music-fill');
   if (fill) fill.style.width = Number.isFinite(view.progress?.duration) ? `${Math.min(100, (pos / view.progress.duration) * 100)}%` : '0%';
@@ -243,7 +366,7 @@ export async function showMusic(container, channel, serverId) {
     return render();
   }
   closeMusic();
-  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, listening: false, player: null, playerFor: null, progress: { time: 0, duration: NaN } };
+  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, listening: false, player: null, playerFor: null, progress: { time: 0, duration: NaN }, volume: savedVolume(), lyricsOpen: false };
   window.addEventListener('message', onPlayerMessage);
   view.timer = setInterval(tick, 500);
   ensureMembers(serverId);

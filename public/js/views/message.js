@@ -10,6 +10,9 @@ import { attempt, avatar, button, iconButton } from '../ui.js';
 import { voice } from '../voice.js';
 import { openLightbox } from './lightbox.js';
 import { pollView } from './poll.js';
+import { gameView } from './game.js';
+import { isVoiceMessage, voiceMessageView } from '../voiceMessage.js';
+import { remote } from '../fun.js';
 import { LANGUAGES, languageName, targetLanguage, translate, autoTranslateOn, worthTranslating } from '../translate.js';
 
 const GROUP_MS = 7 * 60 * 1000;
@@ -65,6 +68,7 @@ function attachmentView(attachment) {
   if (kind === 'video') return withDownload(h('video', { class: 'attachment-video', src: url, controls: true, preload: 'metadata', playsInline: true }), url, name);
 
   const info = h('div', { class: 'attachment-info' }, h('a', { href: url, download: name, title: name }, name), h('span', {}, formatSize(size)));
+  if (isVoiceMessage(attachment)) return voiceMessageView(attachment);
   if (kind === 'audio') {
     return h('div', { class: 'attachment-card audio' }, h('div', { class: 'attachment-card-top' }, info, downloadButton(url, name, 'inline')),
       h('audio', { src: url, controls: true, preload: 'none' }));
@@ -72,6 +76,52 @@ function attachmentView(attachment) {
   return h('div', { class: 'attachment-card' }, h('span', { class: 'attachment-icon' }, icon('file', 22)), info,
     h('a', { class: 'icon-button', href: url, download: name, title: 'Download', 'aria-label': `Download ${name}` }, icon('download')));
 }
+
+// A shared location: a small map made of OpenStreetMap tiles, with a pin and links to open it in a maps app.
+function locationView(loc) {
+  const zoom = loc.accuracy > 2000 ? 12 : loc.accuracy > 300 ? 14 : 16;
+  const n = 2 ** zoom;
+  const x = ((loc.lon + 180) / 360) * n;
+  const rad = (loc.lat * Math.PI) / 180;
+  const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * n;
+  const tx = Math.floor(x);
+  const ty = Math.floor(y);
+  // A 3×3 block of 256px tiles, shifted so the spot sits in the middle of the card.
+  const tiles = [];
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      const tileX = ((tx + dx) % n + n) % n;
+      tiles.push(h('img', { src: `https://tile.openstreetmap.org/${zoom}/${tileX}/${ty + dy}.png`, alt: '', loading: 'lazy', draggable: false, style: { left: `${(dx + 1) * 256}px`, top: `${(dy + 1) * 256}px` } }));
+    }
+  }
+  const offX = (x - tx + 1) * 256;
+  const offY = (y - ty + 1) * 256;
+  const osm = `https://www.openstreetmap.org/?mlat=${loc.lat}&mlon=${loc.lon}#map=${zoom}/${loc.lat}/${loc.lon}`;
+  const google = `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lon}`;
+  return h('div', { class: 'location-card' },
+    h('a', { class: 'location-map', href: osm, target: '_blank', rel: 'noopener noreferrer', 'aria-label': 'Open the map' },
+      h('div', { class: 'location-tiles', style: { left: `calc(50% - ${offX}px)`, top: `calc(50% - ${offY}px)` } }, tiles),
+      h('span', { class: 'location-pin' }, icon('mapPin', 30))),
+    h('div', { class: 'location-info' },
+      h('div', {}, h('strong', {}, loc.label || 'Location'), h('span', { class: 'muted' }, `${loc.lat.toFixed(5)}, ${loc.lon.toFixed(5)}${loc.accuracy ? ` · within ${loc.accuracy < 1000 ? `${loc.accuracy} m` : `${(loc.accuracy / 1000).toFixed(1)} km`}` : ''}`)),
+      h('div', { class: 'location-links' },
+        h('a', { class: 'button ghost small', href: google, target: '_blank', rel: 'noopener noreferrer' }, 'Google Maps'),
+        h('a', { class: 'button ghost small', href: osm, target: '_blank', rel: 'noopener noreferrer' }, 'OpenStreetMap'))),
+    h('div', { class: 'location-credit' }, '© OpenStreetMap contributors'));
+}
+
+// Under a message that has a thread: how many replies, who's in it, and when the last one was.
+function threadSummary(message, onOpen) {
+  const { thread } = message;
+  return h('button', { type: 'button', class: 'thread-summary', onclick: () => onOpen(message) },
+    h('span', { class: 'thread-faces' }, thread.people.map((id) => avatar(state.users.get(id) || { id, displayName: '?' }, { size: 20 }))),
+    h('strong', {}, `${thread.count} ${thread.count === 1 ? 'reply' : 'replies'}`),
+    h('span', { class: 'muted' }, `Last reply ${formatStamp(thread.lastAt)}`),
+    icon('chevronRight', 15));
+}
+
+// A message that is only a GIF or Emoji Kitchen link shows just the picture.
+const STICKER_LINK = /^https:\/\/(media1?\.tenor\.com|www\.gstatic\.com\/android\/keyboard\/emojikitchen)\/\S+$/;
 
 // Up to 10 emoji and nothing else: shown large, like a sticker.
 const EMOJI_ONLY = /^(?:(?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\uFE0F|\u200D|\p{Emoji_Modifier}|\p{Extended_Pictographic}|\p{Regional_Indicator})*\s*){1,10}$/u;
@@ -89,6 +139,12 @@ export async function fullContent(message) {
 // and "Show less" throws the big version away again, so walls of text don't slow the chat down.
 function contentView(message) {
   if (!message.content) return null;
+  if (STICKER_LINK.test(message.content.trim())) {
+    // Shown straight away as the picture (its link preview is skipped).
+    const url = message.content.trim();
+    const kitchen = url.includes('emojikitchen');
+    return h('div', { class: `sticker${kitchen ? ' kitchen' : ''}` }, h('img', { src: remote(url), alt: kitchen ? 'Emoji Kitchen sticker' : 'GIF', loading: 'lazy' }));
+  }
   const edited = () => message.editedAt && h('span', { class: 'message-edited', title: formatStamp(message.editedAt) }, '(edited)');
   const content = h('div', { class: 'message-content' }, renderMarkdown(message.content), edited());
   if (EMOJI_ONLY.test(message.content.trim())) content.classList.add('jumbo');
@@ -218,6 +274,7 @@ function toolbar(message, row, mine, handlers, openTray) {
     h('span', { class: 'actions-divider' }),
     iconButton('smilePlus', 'Add reaction', openTray),
     iconButton('reply', 'Reply', () => handlers.onReply(message)),
+    handlers.onThread && !message.threadId && iconButton('thread', 'Reply in thread', () => handlers.onThread(message)),
     iconButton('pin', message.pinned ? 'Unpin' : 'Pin', () => handlers.onPin(message), message.pinned ? 'on' : ''),
     message.content && iconButton('copy', 'Copy text', () => handlers.onCopy(message)),
     message.content && iconButton('languages', 'Translate', () => openTranslate(row)),
@@ -286,6 +343,7 @@ function callNote(message, call) {
 export function messageRow(message, previous, mine, handlers) {
   const call = message.components?.[0]?.type === 'call' ? message.components[0] : null;
   if (call) return callNote(message, call);
+  const location = message.components?.[0]?.type === 'location' ? message.components[0] : null;
   const newDay = !previous || !sameDay(previous.createdAt, message.createdAt);
   const grouped = !newDay && !message.replyTo && previous.author.id === message.author.id && previous.components?.[0]?.type !== 'call'
     && message.createdAt - previous.createdAt < GROUP_MS;
@@ -328,11 +386,14 @@ export function messageRow(message, previous, mine, handlers) {
       h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
       message.pinned && h('span', { class: 'pinned-mark', title: 'Pinned' }, icon('pin', 13))),
     h('div', { class: 'message-main' },
-      message.poll ? pollView(message, handlers.onVote) : textBlock(message, mine),
+      message.poll ? pollView(message, handlers.onVote) : !location && textBlock(message, mine),
+      message.game && gameView(message),
+      location && locationView(location),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView)),
-      message.embeds?.length > 0 && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
-      message.components?.length > 0 && message.components[0].type !== 'call' && buttonsView(message),
-      reactionSlot),
+      message.embeds?.length > 0 && !STICKER_LINK.test(message.content.trim()) && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
+      message.components?.length > 0 && !['call', 'location'].includes(message.components[0].type) && buttonsView(message),
+      reactionSlot,
+      message.thread && handlers.onThread && threadSummary(message, handlers.onThread)),
     toolbar(message, row, mine, handlers, (event) => openTray(event)),
   ].filter(Boolean));
   return row;

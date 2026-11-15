@@ -43,6 +43,7 @@ api.use('/messages', require('./messages'));
 api.use('/uploads', chunksPerUser, require('./uploads'));
 api.use('/notifications', require('./notifications'));
 api.use('/translate', require('./translate'));
+api.use('/fun', require('./fun'));
 
 api.use(() => fail(404, 'Not found.'));
 

@@ -163,9 +163,65 @@ function historyStart(channel) {
     h('h2', {}, channel.name), channel.topic && h('p', {}, channel.topic));
 }
 
+// --- threads: replies to one message, in the side panel ---
+
+let thread = null; // { channel, serverId, root, messages, list, composer, panel }
+
+function threadHandlers(t) {
+  return {
+    canDelete: t.serverId && can(t.serverId, 'manageMessages'),
+    serverId: t.serverId,
+    onEdit: startEdit,
+    onDelete: deleteMessage,
+    onProfile: (user) => openProfile(user, { serverId: t.serverId }),
+    onReply: (m) => t.composer.replyTo(m),
+    onReact: react,
+    onPin: (m) => attempt(() => (m.pinned ? api.del : api.put)(`/api/messages/${m.id}/pin`)),
+    onVote: (m, option) => api.put(`/api/messages/${m.id}/poll/${option}`),
+    onCopy: async (m) => { await copyText(await fullContent(m)); toast('Copied.', 'ok'); },
+    onJump: (id) => { if (id === t.root.id) jumpTo(id); else t.list.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ block: 'center' }); },
+  };
+}
+
+function drawThread(t) {
+  const rows = [messageRow({ ...t.root, thread: null }, null, isMine(t.root), threadHandlers(t)),
+    h('div', { class: 'thread-divider' }, t.messages.length ? `${t.messages.length} ${t.messages.length === 1 ? 'reply' : 'replies'}` : 'No replies yet. Start the thread!'),
+    ...t.messages.map((m, i) => messageRow(m, t.messages[i - 1] || null, isMine(m), threadHandlers(t)))];
+  const atBottom = t.scroller.scrollHeight - t.scroller.scrollTop - t.scroller.clientHeight < 60;
+  t.list.replaceChildren(...rows);
+  if (atBottom || !t.drawn) t.scroller.scrollTop = t.scroller.scrollHeight;
+  t.drawn = true;
+}
+
+export async function openThread(root, channel = view?.channel, serverId = view?.serverId) {
+  if (!channel) return;
+  thread?.composer.destroy();
+  const t = { channel, serverId, root, messages: [], list: h('div', { class: 'message-list thread-list' }), drawn: false };
+  t.scroller = h('div', { class: 'scroller thread-scroller' }, t.list);
+  t.composer = createComposer(channel, 'Reply in thread', { threadId: root.id });
+  const body = h('div', { class: 'thread-panel' }, t.scroller, t.composer.el);
+  thread = t;
+  openPanel({
+    title: 'Thread', build: () => body,
+    onClose: () => { if (thread === t) { t.composer.destroy(); thread = null; } },
+  });
+  t.list.replaceChildren(h('p', { class: 'loading' }, 'Loading…'));
+  try {
+    const data = await api.get(`/api/channels/${channel.id}/threads/${root.id}`);
+    if (thread !== t) return;
+    t.root = data.root;
+    t.messages = data.messages;
+    drawThread(t);
+    t.composer.focus();
+  } catch (err) {
+    t.list.replaceChildren(h('p', { class: 'loading' }, err.message));
+  }
+}
+
 function rowFor(v, index) {
   const message = v.messages[index];
   return messageRow(message, v.messages[index - 1], isMine(message), {
+    onThread: v.channel.kind === 'post' ? null : (m) => openThread(m, v.channel, v.serverId),
     canDelete: v.serverId && can(v.serverId, 'manageMessages'),
     serverId: v.serverId,
     onEdit: startEdit,
@@ -267,7 +323,11 @@ function fillScreen(v) {
 function startEdit(message, row) {
   const main = row.querySelector('.message-main');
   if (main.querySelector('.message-edit')) return;
-  const cancel = () => redrawRow(view, view.messages.findIndex((m) => m.id === message.id));
+  const cancel = () => {
+    const index = view?.messages.findIndex((m) => m.id === message.id) ?? -1;
+    if (index !== -1) redrawRow(view, index);
+    else if (thread) drawThread(thread);
+  };
   const save = async () => {
     const content = textarea.value.trim();
     if (content === message.content) return cancel();
@@ -337,6 +397,13 @@ on('me', () => {
 });
 
 on('message:create', (message) => {
+  if (message.threadId) {
+    if (thread?.root.id === message.threadId && !thread.messages.some((m) => m.id === message.id)) {
+      thread.messages.push(message);
+      drawThread(thread);
+    }
+    return; // thread replies stay out of the main chat
+  }
   const v = view;
   if (!v || message.channelId !== v.channel.id) return;
   if (!v.ready) {
@@ -352,6 +419,12 @@ on('message:create', (message) => {
 });
 
 on('message:update', (message) => {
+  if (thread) {
+    if (thread.root.id === message.id) thread.root = message;
+    const i = thread.messages.findIndex((m) => m.id === message.id);
+    if (i !== -1) thread.messages[i] = message;
+    if (thread.root.id === message.id || i !== -1) drawThread(thread);
+  }
   const index = view?.messages.findIndex((m) => m.id === message.id) ?? -1;
   if (index === -1) return;
   view.messages[index] = message;
@@ -360,6 +433,13 @@ on('message:update', (message) => {
 });
 
 on('message:delete', ({ id }) => {
+  if (thread) {
+    if (thread.root.id === id) dismissPanel();
+    else if (thread.messages.some((m) => m.id === id)) {
+      thread.messages = thread.messages.filter((m) => m.id !== id);
+      drawThread(thread);
+    }
+  }
   const index = view?.messages.findIndex((m) => m.id === id) ?? -1;
   if (index === -1) return;
   findRow(view, id)?.remove();

@@ -182,7 +182,7 @@ function channelRow(server, channel) {
     onclick: () => navigate(paths.channel(server.id, channel.id)),
     menu: () => channelMenu(server, channel),
     drag: draggable(server, channel),
-  }, icon(isVoice ? 'volume' : { posts: 'posts', whiteboard: 'whiteboard', calendar: 'calendar', music: 'music', wiki: 'book' }[channel.kind] || (channel.readOnly ? 'lock' : 'hash'), 18), h('span', { class: 'nav-label' }, channel.name),
+  }, icon(isVoice ? 'volume' : { posts: 'posts', whiteboard: 'whiteboard', calendar: 'calendar', music: 'music', wiki: 'book', video: 'video' }[channel.kind] || (channel.readOnly ? 'lock' : 'hash'), 18), h('span', { class: 'nav-label' }, channel.name),
   mod && h('span', {
     class: 'icon-button', role: 'button', tabIndex: 0, title: 'Edit channel', 'aria-label': `Edit ${channel.name}`,
     onclick: (event) => { event.stopPropagation(); openChannelPage(server, channel); },

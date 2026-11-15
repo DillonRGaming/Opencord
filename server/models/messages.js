@@ -45,6 +45,8 @@ function serializeAll(rows) {
   const reactions = reactionsByMessage(ids);
   const replies = repliesById(rows.map((row) => row.reply_to_id));
   const polls = pollsById(ids);
+  const games = gamesById(ids);
+  const threads = threadsById(ids);
   return rows.map((row) => ({
     id: row.id,
     channelId: row.channel_id,
@@ -59,10 +61,39 @@ function serializeAll(rows) {
     pinned: row.pinned_at != null,
     embeds: row.embeds ? JSON.parse(row.embeds) : [],
     poll: polls.get(row.id) || null,
+    game: games.get(row.id) || null,
+    threadId: row.thread_id || null,
+    thread: threads.get(row.id) || null,
     components: row.components ? JSON.parse(row.components) : null,
     editedAt: row.edited_at,
     createdAt: row.created_at,
   }));
+}
+
+// Games: the public view of each game's state (see lib/games.js).
+function gamesById(ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const { GAMES } = require('../lib/games');
+  for (const row of db.prepare('SELECT * FROM games WHERE message_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(ids))) {
+    const rules = GAMES[row.game];
+    if (rules) out.set(row.message_id, { kind: row.game, name: rules.name, players: JSON.parse(row.players), ...rules.view(JSON.parse(row.state)) });
+  }
+  return out;
+}
+
+// Threads hanging off these messages: how many replies, when the last one was, and who's in it.
+function threadsById(ids) {
+  const out = new Map();
+  if (!ids.length) return out;
+  const rows = db.prepare(`SELECT thread_id, COUNT(*) AS n, MAX(created_at) AS last_at, json_group_array(DISTINCT author_id) AS people
+    FROM messages WHERE thread_id IN (SELECT value FROM json_each(?)) GROUP BY thread_id`).all(JSON.stringify(ids));
+  for (const row of rows) out.set(row.thread_id, { count: row.n, lastAt: row.last_at, people: JSON.parse(row.people).slice(0, 5) });
+  return out;
+}
+
+function threadMessages(rootId) {
+  return serializeAll(db.prepare('SELECT * FROM messages WHERE thread_id = ? ORDER BY id').all(rootId));
 }
 
 // Polls: question, options with the ids of who voted for each, and when it closes.
@@ -118,16 +149,20 @@ function get(id) {
 // A page of messages, returned oldest → newest.
 function list(channelId, { before, limit }) {
   const rows = before
-    ? db.prepare('SELECT * FROM messages WHERE channel_id = ? AND id < ? ORDER BY id DESC LIMIT ?').all(channelId, before, limit)
-    : db.prepare('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?').all(channelId, limit);
+    ? db.prepare('SELECT * FROM messages WHERE channel_id = ? AND thread_id IS NULL AND id < ? ORDER BY id DESC LIMIT ?').all(channelId, before, limit)
+    : db.prepare('SELECT * FROM messages WHERE channel_id = ? AND thread_id IS NULL ORDER BY id DESC LIMIT ?').all(channelId, limit);
   return serializeAll(rows.reverse());
 }
 
-const create = db.transaction((channelId, authorId, content, attachmentIds, replyToId = null) => {
+const create = db.transaction((channelId, authorId, content, attachmentIds, replyToId = null, threadId = null) => {
   if (replyToId && get(replyToId)?.channel_id !== channelId) fail(400, 'You can only reply to a message in the same channel.');
+  if (threadId) {
+    const root = get(threadId);
+    if (root?.channel_id !== channelId || root.thread_id) fail(400, 'That thread is not in this channel.');
+  }
   const id = newId();
-  db.prepare('INSERT INTO messages (id, channel_id, author_id, content, reply_to_id, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-    .run(id, channelId, authorId, content, replyToId, Date.now());
+  db.prepare('INSERT INTO messages (id, channel_id, author_id, content, reply_to_id, thread_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(id, channelId, authorId, content, replyToId, threadId, Date.now());
   if (attachments.attach(attachmentIds, authorId, id) !== attachmentIds.length) {
     fail(400, 'One of the attachments is missing or was already sent.');
   }
@@ -171,6 +206,7 @@ function hasAttachments(id) {
 
 const remove = db.transaction((message) => {
   db.prepare('DELETE FROM messages WHERE id = ?').run(message.id);
+  db.prepare('DELETE FROM messages WHERE thread_id = ?').run(message.id); // a thread goes with its first message
   db.prepare(`
     UPDATE channels SET last_message_id = (SELECT MAX(id) FROM messages WHERE channel_id = ?)
     WHERE id = ? AND last_message_id = ?
@@ -187,7 +223,7 @@ function setComponents(id, components) {
 }
 
 module.exports = {
-  setComponents, copiesOf,
+  setComponents, copiesOf, threadMessages,
   serializeAll,
   createPoll, getPoll, vote, setEmbeds, newest,
   serialize, get, list, create, edit, setPinned, pinned, search, react, unreact, hasAttachments, remove,

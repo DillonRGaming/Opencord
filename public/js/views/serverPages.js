@@ -96,7 +96,7 @@ export async function openInviteLink(server) {
 
 const SLOWMODE = [[0, 'Off'], [5, '5s'], [30, '30s'], [60, '1m'], [300, '5m'], [3600, '1h']];
 
-const KIND_LABEL = { text: 'Text', voice: 'Voice', posts: 'Posts', whiteboard: 'Whiteboard', calendar: 'Calendar', music: 'Music', wiki: 'Wiki', category: 'Category' };
+const KIND_LABEL = { text: 'Text', voice: 'Voice', posts: 'Posts', whiteboard: 'Whiteboard', calendar: 'Calendar', music: 'Music', wiki: 'Wiki', video: 'Video', category: 'Category' };
 // The kinds you can make, as cards with a line about each.
 const KIND_CARDS = [
   ['text', 'hash', 'Text', 'Messages, files and replies'],
@@ -106,6 +106,7 @@ const KIND_CARDS = [
   ['calendar', 'calendar', 'Calendar', 'Events people can say they’re going to'],
   ['music', 'music', 'Music', 'A shared queue that plays in sync'],
   ['wiki', 'book', 'Wiki', 'Pages anyone can write and edit'],
+  ['video', 'video', 'Video', 'Watch YouTube and your own videos'],
   ['category', 'folder', 'Category', 'A folder for other channels'],
 ];
 
@@ -185,7 +186,7 @@ export function openChannelPage(server, channel, options = {}) {
   const drawExtras = () => extras.replaceChildren(...[
     kind !== 'category' && categories.length > 0 && settingRow('Category',
       segmented([[null, 'None'], ...categories.map((c) => [c.id, c.name])], parentId, (value) => { parentId = value; })),
-    channel && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && field('Topic', topic),
+    channel && ['text', 'posts', 'calendar', 'music', 'wiki', 'video'].includes(kind) && field('Topic', topic),
     channel && kind === 'text' && settingRow('Slowmode', segmented(SLOWMODE, slowmode, (value) => { slowmode = value; })),
     // Permissions, kept to two plain questions: who can see it, and who can post in it.
     channel && kind !== 'category' && settingRow('Who can see it', segmented([[false, 'Everyone'], [true, 'Only some roles']], Boolean(viewRoles), (value) => {
@@ -193,8 +194,8 @@ export function openChannelPage(server, channel, options = {}) {
       drawExtras();
     })),
     channel && viewRoles && rolePicker(roles, viewRoles, (next) => { viewRoles = next; }, 'Admins and people who can manage channels always see it.'),
-    channel && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && settingRow({ posts: 'Who can start posts', calendar: 'Who can add events', music: 'Who can add songs', wiki: 'Who can write pages' }[kind] || 'Who can post', segmented([[false, 'Everyone'], [true, 'Only some roles']], readOnly, (value) => { readOnly = value; drawExtras(); })),
-    channel && readOnly && ['text', 'posts', 'calendar', 'music', 'wiki'].includes(kind) && rolePicker(roles, postRoles, (next) => { postRoles = next; }, 'Admins and the owner always can.'),
+    channel && ['text', 'posts', 'calendar', 'music', 'wiki', 'video'].includes(kind) && settingRow({ posts: 'Who can start posts', calendar: 'Who can add events', music: 'Who can add songs', wiki: 'Who can write pages', video: 'Who can add videos' }[kind] || 'Who can post', segmented([[false, 'Everyone'], [true, 'Only some roles']], readOnly, (value) => { readOnly = value; drawExtras(); })),
+    channel && readOnly && ['text', 'posts', 'calendar', 'music', 'wiki', 'video'].includes(kind) && rolePicker(roles, postRoles, (next) => { postRoles = next; }, 'Admins and the owner always can.'),
   ].filter(Boolean));
 
   const editor = form({
@@ -203,7 +204,7 @@ export function openChannelPage(server, channel, options = {}) {
       if (channel) {
         const body = { name: name.value };
         if (kind === 'text') Object.assign(body, { topic: topic.value, slowmode, readOnly, postRoles });
-        if (['posts', 'calendar', 'music', 'wiki'].includes(kind)) Object.assign(body, { topic: topic.value, readOnly, postRoles });
+        if (['posts', 'calendar', 'music', 'wiki', 'video'].includes(kind)) Object.assign(body, { topic: topic.value, readOnly, postRoles });
         if (kind !== 'category') body.viewRoles = viewRoles;
         await api.patch(`/api/channels/${channel.id}`, body);
         if (kind !== 'category' && (parentId || null) !== (channel.parentId || null)) {

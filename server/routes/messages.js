@@ -51,7 +51,7 @@ router.delete('/:id', (req, res) => {
   const moderator = channel.server_id && servers.can(channel.server_id, req.user.id, 'manageMessages');
   if (!mine && !moderator) fail(403, "You can't delete that message.");
 
-  const files = attachments.pathsForMessage(message.id);
+  const files = [message, ...messages.threadMessages(message.id)].flatMap((m) => attachments.pathsForMessage(m.id));
   links.relayDelete(message);
   messages.remove(message);
   storage.remove(...files);
@@ -127,6 +127,37 @@ router.post('/:id/menus/:index', (req, res) => {
   if (Date.now() - (clicks.get(req.user.id) || 0) < 1000) fail(429, 'Slow down a little.');
   clicks.set(req.user.id, Date.now());
   res.json({ ok: bots.pickFromMenu(channel, message, req.user, choice) });
+});
+
+// A move in a game: { move } or { resign: true }. Only the two players, only on their turn.
+router.post('/:id/game', (req, res) => {
+  const { message, channel } = visibleMessage(req.params.id, req.user.id);
+  const games = require('../models/games');
+  const { GAMES, MoveError } = require('../lib/games');
+  const game = games.get(message.id);
+  if (!game) fail(404, 'That message has no game.');
+  const { players } = game;
+  if (game.state.over) fail(400, 'This game is over.');
+  // An open seat goes to the first other person who plays.
+  if (!players[1] && req.user.id !== players[0]) players[1] = req.user.id;
+  const seat = players.indexOf(req.user.id);
+  if (seat === -1) fail(403, 'Only the two players can play. Start your own with /' + game.kind + '.');
+  let state;
+  if (req.body.resign) {
+    state = { ...game.state, over: true, winner: 1 - seat, reason: 'resigned', turn: null };
+  } else {
+    if (game.state.turn !== null && game.state.turn !== undefined && game.state.turn !== seat) fail(400, 'It’s not your turn.');
+    try {
+      state = GAMES[game.kind].move(game.state, seat, req.body.move);
+    } catch (err) {
+      if (err instanceof MoveError) fail(400, err.message);
+      throw err;
+    }
+  }
+  games.save(message.id, players, state);
+  const json = messages.serialize(messages.get(message.id));
+  realtime.toChannel(channel, 'message:update', json);
+  res.json(json);
 });
 
 router.put('/:id/pin', pinRoute(true));

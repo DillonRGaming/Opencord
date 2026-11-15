@@ -129,13 +129,15 @@ function musicState(channelId) {
   const current = s?.item_id && queue.some((q) => q.id === s.item_id) ? s : null;
   return {
     channelId, queue, now: Date.now(),
-    playing: current ? { itemId: current.item_id, startedAt: current.started_at, pausedAt: current.paused_at } : null,
+    playing: current ? { itemId: current.item_id, startedAt: current.started_at, pausedAt: current.paused_at, rate: current.rate || 1 } : null,
   };
 }
 
-function setPlaying(channelId, itemId, startedAt = Date.now(), pausedAt = null) {
-  db.prepare('INSERT OR REPLACE INTO music_state (channel_id, item_id, started_at, paused_at) VALUES (?, ?, ?, ?)')
-    .run(channelId, itemId, startedAt, pausedAt);
+// startedAt is when the track would have started had it always played at `rate`, so the position is
+// (now − startedAt) × rate.
+function setPlaying(channelId, itemId, startedAt = Date.now(), pausedAt = null, rate = 1) {
+  db.prepare('INSERT OR REPLACE INTO music_state (channel_id, item_id, started_at, paused_at, rate) VALUES (?, ?, ?, ?, ?)')
+    .run(channelId, itemId, startedAt, pausedAt, rate);
 }
 
 // The current track is done: drop it and start the next one (if any).
@@ -143,7 +145,8 @@ function advance(channelId) {
   const s = db.prepare('SELECT item_id FROM music_state WHERE channel_id = ?').get(channelId);
   if (s?.item_id) db.prepare('DELETE FROM music_queue WHERE id = ?').run(s.item_id);
   const next = db.prepare('SELECT id FROM music_queue WHERE channel_id = ? ORDER BY id LIMIT 1').get(channelId);
-  setPlaying(channelId, next?.id || null, next ? Date.now() : null);
+  const rate = db.prepare('SELECT rate FROM music_state WHERE channel_id = ?').get(channelId)?.rate || 1;
+  setPlaying(channelId, next?.id || null, next ? Date.now() : null, null, rate);
 }
 
 const musicChanged = (channel) => realtime.toServer(channel.server_id, 'music:update', musicState(channel.id));
@@ -183,7 +186,7 @@ router.post('/:id/music', async (req, res, next) => {
   }
 });
 
-// play, pause, skip, seek (position in seconds), or ended (sent by players when a track finishes).
+// play, pause, skip, seek (position in seconds), rate (0.25–2), or ended (sent by players when a track finishes).
 router.post('/:id/music/control', (req, res) => {
   const channel = appChannel(req.params.id, req.user.id, 'music');
   const { action, itemId } = req.body;
@@ -194,13 +197,19 @@ router.post('/:id/music/control', (req, res) => {
   if (['ended', 'skip'].includes(action)) {
     if (itemId === p.itemId) advance(channel.id);
   } else if (action === 'pause') {
-    if (!p.pausedAt) setPlaying(channel.id, p.itemId, p.startedAt, Date.now());
+    if (!p.pausedAt) setPlaying(channel.id, p.itemId, p.startedAt, Date.now(), p.rate);
   } else if (action === 'play') {
-    if (p.pausedAt) setPlaying(channel.id, p.itemId, p.startedAt + (Date.now() - p.pausedAt));
+    if (p.pausedAt) setPlaying(channel.id, p.itemId, p.startedAt + (Date.now() - p.pausedAt), null, p.rate);
   } else if (action === 'seek') {
     const position = Math.max(0, Number(req.body.position) || 0);
     const now = Date.now();
-    setPlaying(channel.id, p.itemId, now - position * 1000, p.pausedAt ? now : null);
+    setPlaying(channel.id, p.itemId, now - (position * 1000) / p.rate, p.pausedAt ? now : null, p.rate);
+  } else if (action === 'rate') {
+    const rate = Number(req.body.rate);
+    if (!Number.isFinite(rate) || rate < 0.25 || rate > 2) fail(400, 'Speed must be between 0.25× and 2×.');
+    const ref = p.pausedAt || Date.now();
+    const position = ((ref - p.startedAt) / 1000) * p.rate;
+    setPlaying(channel.id, p.itemId, ref - (position * 1000) / rate, p.pausedAt, rate);
   } else {
     fail(400, 'Unknown action.');
   }
@@ -216,6 +225,63 @@ router.delete('/:id/music/:itemId', (req, res) => {
   if (musicState(channel.id).playing?.itemId === row.id) advance(channel.id);
   else db.prepare('DELETE FROM music_queue WHERE id = ?').run(row.id);
   musicChanged(channel);
+  res.sendStatus(204);
+});
+
+// --- video channels: a shared library of YouTube links and uploaded videos, plus YouTube search (routes/fun.js) ---
+
+function videoList(channelId) {
+  return db.prepare('SELECT * FROM channel_videos WHERE channel_id = ? ORDER BY id DESC').all(channelId).map((row) => ({
+    id: row.id, kind: row.kind, source: row.source, title: row.title, author: row.author, addedBy: row.added_by, createdAt: row.created_at,
+  }));
+}
+const videosChanged = (channel) => realtime.toServer(channel.server_id, 'videos:update', { channelId: channel.id, videos: videoList(channel.id) });
+
+router.get('/:id/videos', (req, res) => {
+  res.json(videoList(appChannel(req.params.id, req.user.id, 'video').id));
+});
+
+// { url } for a YouTube link, or { attachmentId } for a video file just uploaded.
+router.post('/:id/videos', async (req, res) => {
+  const channel = appChannel(req.params.id, req.user.id, 'video');
+  canAdd(channel, req.user.id);
+  if (db.prepare('SELECT COUNT(*) AS n FROM channel_videos WHERE channel_id = ?').get(channel.id).n >= 1000) fail(400, 'This channel has too many videos.');
+  const id = newId();
+  if (req.body.attachmentId) {
+    const file = db.prepare('SELECT * FROM attachments WHERE id = ? AND uploader_id = ? AND message_id IS NULL').get(String(req.body.attachmentId), req.user.id);
+    if (!file || file.kind !== 'video') fail(400, 'That upload isn’t a video the browser can play (try MP4 or WebM).');
+    // The file hangs off a hidden message in this channel, so only people who can see the channel can watch it,
+    // and it's deleted with the channel. last_message_id is left alone so it doesn't show as unread.
+    const messageId = newId();
+    db.transaction(() => {
+      db.prepare("INSERT INTO messages (id, channel_id, author_id, content, created_at) VALUES (?, ?, ?, '', ?)").run(messageId, channel.id, req.user.id, Date.now());
+      db.prepare('UPDATE attachments SET message_id = ? WHERE id = ?').run(messageId, file.id);
+      const title = req.body.title ? text(req.body.title, 'Title', { max: 200 }) : file.name.replace(/\.[a-z0-9]+$/i, '');
+      db.prepare("INSERT INTO channel_videos (id, channel_id, added_by, kind, source, title, author, message_id, created_at) VALUES (?, ?, ?, 'file', ?, ?, '', ?, ?)")
+        .run(id, channel.id, req.user.id, `/media/attachments/${file.id}/${encodeURIComponent(file.name)}`, title || 'Video', messageId, Date.now());
+    })();
+  } else {
+    const url = text(req.body.url, 'Link', { min: 1, max: 500 });
+    const video = (() => { try { return previews.youtubeId(url); } catch { return null; } })() || (/^[\w-]{11}$/.test(url) ? url : null);
+    if (!video || !/^[\w-]{6,20}$/.test(video)) fail(400, 'Paste a YouTube link.');
+    const info = await previews.preview(`https://www.youtube.com/watch?v=${video}`).catch(() => null);
+    db.prepare("INSERT INTO channel_videos (id, channel_id, added_by, kind, source, title, author, created_at) VALUES (?, ?, ?, 'youtube', ?, ?, ?, ?)")
+      .run(id, channel.id, req.user.id, video, (req.body.title || info?.title || 'YouTube video').slice(0, 200), (req.body.author || info?.description || '').slice(0, 120), Date.now());
+  }
+  videosChanged(channel);
+  res.status(201).json(videoList(channel.id).find((v) => v.id === id));
+});
+
+router.delete('/:id/videos/:videoId', (req, res) => {
+  const channel = appChannel(req.params.id, req.user.id, 'video');
+  const row = db.prepare('SELECT * FROM channel_videos WHERE id = ? AND channel_id = ?').get(req.params.videoId, channel.id);
+  if (!row) fail(404, 'Video not found.');
+  if (row.added_by !== req.user.id && !isMod(channel, req.user.id)) fail(403, 'Only whoever added it (or an admin) can remove it.');
+  const files = row.message_id ? require('../models/attachments').pathsForMessage(row.message_id) : [];
+  db.prepare('DELETE FROM channel_videos WHERE id = ?').run(row.id);
+  if (row.message_id) db.prepare('DELETE FROM messages WHERE id = ?').run(row.message_id);
+  require('../lib/storage').remove(...files);
+  videosChanged(channel);
   res.sendStatus(204);
 });
 

@@ -1,7 +1,7 @@
 // Slash commands typed in the message box. Each one either changes the message before it's sent
 // (/shrug, /me…) or does something instead of sending (/poll, /ban, /clear…).
 import * as api from './api.js';
-import { state, canModerate } from './store.js';
+import { state, canModerate, dmPeople } from './store.js';
 import { copyText, toast } from './ui.js';
 import { parseWhen, stampCode } from './markdown.js';
 
@@ -15,6 +15,11 @@ export const COMMANDS = [
   { name: 'me', usage: 'action', about: 'Says it as an action, in italics' },
   { name: 'spoiler', usage: 'message', about: 'Hides the message until clicked' },
   { name: 'timestamp', usage: 'in 2h | tomorrow 8pm | 20:30 | 2026-11-20 19:00', about: 'Posts a time that shows in everyone’s own time zone' },
+  { name: 'chess', usage: '[@user]', about: 'Play chess. Leave out the name and anyone can join', game: true },
+  { name: 'tictactoe', usage: '[@user]', about: 'Play tic-tac-toe', game: true },
+  { name: 'connect4', usage: '[@user]', about: 'Play Connect Four', game: true },
+  { name: 'rps', usage: '[@user]', about: 'Rock paper scissors, best of 3', game: true },
+  { name: 'location', usage: '[label]', about: 'Shares where you are on a map' },
   { name: 'invite', usage: '', about: 'Makes an invite link and copies it', server: true },
   { name: 'kick', usage: '@user [reason]', about: 'Removes someone from the server', mod: true },
   { name: 'ban', usage: '@user [reason]', about: 'Bans someone from the server', mod: true },
@@ -35,7 +40,17 @@ export function availableCommands(channel) {
 
 function memberByName(channel, name) {
   const clean = name.replace(/^@/, '').toLowerCase();
-  return (state.members.get(channel.serverId) || []).find((m) => m.user.username === clean)?.user || null;
+  const people = channel.serverId ? (state.members.get(channel.serverId) || []).map((m) => m.user) : dmPeople(channel);
+  return people.find((u) => u.username === clean) || null;
+}
+
+function where() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) { reject(new Error('This browser can’t share a location.')); return; }
+    navigator.geolocation.getCurrentPosition(resolve, (err) => reject(new Error(err.code === 1
+      ? 'Location is blocked. Allow it for this site in the browser, then try again.'
+      : 'Couldn’t find where you are. Try again in a moment.')), { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 });
+  });
 }
 
 function need(condition, message) {
@@ -67,7 +82,23 @@ export async function runCommand(channel, raw, { openPoll } = {}) {
     need(ms !== null, 'Try /timestamp in 2h, /timestamp tomorrow 8pm, /timestamp 20:30 or /timestamp 2026-11-20 19:00.');
     return { send: `${stampCode(ms, 'F')} (${stampCode(ms, 'R')})` };
   }
+  if (command.game) {
+    let opponentId = null;
+    if (words[0]) {
+      const user = memberByName(channel, words[0]);
+      need(user, `${words[0]} isn't here.`);
+      need(user.id !== state.me.id, 'Pick someone else to play against.');
+      opponentId = user.id;
+    }
+    await api.post(`/api/channels/${channel.id}/games`, { game: name, opponentId });
+    return { done: true };
+  }
   switch (name) {
+    case 'location': {
+      const pos = await where();
+      await api.post(`/api/channels/${channel.id}/location`, { lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy, label: args });
+      return { done: true };
+    }
     case 'shrug': return { send: `${args} ¯\\\\\\_(ツ)\\_/¯`.trim() };
     case 'tableflip': return { send: `${args} (╯°□°)╯︵ ┻━┻`.trim() };
     case 'unflip': return { send: `${args} ┬─┬ノ( º _ ºノ)`.trim() };

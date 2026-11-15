@@ -61,15 +61,15 @@ function allowedUrl(raw) {
 }
 
 // GET a URL with all the limits above. Resolves { url, type, body } or null.
-function get(raw, { maxBytes, redirects = 3 } = {}) {
+function get(raw, { maxBytes, redirects = 3, headers = {}, timeout = TIMEOUT_MS } = {}) {
   const url = allowedUrl(raw);
   if (!url) return Promise.resolve(null);
   return new Promise((resolve) => {
     const lib = url.protocol === 'https:' ? https : http;
-    const req = lib.get(url, { lookup: safeLookup, timeout: TIMEOUT_MS, headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,image/*;q=0.9,*/*;q=0.5', 'Accept-Language': 'en' } }, (res) => {
+    const req = lib.get(url, { lookup: safeLookup, timeout, headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,image/*;q=0.9,*/*;q=0.5', 'Accept-Language': 'en', ...headers } }, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
         res.resume();
-        resolve(get(new URL(res.headers.location, url).href, { maxBytes, redirects: redirects - 1 }));
+        resolve(get(new URL(res.headers.location, url).href, { maxBytes, redirects: redirects - 1, headers, timeout }));
         return;
       }
       if (res.statusCode !== 200) { res.resume(); resolve(null); return; }

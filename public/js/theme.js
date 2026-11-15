@@ -75,6 +75,7 @@ export function apply(settings) {
   const accent = /^#[0-9a-f]{6}$/i.test(s.accent) ? s.accent : DEFAULTS.accent;
   const themeId = RENAMED[s.theme] || s.theme;
   root.dataset.theme = THEMES.some((t) => t.id === themeId) ? themeId : DEFAULTS.theme;
+  root.dataset.tone = THEMES.find((t) => t.id === root.dataset.theme)?.light ? 'light' : 'dark';
   root.dataset.density = s.density === 'compact' ? 'compact' : 'cozy';
   root.dataset.avatars = s.avatarShape === 'square' ? 'square' : 'round';
   const font = FONTS.find(([id]) => id === s.font) || FONTS[0];

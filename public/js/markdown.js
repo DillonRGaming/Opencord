@@ -172,11 +172,26 @@ function list(lines) {
   return build(0, lines.length, indent(lines[0]));
 }
 
+// A code block: highlighted, with line numbers once it's more than a couple of lines, and a copy button.
 function codeBlock(lang, code) {
-  const pre = h('pre', { class: 'md-code' });
-  const codeEl = h('code', {}, highlight(code, lang));
-  if (lang) pre.append(h('span', { class: 'md-code-lang' }, lang));
-  pre.append(codeEl);
+  const lines = code.replace(/\n$/, '').split('\n');
+  const pre = h('pre', { class: `md-code${lines.length > 2 ? ' numbered' : ''}` });
+  const gutter = lines.length > 2 && h('span', { class: 'md-code-lines', 'aria-hidden': 'true' }, lines.map((_, i) => `${i + 1}\n`).join(''));
+  const copy = h('button', {
+    type: 'button', class: 'md-code-copy', title: 'Copy code', 'aria-label': 'Copy code',
+    onclick: async (event) => {
+      event.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(code);
+        copy.textContent = 'Copied';
+      } catch {
+        copy.textContent = 'Couldn’t copy';
+      }
+      setTimeout(() => { copy.textContent = 'Copy'; }, 1500);
+    },
+  }, 'Copy');
+  pre.append(h('div', { class: 'md-code-head' }, h('span', { class: 'md-code-lang' }, lang || 'code'), copy),
+    h('div', { class: 'md-code-body' }, gutter || '', h('code', {}, highlight(code, lang))));
   return pre;
 }
 
