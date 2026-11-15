@@ -29,6 +29,7 @@ const PATHS = {
   book: 'M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5v14zM4 19.5A2.5 2.5 0 0 0 6.5 22H20v-5',
   pause: 'M7 4h3v16H7zM14 4h3v16h-3z',
   skip: 'M5 4l10 8-10 8zM19 5v14',
+  skipBack: 'M19 20L9 12l10-8zM5 19V5',
   mapPin: 'M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0zM12 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   history: 'M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5M12 7v5l3 2',
   chevronLeft: 'M15 18l-6-6 6-6',

@@ -140,11 +140,14 @@ function setPlaying(channelId, itemId, startedAt = Date.now(), pausedAt = null, 
     .run(channelId, itemId, startedAt, pausedAt, rate);
 }
 
-// The current track is done: drop it and start the next one (if any).
-function advance(channelId) {
+// The queue is a playlist: songs stay in it after they play, so you can go back. Moving on plays the next
+// song in the list (or stops at the end); `step` is 1 for next, -1 for previous.
+function advance(channelId, step = 1) {
   const s = db.prepare('SELECT item_id FROM music_state WHERE channel_id = ?').get(channelId);
-  if (s?.item_id) db.prepare('DELETE FROM music_queue WHERE id = ?').run(s.item_id);
-  const next = db.prepare('SELECT id FROM music_queue WHERE channel_id = ? ORDER BY id LIMIT 1').get(channelId);
+  const next = s?.item_id
+    ? db.prepare(`SELECT id FROM music_queue WHERE channel_id = ? AND id ${step > 0 ? '>' : '<'} ? ORDER BY id ${step > 0 ? '' : 'DESC'} LIMIT 1`).get(channelId, s.item_id)
+    : db.prepare('SELECT id FROM music_queue WHERE channel_id = ? ORDER BY id LIMIT 1').get(channelId);
+  if (!next && step < 0) return; // already at the first song
   const rate = db.prepare('SELECT rate FROM music_state WHERE channel_id = ?').get(channelId)?.rate || 1;
   setPlaying(channelId, next?.id || null, next ? Date.now() : null, null, rate);
 }
@@ -161,7 +164,7 @@ router.post('/:id/music', async (req, res, next) => {
     const channel = appChannel(req.params.id, req.user.id, 'music');
     canAdd(channel, req.user.id);
     const url = text(req.body.url, 'Link', { min: 1, max: 500 });
-    if (db.prepare('SELECT COUNT(*) AS n FROM music_queue WHERE channel_id = ?').get(channel.id).n >= 200) fail(400, 'The queue is full.');
+    if (db.prepare('SELECT COUNT(*) AS n FROM music_queue WHERE channel_id = ?').get(channel.id).n >= 500) fail(400, 'The playlist is full. Remove some songs first.');
     let item = null;
     const video = (() => { try { return previews.youtubeId(url); } catch { return null; } })();
     if (video && /^[\w-]{6,20}$/.test(video)) {
@@ -186,16 +189,30 @@ router.post('/:id/music', async (req, res, next) => {
   }
 });
 
-// play, pause, skip, seek (position in seconds), rate (0.25–2), or ended (sent by players when a track finishes).
+// play, pause, skip, previous, seek (position in seconds), rate (0.25–2), ended (sent by players when a track
+// finishes), or jump (play itemId from the start).
 router.post('/:id/music/control', (req, res) => {
   const channel = appChannel(req.params.id, req.user.id, 'music');
   const { action, itemId } = req.body;
   const state = musicState(channel.id);
   const p = state.playing;
+  if (action === 'jump') {
+    if (!state.queue.some((q) => q.id === itemId)) fail(404, 'That song isn’t in the playlist.');
+    setPlaying(channel.id, itemId, Date.now(), null, p?.rate || db.prepare('SELECT rate FROM music_state WHERE channel_id = ?').get(channel.id)?.rate || 1);
+    musicChanged(channel);
+    return res.json(musicState(channel.id));
+  }
   if (!p) fail(400, 'Nothing is playing.');
-  // "ended" and "skip" name the track they mean, so two people pressing at once don't skip twice.
+  // "ended", "skip" and "previous" name the track they mean, so two people pressing at once don't skip twice.
   if (['ended', 'skip'].includes(action)) {
     if (itemId === p.itemId) advance(channel.id);
+  } else if (action === 'previous') {
+    // Like any music player: a few seconds in, "previous" restarts the song; at the start it goes back one.
+    const position = (((p.pausedAt || Date.now()) - p.startedAt) / 1000) * p.rate;
+    if (itemId === p.itemId) {
+      if (position > 4) setPlaying(channel.id, p.itemId, Date.now(), p.pausedAt ? Date.now() : null, p.rate);
+      else advance(channel.id, -1);
+    }
   } else if (action === 'pause') {
     if (!p.pausedAt) setPlaying(channel.id, p.itemId, p.startedAt, Date.now(), p.rate);
   } else if (action === 'play') {
@@ -223,7 +240,7 @@ router.delete('/:id/music/:itemId', (req, res) => {
   if (!row) fail(404, 'Not in the queue.');
   if (row.added_by !== req.user.id && !isMod(channel, req.user.id)) fail(403, 'Only whoever added it (or an admin) can take it out.');
   if (musicState(channel.id).playing?.itemId === row.id) advance(channel.id);
-  else db.prepare('DELETE FROM music_queue WHERE id = ?').run(row.id);
+  db.prepare('DELETE FROM music_queue WHERE id = ?').run(row.id);
   musicChanged(channel);
   res.sendStatus(204);
 });

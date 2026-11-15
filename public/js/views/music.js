@@ -8,6 +8,7 @@ import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
+import { remote } from '../fun.js';
 
 let view = null; // { root, channel, serverId, music, offset, listening, player, playerFor, progress, timer }
 
@@ -144,7 +145,7 @@ function shortTitle(title) {
 function nowPlaying() {
   const item = current();
   if (!item) {
-    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', 'Paste a YouTube link below to start.'));
+    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', view.music?.queue?.length ? 'Pick a song from the playlist below.' : 'Paste a YouTube link below to start.'));
   }
   const paused = Boolean(view.music.playing.pausedAt);
   const adder = state.users.get(item.addedBy);
@@ -172,6 +173,7 @@ function nowPlaying() {
           : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { view.listening = true; render(); sync(true); } }, icon('headphones', 16), 'Listen'),
         view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : '')),
       h('div', { class: 'music-transport' },
+        iconButton('skipBack', 'Previous (or restart)', () => control('previous')),
         iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause'), 'music-main'),
         iconButton('skip', 'Skip', () => control('skip'))),
       h('div', { class: 'music-side end' },
@@ -278,13 +280,16 @@ function followLyrics(pos) {
   if (active && active !== view.activeLine) {
     view.activeLine = active;
     const list = active.parentElement;
-    list.scrollTo({ top: active.offsetTop - list.clientHeight / 2 + active.clientHeight / 2, behavior: 'smooth' });
+    // Measured against the list itself, so the line lands in the middle of the box whatever is above it.
+    const offset = active.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;
+    const top = offset - list.clientHeight / 2 + active.clientHeight / 2;
+    // Small steps glide; a big jump (someone seeked) snaps straight there.
+    list.scrollTo({ top, behavior: Math.abs(top - list.scrollTop) > list.clientHeight ? 'instant' : 'smooth' });
   }
 }
 
 function queueList() {
   const playingId = view.music?.playing?.itemId;
-  const upNext = (view.music?.queue || []).filter((q) => q.id !== playingId);
   const input = h('input', { class: 'input', placeholder: 'Add a song: paste a YouTube link', 'aria-label': 'Song link' });
   const canAdd = canPostIn(view.serverId, view.channel);
   const add = h('form', {
@@ -304,17 +309,35 @@ function queueList() {
       });
     },
   }, icon('plus', 16), input);
+  const queue = view.music?.queue || [];
+  const at = queue.findIndex((q) => q.id === playingId);
+  const paused = Boolean(view.music?.playing?.pausedAt);
+  const left = at === -1 ? 0 : queue.length - at - 1;
+  const mayRemove = (item) => item.addedBy === state.me.id || can(view.serverId, 'manageMessages');
+  const row = (item, i) => {
+    const adder = state.users.get(item.addedBy);
+    const now = item.id === playingId;
+    const played = at !== -1 && i < at;
+    const thumb = item.kind === 'youtube'
+      ? h('img', { class: 'music-item-art', src: remote(`https://i.ytimg.com/vi/${item.source}/default.jpg`), alt: '', loading: 'lazy' })
+      : h('span', { class: 'music-item-art audio' }, icon('music', 16));
+    return h('div', { class: `music-item${now ? ' now' : ''}${played ? ' played' : ''}` },
+      h('button', {
+        type: 'button', class: 'music-item-play', title: now ? 'Playing now' : 'Play this', 'aria-label': `Play ${item.title}`,
+        onclick: () => { if (!now) attempt(() => api.post(`/api/channels/${view.channel.id}/music/control`, { action: 'jump', itemId: item.id })); },
+      },
+      h('span', { class: 'music-n' }, now ? h('span', { class: `music-eq${paused ? ' paused' : ''}` }, h('i'), h('i'), h('i')) : h('span', { class: 'music-n-num' }, i + 1), !now && h('span', { class: 'music-n-play' }, icon('play', 14))),
+      thumb,
+      h('span', { class: 'music-item-text' }, h('strong', { title: item.title }, shortTitle(item.title)), h('span', {}, adder?.displayName || ''))),
+      mayRemove(item) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`)), 'music-item-remove'));
+  };
   return h('section', { class: 'music-queue' },
-    canAdd ? add : h('p', { class: 'muted' }, 'Only admins can add songs here.'),
-    h('h3', {}, upNext.length ? `Up next · ${upNext.length}` : 'Up next'),
-    upNext.length ? upNext.map((item, i) => {
-      const adder = state.users.get(item.addedBy);
-      return h('div', { class: 'music-item' },
-        h('span', { class: 'music-n' }, i + 1),
-        h('div', { class: 'music-item-text' }, h('strong', {}, item.title), h('span', {}, adder?.displayName || '')),
-        adder && avatar(adder, { size: 22 }),
-        (item.addedBy === state.me.id || can(view.serverId, 'manageMessages')) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`))));
-    }) : emptyList('music', 'Nothing up next'));
+    h('div', { class: 'music-queue-head' }, h('h3', {}, 'Playlist'),
+      queue.length > 0 && h('span', { class: 'muted' }, at === -1 ? `${queue.length} song${queue.length === 1 ? '' : 's'}` : left ? `${left} up next` : 'Last song')),
+    queue.length > 0 && h('div', { class: 'music-list' }, queue.map(row)),
+    canAdd ? add : h('p', { class: 'muted' }, 'Only some roles can add songs here.'),
+    queue.length > 0 && !left && at !== -1 && h('p', { class: 'music-hint' }, 'That’s the end of the list. Add more to keep it going.'),
+    at === -1 && queue.length > 0 && h('p', { class: 'music-hint' }, 'The playlist finished. Tap any song to play it again.'));
 }
 
 // The player lives in its own slot that redraws never touch: moving an embed in the page reloads it,

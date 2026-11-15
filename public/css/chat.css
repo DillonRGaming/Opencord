@@ -537,18 +537,39 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .music-controls .music-main { width: 46px; height: 46px; border-radius: 50%; background: var(--text); color: var(--bg-panel); }
 .music-controls .music-main:hover { background: var(--text); color: var(--bg-panel); opacity: 0.9; }
 .music-controls .icon-button.on { color: var(--accent-ink); }
-.music-queue { display: grid; gap: 6px; }
-.music-queue h3 { margin: 10px 0 2px; font-size: 0.74rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-faint); }
+.music-queue { display: grid; gap: 8px; }
+.music-queue-head { display: flex; align-items: baseline; justify-content: space-between; margin-top: 8px; }
+.music-queue-head h3 { margin: 0; font-size: 0.95rem; font-weight: 600; }
+.music-list { display: grid; gap: 2px; padding: 6px; border-radius: var(--radius); background: var(--bg-raised); }
+.music-item { position: relative; display: flex; align-items: center; border-radius: var(--radius-small); }
+.music-item:hover { background: var(--hover); }
+.music-item.now { background: var(--active); }
+.music-item.played .music-item-text, .music-item.played .music-item-art { opacity: 0.5; }
+.music-item-play { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 6px 8px; text-align: left; border-radius: inherit; }
+.music-item.now .music-item-play { cursor: default; }
+.music-n { position: relative; display: grid; place-items: center; flex: none; width: 1.6em; font-size: 0.8rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.music-n-play { position: absolute; display: none; color: var(--text); }
+.music-item:not(.now):hover .music-n-num { visibility: hidden; }
+.music-item:not(.now):hover .music-n-play { display: grid; }
+.music-item-art { flex: none; width: 48px; height: 36px; border-radius: 6px; object-fit: cover; background: var(--bg-input); }
+.music-item-art.audio { display: grid; place-items: center; color: var(--accent-ink); }
+.music-item-text { flex: 1; min-width: 0; display: grid; }
+.music-item-text strong { font-size: 0.9rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-item.now .music-item-text strong { color: var(--accent-ink); }
+.music-item-text span { font-size: 0.74rem; color: var(--text-faint); }
+.music-item-remove { flex: none; margin-right: 4px; opacity: 0; }
+.music-item:hover .music-item-remove, .music-item-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .music-item-remove { opacity: 0.6; } }
+.music-eq { display: flex; align-items: flex-end; gap: 2px; height: 14px; }
+.music-eq i { width: 3px; border-radius: 1px; background: var(--accent); animation: music-eq 0.9s ease-in-out infinite alternate; }
+.music-eq i:nth-child(2) { animation-delay: -0.3s; }
+.music-eq i:nth-child(3) { animation-delay: -0.6s; }
+.music-eq.paused i { animation: none; height: 4px; }
+@keyframes music-eq { from { height: 3px; } to { height: 14px; } }
 .music-add { display: flex; align-items: center; gap: 8px; padding: 0 12px; border-radius: var(--radius-small); background: var(--bg-raised); color: var(--text-faint); }
 .music-add:focus-within { box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent); }
 .music-add .input { flex: 1; min-width: 0; background: none; border: 0; box-shadow: none; padding-left: 0; }
-.music-item { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 4px 8px; border-radius: var(--radius-small); }
-.music-item:hover { background: var(--hover); }
-.music-n { width: 1.4em; text-align: center; font-size: 0.8rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
-.music-item-text { flex: 1; min-width: 0; display: grid; }
-.music-item-text strong { font-size: 0.9rem; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.music-item-text span { font-size: 0.74rem; color: var(--text-faint); }
-.music-item .avatar { border-radius: 50%; }
+.music-hint { margin: 0; text-align: center; font-size: 0.8rem; color: var(--text-faint); }
 @media (max-width: 799px) {
   .music-page, .music-player-slot { padding-left: 0.75rem; padding-right: 0.75rem; }
 }

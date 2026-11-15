@@ -460,11 +460,17 @@ async function run() {
   const firstId = music.playing.itemId;
   await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'ended', itemId: firstId });
   music = await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'ended', itemId: firstId });
-  assert.equal(music.queue.length, 1, 'two "ended" for the same song only skip once');
-  assert.notEqual(music.playing.itemId, firstId);
-  await bob.expect(403, 'DELETE', `/api/channels/${radio.id}/music/${music.queue[0].id}`);
-  await alice.call('DELETE', `/api/channels/${radio.id}/music/${music.queue[0].id}`);
-  assert.equal((await bob.call('GET', `/api/channels/${radio.id}/music`)).playing, null);
+  assert.equal(music.queue.length, 2, 'played songs stay in the playlist');
+  assert.equal(music.playing.itemId, music.queue[1].id, 'two "ended" for the same song only skip once');
+  music = await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'previous', itemId: music.playing.itemId });
+  assert.equal(music.playing.itemId, firstId, 'previous goes back a song');
+  music = await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'jump', itemId: music.queue[1].id });
+  assert.equal(music.playing.itemId, music.queue[1].id, 'any song can be picked');
+  music = await bob.call('POST', `/api/channels/${radio.id}/music/control`, { action: 'ended', itemId: music.queue[1].id });
+  assert.equal(music.playing, null, 'the playlist stops at the end');
+  await bob.expect(403, 'DELETE', `/api/channels/${radio.id}/music/${music.queue[1].id}`);
+  await alice.call('DELETE', `/api/channels/${radio.id}/music/${music.queue[1].id}`);
+  assert.equal((await bob.call('GET', `/api/channels/${radio.id}/music`)).queue.length, 1);
 
   const wiki = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'guide', kind: 'wiki' });
   wait = nextEvent(aSock, 'wiki:update', (p) => p.channelId === wiki.id);

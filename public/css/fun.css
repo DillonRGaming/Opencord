@@ -221,7 +221,7 @@
 .music-lyrics { display: grid; gap: 10px; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-raised); }
 .music-lyrics h3 { min-width: 0; display: flex; align-items: center; gap: 8px; margin: 0; font-size: 0.95rem; }
 .music-lyrics-of { margin-left: auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 400; font-size: 0.8rem; }
-.lyrics-lines { display: grid; gap: 2px; max-height: 340px; overflow-y: auto; scroll-behavior: smooth; mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent); padding: 40px 0; }
+.lyrics-lines { position: relative; display: grid; gap: 2px; max-height: 340px; overflow-y: auto; scroll-behavior: smooth; mask-image: linear-gradient(transparent, #000 12%, #000 88%, transparent); padding: 40px 0; }
 .lyrics-line { padding: 4px 6px; border-radius: 8px; text-align: left; font-size: 1.15rem; font-weight: 600; color: var(--text-faint); transition: color 0.2s, transform 0.2s; }
 .lyrics-line:hover { color: var(--text-muted); }
 .lyrics-line.active { color: var(--text); transform: scale(1.02); transform-origin: left; }
