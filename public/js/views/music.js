@@ -111,7 +111,7 @@ function sync(force = false) {
     view.playerFor = item.id;
     endedFor = null;
     slot.replaceChildren(view.player);
-    slot.hidden = item.kind !== 'youtube';
+    updateSlot();
     if (item.kind === 'audio') view.player.play().catch(() => {});
     return;
   }
@@ -136,10 +136,15 @@ function sync(force = false) {
 
 // --- drawing ---
 
+// Video titles carry a lot of noise ("(Official Video) [4K]"); the card shows the short version.
+function shortTitle(title) {
+  return title.replace(/\s*[([][^)\]]*[)\]]/g, '').replace(/\s+(--|—|\|)\s+.*$/, '').trim() || title;
+}
+
 function nowPlaying() {
   const item = current();
   if (!item) {
-    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', 'Add a YouTube link below to start the music.'));
+    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', 'Paste a YouTube link below to start.'));
   }
   const paused = Boolean(view.music.playing.pausedAt);
   const adder = state.users.get(item.addedBy);
@@ -151,33 +156,45 @@ function nowPlaying() {
   });
   const art = item.kind === 'youtube'
     ? h('img', { class: 'music-art', src: `/media/preview-image?url=${encodeURIComponent(`https://i.ytimg.com/vi/${item.source}/hqdefault.jpg`)}`, alt: '' })
-    : h('span', { class: 'music-art audio' }, icon('music', 34));
+    : h('span', { class: 'music-art audio' }, icon('music', 28));
+  const youtube = item.kind === 'youtube';
   return h('section', { class: 'music-now' },
     h('div', { class: 'music-info' }, art,
       h('div', { class: 'music-text' },
-        h('strong', {}, item.title),
-        h('span', {}, adder ? `Added by ${adder.displayName}` : ''),
-        h('div', { class: 'music-time' }, h('span', { class: 'music-at' }, fmt(position())), bar, h('span', { class: 'music-length' }, fmt(view.progress?.duration))))),
+        h('strong', { title: item.title }, shortTitle(item.title)),
+        adder && h('span', { class: 'music-by' }, avatar(adder, { size: 16 }), adder.displayName))),
+    h('div', { class: 'music-progress' }, bar,
+      h('div', { class: 'music-time' }, h('span', { class: 'music-at' }, fmt(position())), h('span', { class: 'music-length' }, fmt(view.progress?.duration)))),
     h('div', { class: 'music-controls' },
-      speedPicker(),
-      volumeSlider(),
-      iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : ''),
-      view.listening
-        ? iconButton('volume', 'Stop listening', () => { view.listening = false; view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'listening')
-        : h('button', { type: 'button', class: 'button accent small', onclick: () => { view.listening = true; render(); sync(true); } }, icon('headphones', 16), 'Listen'),
-      iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause'), 'music-main'),
-      iconButton('skip', 'Skip', () => control('skip'))));
+      h('div', { class: 'music-side' },
+        view.listening
+          ? iconButton('headphones', 'Stop listening', () => { view.listening = false; view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'on')
+          : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { view.listening = true; render(); sync(true); } }, icon('headphones', 16), 'Listen'),
+        view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : '')),
+      h('div', { class: 'music-transport' },
+        iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause'), 'music-main'),
+        iconButton('skip', 'Skip', () => control('skip'))),
+      h('div', { class: 'music-side end' },
+        speedPicker(),
+        volumeSlider(),
+        iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : ''))));
+}
+
+function toggleVideo() {
+  view.showVideo = !view.showVideo;
+  try { localStorage.setItem('oc:musicVideo', view.showVideo ? '1' : '0'); } catch { /* fine */ }
+  render();
 }
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-// The speed is shared: everyone listening hears the same speed.
+// The speed is shared: everyone listening hears the same speed. Clicking steps through the speeds.
 function speedPicker() {
-  const select = h('select', {
-    class: 'input music-speed', 'aria-label': 'Speed', title: 'Speed (for everyone)',
-    onchange: () => control('rate', { rate: Number(select.value) }),
-  }, SPEEDS.map((sp) => h('option', { value: sp, selected: sp === rate() }, `${sp}×`)));
-  return h('label', { class: 'music-speed-wrap' }, icon('gauge', 16), select);
+  const next = SPEEDS[(SPEEDS.indexOf(rate()) + 1) % SPEEDS.length] ?? 1;
+  return h('button', {
+    type: 'button', class: `music-speed${rate() !== 1 ? ' on' : ''}`, title: `Speed for everyone (click for ${next}×)`, 'aria-label': `Speed ${rate()}×`,
+    onclick: () => control('rate', { rate: next }),
+  }, `${rate()}×`);
 }
 
 // Volume only changes your own player.
@@ -192,7 +209,7 @@ function volumeSlider() {
     },
   });
   slider.style.setProperty('--fill', `${view.volume * 100}%`);
-  return h('label', { class: 'music-volume-wrap' }, icon('volume', 16), slider);
+  return h('label', { class: 'music-volume-wrap', title: 'Volume (just for you)' }, icon('volume', 16), slider);
 }
 
 // --- lyrics (from lrclib.net, through the server) ---
@@ -226,6 +243,7 @@ function lyricsPanel() {
   const item = current();
   const box = h('section', { class: 'music-lyrics' }, h('h3', {}, icon('lyrics', 16), 'Lyrics'), h('p', { class: 'muted' }, 'Looking for the lyrics…'));
   if (!item) { box.lastChild.textContent = 'Nothing is playing.'; return box; }
+  if (item.title === 'YouTube video') { box.lastChild.textContent = 'This video has no title to look lyrics up by.'; return box; }
   lyricsFor(item).then((found) => {
     if (!box.isConnected && !view) return;
     box.lastChild.remove();
@@ -267,7 +285,7 @@ function followLyrics(pos) {
 function queueList() {
   const playingId = view.music?.playing?.itemId;
   const upNext = (view.music?.queue || []).filter((q) => q.id !== playingId);
-  const input = h('input', { class: 'input', placeholder: 'Paste a YouTube link (or an audio file link from chat)', 'aria-label': 'Song link' });
+  const input = h('input', { class: 'input', placeholder: 'Add a song: paste a YouTube link', 'aria-label': 'Song link' });
   const canAdd = canPostIn(view.serverId, view.channel);
   const add = h('form', {
     class: 'music-add',
@@ -285,7 +303,7 @@ function queueList() {
         }
       });
     },
-  }, input, h('button', { type: 'submit', class: 'button primary small' }, icon('plus', 16), 'Add'));
+  }, icon('plus', 16), input);
   return h('section', { class: 'music-queue' },
     canAdd ? add : h('p', { class: 'muted' }, 'Only admins can add songs here.'),
     h('h3', {}, upNext.length ? `Up next · ${upNext.length}` : 'Up next'),
@@ -307,11 +325,12 @@ function render() {
   if (!view.shell) {
     view.head = h('div');
     view.slot = h('div', { class: 'music-player-slot' });
-    view.body = h('div', { class: 'page-scroll' });
+    view.content = h('div');
+    view.body = h('div', { class: 'page-scroll music-scroll' }, view.slot, view.content);
     view.shell = true;
-    view.root.replaceChildren(view.head, view.slot, view.body);
+    view.root.replaceChildren(view.head, view.body);
   }
-  view.slot.hidden = !(view.listening && current()?.kind === 'youtube');
+  updateSlot();
   view.head.replaceChildren(h('header', { class: 'main-header' },
     iconButton('back', 'Back', () => showNav(), 'back-button'),
     h('div', { class: 'main-title' }, icon('music', 18), h('span', {}, channel.name)),
@@ -319,14 +338,23 @@ function render() {
   const scroll = view.body.scrollTop;
   // The lyrics box only redraws when the song changes, so it doesn't jump back to the top.
   const item = current();
-  if (!view.lyricsOpen) view.lyricsBox = null;
+  if (!view.lyricsOpen || !item) view.lyricsBox = null;
   else if (!view.lyricsBox || view.lyricsFor !== item?.id) {
     view.lyricsBox = lyricsPanel();
     view.lyricsFor = item?.id;
     view.activeLine = null;
   }
-  view.body.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
+  view.content.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
   view.body.scrollTop = scroll;
+}
+
+// The video sits above the card when shown. Hidden, it stays in the page (tiny and invisible) so the
+// sound keeps playing.
+function updateSlot() {
+  if (!view?.slot) return;
+  const youtube = view.listening && current()?.kind === 'youtube';
+  view.slot.hidden = !youtube;
+  view.slot.classList.toggle('collapsed', !view.showVideo);
 }
 
 // The time and bar move on their own between updates.
@@ -366,7 +394,7 @@ export async function showMusic(container, channel, serverId) {
     return render();
   }
   closeMusic();
-  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, listening: false, player: null, playerFor: null, progress: { time: 0, duration: NaN }, volume: savedVolume(), lyricsOpen: false };
+  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, listening: false, player: null, playerFor: null, progress: { time: 0, duration: NaN }, volume: savedVolume(), lyricsOpen: false, showVideo: (() => { try { return localStorage.getItem('oc:musicVideo') !== '0'; } catch { return true; } })() };
   window.addEventListener('message', onPlayerMessage);
   view.timer = setInterval(tick, 500);
   ensureMembers(serverId);

@@ -155,22 +155,50 @@ function cleanTitle(title) {
     .trim();
 }
 
-async function lyrics(title, duration) {
-  const query = cleanTitle(title);
-  const res = await previews.get(`https://lrclib.net/api/search?q=${encodeURIComponent(query)}`, {
+// Ways to search for a video title, from closest to loosest: the cleaned title, then without anything in
+// brackets, then "artist / song" split on dashes (tried both ways round, since titles use either order).
+function lyricQueries(title) {
+  const clean = cleanTitle(title);
+  const bare = title.replace(/\([^)]*\)|\[[^\]]*\]|"[^"]*"|“[^”]*”/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = bare.split(/\s+(?:-{1,2}|—|–|\||•|:)\s+/).map((p) => cleanTitle(p)).filter(Boolean);
+  const out = [clean, cleanTitle(bare)];
+  if (parts.length >= 2) out.push({ artist: parts[0], track: parts[1] }, { artist: parts[1], track: parts[0] }, parts[0], parts[1]);
+  const seen = new Set();
+  return out.filter((q) => {
+    const key = JSON.stringify(q);
+    if (!q || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+async function lrclib(query) {
+  const params = typeof query === 'string' ? `q=${encodeURIComponent(query)}` : `track_name=${encodeURIComponent(query.track)}&artist_name=${encodeURIComponent(query.artist)}`;
+  const res = await previews.get(`https://lrclib.net/api/search?${params}`, {
     maxBytes: 4 * 1024 * 1024, headers: { 'User-Agent': 'Opencord (self-hosted chat)', Accept: 'application/json' }, timeout: 8000,
   });
   if (!res) throw Object.assign(new Error('Lyrics are not available right now.'), { status: 502 });
-  let list;
-  try { list = JSON.parse(res.body.toString('utf8')); } catch { list = []; }
-  list = (Array.isArray(list) ? list : []).filter((l) => l.plainLyrics || l.syncedLyrics || l.instrumental);
+  try {
+    const list = JSON.parse(res.body.toString('utf8'));
+    return (Array.isArray(list) ? list : []).filter((l) => l.plainLyrics || l.syncedLyrics || l.instrumental);
+  } catch {
+    return [];
+  }
+}
+
+async function lyrics(title, duration) {
+  let list = [];
+  for (const query of lyricQueries(title)) {
+    list = await lrclib(query);
+    if (list.length) break;
+  }
   if (!list.length) return null;
   // Prefer synced lyrics, and a length close to the track's when we know it.
   const score = (l) => (l.syncedLyrics ? 0 : 30) + (duration ? Math.min(60, Math.abs((l.duration || 0) - duration)) : 0);
   const best = list.sort((a, b) => score(a) - score(b))[0];
   return {
     track: best.trackName, artist: best.artistName, instrumental: Boolean(best.instrumental),
-    plain: best.plainLyrics || '', synced: best.syncedLyrics || '', query,
+    plain: best.plainLyrics || '', synced: best.syncedLyrics || '',
   };
 }
 

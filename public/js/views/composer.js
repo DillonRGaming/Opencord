@@ -100,6 +100,7 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
     }, item.face && h('span', { class: 'suggest-face' }, item.face), h('span', { class: 'suggest-label' }, item.label),
     item.tag && h('span', { class: 'suggest-tag' }, item.tag), item.sub && h('span', { class: 'suggest-sub' }, item.sub))));
     suggestBox.classList.toggle('hint', suggest.items.length === 1 && Boolean(suggest.items[0].hint));
+    suggestBox.children[suggest.index]?.scrollIntoView({ block: 'nearest' });
   }
 
   function updateSuggest() {
