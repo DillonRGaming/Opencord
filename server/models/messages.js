@@ -12,6 +12,13 @@ const LONG = 2000;
 const LONG_PREVIEW = 1200;
 
 // emoji → [userId…] for each message, in the order the emoji were first used.
+// Where a linked-channel copy came from, so clicking its tag can jump to the original.
+function relaySource(messageId) {
+  const source = messageId && db.prepare(`SELECT messages.id, messages.channel_id, channels.server_id FROM messages
+    JOIN channels ON channels.id = messages.channel_id WHERE messages.id = ?`).get(messageId);
+  return source ? { messageId: source.id, channelId: source.channel_id, serverId: source.server_id } : {};
+}
+
 function reactionsByMessage(ids) {
   const out = new Map();
   if (!ids.length) return out;
@@ -54,7 +61,7 @@ function serializeAll(rows) {
     content: row.content.length > LONG ? row.content.slice(0, LONG_PREVIEW) : row.content,
     ...(row.content.length > LONG ? { truncated: true, length: row.content.length } : {}),
     attachments: files.get(row.relay_of || row.id) || [],
-    relay: row.relay ? JSON.parse(row.relay) : null,
+    relay: row.relay ? { ...JSON.parse(row.relay), ...relaySource(row.relay_of) } : null,
     // A reply whose original was deleted keeps replyTo: { id, deleted: true }.
     replyTo: row.reply_to_id ? (replies.get(row.reply_to_id) || { id: row.reply_to_id, deleted: true }) : null,
     reactions: [...(reactions.get(row.id) || [])].map(([emoji, userIds]) => ({ emoji, userIds })),

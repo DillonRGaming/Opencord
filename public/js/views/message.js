@@ -3,6 +3,7 @@ import { openEmojiPicker, emojiFace } from '../emojiPicker.js';
 import { messageMenu, userMenu } from '../menus.js';
 import * as api from '../api.js';
 import { h } from '../dom.js';
+import { navigate, paths } from '../router.js';
 import { icon } from '../icons.js';
 import { state, roleColor } from '../store.js';
 import { mentionsMe, renderMarkdown, formatDay, formatSize, formatStamp, formatTime, sameDay } from '../format.js';
@@ -343,6 +344,19 @@ function callNote(message, call) {
         }, 'accent small'))));
 }
 
+// "Sent from another server" tag on a linked-channel copy. Clicking it opens the original message, if you're in that server.
+function relayTag(relay) {
+  const reachable = relay.serverId && state.servers.has(relay.serverId);
+  return h(reachable ? 'button' : 'span', {
+    type: reachable ? 'button' : null, class: 'relay-tag',
+    title: `Sent in #${relay.channel} on ${relay.server}${reachable ? ' (click to open)' : ''}`,
+    onclick: reachable ? () => {
+      navigate(paths.channel(relay.serverId, relay.channelId));
+      import('./chat.js').then((chat) => chat.jumpToMessage(relay.channelId, relay.messageId));
+    } : null,
+  }, icon('link', 11), relay.server);
+}
+
 export function messageRow(message, previous, mine, handlers) {
   const call = message.components?.[0]?.type === 'call' ? message.components[0] : null;
   if (call) return callNote(message, call);
@@ -385,7 +399,7 @@ export function messageRow(message, previous, mine, handlers) {
         style: roleColor(handlers.serverId, author.id) ? { color: roleColor(handlers.serverId, author.id) } : null,
       }, author.displayName),
       author.bot && h('span', { class: 'bot-tag' }, 'Bot'),
-      message.relay && h('span', { class: 'relay-tag', title: `Sent in #${message.relay.channel} on ${message.relay.server}` }, icon('link', 11), message.relay.server),
+      message.relay && relayTag(message.relay),
       h('time', { class: 'message-stamp', title: formatStamp(message.createdAt) }, formatTime(message.createdAt)),
       message.pinned && h('span', { class: 'pinned-mark', title: 'Pinned' }, icon('pin', 13))),
     h('div', { class: 'message-main' },
