@@ -90,7 +90,8 @@ function cleanup() {
 }
 
 const server = http.createServer(app);
-realtime.init(server);
+realtime.init();
+require('./lib/liveNode').attach(server, realtime.live());
 cleanup();
 setInterval(cleanup, config.cleanupIntervalMs).unref();
 

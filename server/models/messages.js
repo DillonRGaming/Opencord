@@ -203,6 +203,13 @@ function react(messageId, userId, emoji) {
   db.prepare('INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(messageId, userId, emoji, Date.now());
 }
 
+// The newest "started a call" note in a DM that has no end time yet.
+function openCallMessageId(channelId) {
+  const row = db.prepare(`SELECT id FROM messages WHERE channel_id = ? AND components LIKE '%"type":"call"%'
+    AND components NOT LIKE '%"endedAt"%' ORDER BY id DESC LIMIT 1`).get(channelId);
+  return row?.id || null;
+}
+
 function reactionEmojis(messageId) {
   return db.prepare('SELECT DISTINCT emoji FROM reactions WHERE message_id = ?').all(messageId).map((r) => r.emoji);
 }
@@ -233,7 +240,7 @@ function setComponents(id, components) {
   return get(id);
 }
 
-module.exports = { reactionEmojis,
+module.exports = { reactionEmojis, openCallMessageId,
   setComponents, copiesOf, threadMessages,
   serializeAll,
   createPoll, getPoll, vote, setEmbeds, newest,

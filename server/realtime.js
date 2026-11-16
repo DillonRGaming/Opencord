@@ -1,4 +1,4 @@
-const { Server } = require('socket.io');
+const { LiveServer } = require('./live');
 const auth = require('./lib/auth');
 const users = require('./models/users');
 const servers = require('./models/servers');
@@ -12,9 +12,10 @@ const userRoom = (id) => `user:${id}`;
 const serverRoom = (id) => `server:${id}`;
 const sessionRoom = (hash) => `session:${hash}`;
 
-function init(httpServer) {
-  // Live messages are small (typing, voice signalling, whiteboard strokes): 256 KB is plenty.
-  io = new Server(httpServer, { maxHttpBufferSize: 256 * 1024 });
+// Sets up the live connection server. A transport (lib/liveNode.js, or the Durable Object on Cloudflare) feeds
+// it connections; this file decides what they may do.
+function init() {
+  io = new LiveServer();
 
   io.use((socket, next) => {
     const session = auth.authenticate(socket.request.headers.cookie);
@@ -24,11 +25,18 @@ function init(httpServer) {
     next();
   });
 
-  io.on('connection', (socket) => {
+  io.on('connection', (socket, { restored }) => {
     const { userId, sessionHash } = socket.data;
-    stats.recordActivity(userId);
     socket.join([userRoom(userId), sessionRoom(sessionHash), ...servers.idsForUser(userId).map(serverRoom)]);
-    addSocket(userId, 1);
+    if (restored) {
+      // Woken from sleep: rebuild what memory lost from what the connection kept, without telling anyone.
+      socketCounts.set(userId, (socketCounts.get(userId) || 0) + 1);
+      if (socket.data.idle) setIdle(socket, true, { quiet: true });
+      if (socket.data.voice) rejoinVoice(socket);
+    } else {
+      stats.recordActivity(userId);
+      addSocket(userId, 1);
+    }
 
     // Each connection gets 100 events per 10 seconds; past that they're ignored, and far past it the
     // connection is dropped, so a script can't flood everyone's typing dots or the voice relay.
@@ -54,6 +62,7 @@ function init(httpServer) {
 
     socket.on('disconnect', () => {
       idleSockets.get(userId)?.delete(socket.id);
+      if (!idleSockets.get(userId)?.size) idleSockets.delete(userId);
       leaveVoice(socket);
       addSocket(userId, -1);
     });
@@ -87,7 +96,7 @@ function init(httpServer) {
     });
 
     // --- voice: the server only relays WebRTC offers/answers/candidates between people in the same room ---
-    socket.emit('voice:states', voiceStatesFor(userId));
+    if (!restored) socket.emit('voice:states', voiceStatesFor(userId));
 
     socket.on('voice:join', (channelId, reply) => {
       const channel = typeof channelId === 'string' && channels.get(channelId);
@@ -98,8 +107,10 @@ function init(httpServer) {
       if (!voice.has(channel.id)) voice.set(channel.id, new Map());
       const room = voice.get(channel.id);
       const peers = [...room.values()].map((p) => p.userId);
-      room.set(socket.id, { userId, muted: false, deafened: false });
       socket.data.voice = channel.id;
+      socket.data.voiceState = { userId, muted: false, deafened: false };
+      socket.save();
+      room.set(socket.id, socket.data.voiceState);
       socket.join(voiceRoom(channel.id));
       announceVoice(channel);
       // The first person into a DM call rings everyone else in the DM, and the chat gets a "started a call" line.
@@ -121,6 +132,7 @@ function init(httpServer) {
       me.speaking = Boolean(update?.speaking);
       me.video = Boolean(update?.video);
       me.screen = Boolean(update?.screen);
+      socket.save();
       announceVoice(channels.get(socket.data.voice));
     });
 
@@ -183,9 +195,10 @@ function startCallMessage(channel, userId) {
   }
 }
 function endCallMessage(channelId) {
-  const id = callMessages.get(channelId);
-  callMessages.delete(channelId);
   const messages = require('./models/messages');
+  // After a sleep the map is empty, so fall back to the newest call note in the chat that hasn't ended.
+  const id = callMessages.get(channelId) || messages.openCallMessageId(channelId);
+  callMessages.delete(channelId);
   const row = id && messages.get(id);
   if (!row?.components) return;
   const parts = JSON.parse(row.components);
@@ -193,10 +206,20 @@ function endCallMessage(channelId) {
   toChannel(channels.get(channelId), 'message:update', messages.serialize(messages.setComponents(id, parts)));
 }
 
+// A woken socket that was in a call: put it back in the room, quietly.
+function rejoinVoice(socket) {
+  const channelId = socket.data.voice;
+  if (!voice.has(channelId)) voice.set(channelId, new Map());
+  voice.get(channelId).set(socket.id, socket.data.voiceState || { userId: socket.data.userId, muted: false, deafened: false });
+  socket.join(voiceRoom(channelId));
+}
+
 function leaveVoice(socket) {
   const channelId = socket.data.voice;
   if (!channelId) return;
   socket.data.voice = null;
+  socket.data.voiceState = null;
+  if (socket.open) socket.save();
   socket.leave(voiceRoom(channelId));
   const room = voice.get(channelId);
   room?.delete(socket.id);
@@ -250,13 +273,17 @@ function announcePresence(userId) {
   toUser(userId, 'presence', { userId, online: true, status: status === 'offline' ? 'invisible' : status });
 }
 
-function setIdle(socket, idle) {
+function setIdle(socket, idle, { quiet = false } = {}) {
   const { userId } = socket.data;
+  if (!quiet && socket.data.idle !== idle) {
+    socket.data.idle = idle;
+    socket.save();
+  }
   if (!idleSockets.has(userId)) idleSockets.set(userId, new Set());
   const set = idleSockets.get(userId);
   if (idle) set.add(socket.id); else set.delete(socket.id);
   if (!set.size) idleSockets.delete(userId);
-  announcePresence(userId);
+  if (!quiet) announcePresence(userId);
 }
 
 function addSocket(userId, change) {
@@ -326,12 +353,16 @@ function disconnectSessions(sessionHashes) {
 }
 
 function close() {
-  return io.close();
+  io.close();
+  return Promise.resolve();
 }
+
+// The connection server, for transports to hand connections to.
+const live = () => io;
 
 module.exports = {
   statusOf, announcePresence,
   botJoinVoice, botLeaveVoice,
-  init, close, isOnline, onlineCount, toUser, toUsers, toServer, toChannel, toAudience,
+  init, live, close, isOnline, onlineCount, toUser, toUsers, toServer, toChannel, toAudience,
   joinServer, leaveServer, closeServer, disconnectSessions,
 };

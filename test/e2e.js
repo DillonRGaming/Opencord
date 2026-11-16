@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
-const { io } = require('socket.io-client');
+const { liveClient } = require('./liveClient');
 
 const PORT = 3190;
 const BASE = `http://127.0.0.1:${PORT}`;
@@ -67,7 +67,7 @@ class Client {
   }
 
   socket() {
-    const socket = io(BASE, { extraHeaders: { cookie: this.cookie }, transports: ['websocket'] });
+    const socket = liveClient(BASE, { cookie: this.cookie });
     sockets.push(socket);
     return socket;
   }
@@ -123,6 +123,9 @@ async function run() {
   const aSock = alice.socket();
   const bSock = bob.socket();
   await Promise.all([nextEvent(aSock, 'connect'), nextEvent(bSock, 'connect')]);
+  // Live connections: refused without a login, and refused from another site even with one.
+  assert.equal(await nextEvent(liveClient(BASE), 'close'), 4401);
+  assert.equal(await nextEvent(liveClient(BASE, { cookie: alice.cookie, origin: 'https://evil.example' }), 'refused'), 403);
 
   // --- friends ---
   let wait = nextEvent(bSock, 'relationship:update');

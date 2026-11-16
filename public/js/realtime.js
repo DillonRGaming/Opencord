@@ -1,8 +1,8 @@
-/* global io */
 import * as api from './api.js';
 import { state, emit, load, remember, updateUser, upsertChannel, findChannel, markRead, dmPeople } from './store.js';
 import { setMe } from './actions.js';
 import { navigate, paths } from './router.js';
+import { connectLive } from './live.js';
 
 let socket = null;
 
@@ -44,7 +44,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden) acti
 
 export function connect() {
   let connectedBefore = false;
-  socket = io({ transports: ['websocket', 'polling'] });
+  socket = connectLive();
 
   // After a dropped connection, fetch everything again so nothing that happened meanwhile is missed.
   socket.on('connect', async () => {
