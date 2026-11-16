@@ -1,8 +1,14 @@
-const fs = require('node:fs');
-const path = require('node:path');
-const { pipeline } = require('node:stream/promises');
-const { Transform } = require('node:stream');
-const config = require('../config');
+// Uploaded files: attachments, avatars, server icons and banners, custom emoji. Paths are like
+// "images/<id>.png"; where the bytes actually live is the platform's business (server/platform.js):
+// a folder on a computer, Durable Objects on Cloudflare.
+//
+// platform files must provide:
+//   write(path, buffer)                 create or replace a file
+//   append(path, offset, buffer)        cut the file at offset, add buffer, return the new size
+//   rename(from, to)                    move a finished upload into place
+//   remove(paths)                       delete files (missing ones are fine)
+//   send(req, res, path, headers)       answer with the file, honouring Range requests; 404 if it's gone
+const platform = require('../platform');
 const { newId } = require('./ids');
 const { fail } = require('./http');
 
@@ -13,11 +19,8 @@ const KINDS = {
 };
 const KIND_FOLDERS = { image: 'images', video: 'videos', audio: 'audio', file: 'files' };
 
-function ensureFolders() {
-  for (const folder of config.uploadFolders) {
-    fs.mkdirSync(path.join(config.uploadsDir, folder), { recursive: true });
-  }
-}
+const files = () => platform.get('files');
+const tmpPath = (uploadId) => `tmp/${uploadId}`;
 
 function kindFor(mime) {
   for (const [kind, mimes] of Object.entries(KINDS)) if (mimes.includes(mime)) return kind;
@@ -29,21 +32,13 @@ function extFor(name) {
   return match ? match[1].toLowerCase() : 'bin';
 }
 
-function absolute(relPath) {
-  return path.join(config.uploadsDir, relPath);
+function remove(...paths) {
+  const real = paths.filter(Boolean);
+  if (real.length) files().remove(real);
 }
 
-function tmpPath(uploadId) {
-  return path.join(config.tmpDir, uploadId);
-}
-
-function remove(...relPaths) {
-  for (const relPath of relPaths) if (relPath) fs.rmSync(absolute(relPath), { force: true });
-}
-
-async function freeBytes() {
-  const stats = await fs.promises.statfs(config.dataDir);
-  return stats.bavail * stats.bsize;
+function freeBytes() {
+  return platform.get('freeBytes')();
 }
 
 // Avatars and icons: the type comes from the file's first bytes, never from what the client claims.
@@ -57,52 +52,40 @@ function imageExt(buffer) {
   return null;
 }
 
-function saveImage(folder, buffer) {
+// Saves an image into a folder ("avatars", "icons", "emojis") and returns its file name.
+async function saveImage(folder, buffer) {
   const ext = imageExt(buffer);
   if (!ext) fail(400, 'That file is not a PNG, JPEG, GIF or WebP image.');
   const file = `${newId()}.${ext}`;
-  fs.writeFileSync(path.join(config.uploadsDir, folder, file), buffer);
+  await files().write(`${folder}/${file}`, buffer);
   return file;
 }
 
 function createTmp(uploadId) {
-  fs.writeFileSync(tmpPath(uploadId), '');
+  return files().write(tmpPath(uploadId), Buffer.alloc(0));
 }
 
 function removeTmp(uploadId) {
-  fs.rmSync(tmpPath(uploadId), { force: true });
+  files().remove([tmpPath(uploadId)]);
 }
 
-// Streams a chunk onto the end of a tmp file and returns how many bytes arrived.
-// If anything goes wrong the file is cut back to `offset` so the chunk can be retried.
-async function appendChunk(uploadId, offset, stream, maxBytes) {
-  const file = tmpPath(uploadId);
-  let written = 0;
-  const counter = new Transform({
-    transform(chunk, _encoding, done) {
-      written += chunk.length;
-      if (written > maxBytes) done(Object.assign(new Error('Chunk is too large.'), { status: 413 }));
-      else done(null, chunk);
-    },
-  });
-  try {
-    await pipeline(stream, counter, fs.createWriteStream(file, { flags: 'r+', start: offset }));
-  } catch (err) {
-    await fs.promises.truncate(file, offset).catch(() => {});
-    if (err.status) fail(err.status, err.message);
-    fail(400, 'The upload was interrupted.');
-  }
-  return written;
+// Adds one piece of an upload at `offset`. Returns the upload's size afterwards.
+function appendChunk(uploadId, offset, buffer) {
+  return files().append(tmpPath(uploadId), offset, buffer);
 }
 
-// Moves a finished upload out of tmp/ into its folder and returns the path relative to uploads/.
-function finishUpload(uploadId, kind, name) {
-  const relPath = `${KIND_FOLDERS[kind]}/${uploadId}.${extFor(name)}`;
-  fs.renameSync(tmpPath(uploadId), absolute(relPath));
-  return relPath;
+// Moves a finished upload out of tmp/ into its folder and returns its path.
+async function finishUpload(uploadId, kind, name) {
+  const path = `${KIND_FOLDERS[kind]}/${uploadId}.${extFor(name)}`;
+  await files().rename(tmpPath(uploadId), path);
+  return path;
+}
+
+// Answers a request with a stored file (Range requests work, for seeking in video and audio).
+function send(req, res, path, headers) {
+  return files().send(req, res, path, headers);
 }
 
 module.exports = {
-  ensureFolders, kindFor, remove, freeBytes, saveImage,
-  createTmp, removeTmp, appendChunk, finishUpload,
+  kindFor, remove, freeBytes, saveImage, createTmp, removeTmp, appendChunk, finishUpload, send,
 };

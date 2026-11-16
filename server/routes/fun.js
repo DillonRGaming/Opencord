@@ -3,9 +3,8 @@
 // video channels (YouTube's own results page) and song lyrics (lrclib.net). The server does the fetching, so
 // the people using Opencord never talk to those sites directly, and answers are kept for a while.
 const express = require('express');
-const fs = require('node:fs');
-const path = require('node:path');
 const zlib = require('node:zlib');
+const platform = require('../platform');
 const { fail, text } = require('../lib/http');
 const previews = require('../lib/previews');
 
@@ -57,7 +56,7 @@ router.get('/gifs', async (req, res) => {
 let kitchen = null; // { emoji: [codepoint…], byEmoji: Map(code → Map(other → url)) }
 function loadKitchen() {
   if (kitchen) return kitchen;
-  const raw = JSON.parse(zlib.gunzipSync(fs.readFileSync(path.join(__dirname, '../assets/kitchen.json.gz'))).toString('utf8'));
+  const raw = JSON.parse(zlib.gunzipSync(platform.get('asset')('kitchen.json.gz')).toString('utf8'));
   const byEmoji = new Map();
   const part = (code) => code.split('-').map((c) => `u${c}`).join('-');
   for (const line of raw.pairs.split('\n')) {

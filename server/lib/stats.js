@@ -1,9 +1,7 @@
 // Usage counting for the dashboard: who was active each day and how many requests came in.
 // Both are kept in memory and written in small batches so normal use costs (almost) no writes.
-const fs = require('node:fs');
-const path = require('node:path');
-const config = require('../config');
 const db = require('../db');
+const platform = require('../platform');
 const limits = require('./limits');
 const appSettings = require('../models/appSettings');
 
@@ -64,19 +62,7 @@ function countRequest(req, res, next) {
   next();
 }
 
-setInterval(flush, 60 * 1000).unref();
-
-// Disk used by everything Opencord keeps (database + uploads). Walking the folder is slow-ish, so cache it.
-let disk = { bytes: 0, at: 0 };
-function dataBytes() {
-  if (Date.now() - disk.at < 60 * 1000) return disk.bytes;
-  let bytes = 0;
-  for (const entry of fs.readdirSync(config.dataDir, { recursive: true, withFileTypes: true })) {
-    if (entry.isFile()) bytes += fs.statSync(path.join(entry.parentPath, entry.name)).size;
-  }
-  disk = { bytes, at: Date.now() };
-  return bytes;
-}
+platform.get('every')(60 * 1000, flush);
 
 // The last `days` days (UTC), oldest first, with zeros for days with nothing.
 function series(days, rows) {
@@ -124,7 +110,7 @@ function overview({ onlineNow }) {
     },
     active: { now: onlineNow, today: activeSince(1), week: activeSince(7), month: activeSince(30) },
     retention: { joinedBefore, cameBack },
-    storage: { usedBytes: dataBytes(), freePlanBytes: FREE_STORAGE_BYTES },
+    storage: { usedBytes: platform.get('dataBytes')(), freePlanBytes: FREE_STORAGE_BYTES },
     limits: limitReport(),
     registration: appSettings.registrationMode(),
     suspended: one('SELECT COUNT(*) n FROM users WHERE suspended_at IS NOT NULL').n,

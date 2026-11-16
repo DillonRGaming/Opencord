@@ -3,6 +3,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 const express = require('express');
 const config = require('./config');
+
+require('./node').setupNode(); // before anything that uses the database
+
 const db = require('./db');
 const storage = require('./lib/storage');
 const { HttpError } = require('./lib/http');
@@ -19,7 +22,6 @@ const CSP = [
   "connect-src 'self'", "frame-src https://www.youtube-nocookie.com", "object-src 'none'", "base-uri 'none'", "frame-ancestors 'none'",
 ].join('; ');
 
-storage.ensureFolders();
 
 const app = express();
 app.set('trust proxy', 'loopback'); // cloudflared connects from localhost
@@ -93,7 +95,7 @@ const server = http.createServer(app);
 realtime.init();
 require('./lib/liveNode').attach(server, realtime.live());
 cleanup();
-setInterval(cleanup, config.cleanupIntervalMs).unref();
+require('./platform').get('every')(config.cleanupIntervalMs, cleanup);
 
 server.listen(config.port, config.host, () => {
   console.log(`Opencord is running at http://${config.host}:${config.port}`);

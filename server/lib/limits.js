@@ -45,11 +45,12 @@ const SLOW_DOWN = 'You are doing that too fast. Wait a moment and try again.';
 const windows = new Map(); // `${kind}:${key}` → { count, resetAt }
 let onHit = () => {};
 
-// Old windows are dropped every minute so the map can't grow without end.
-setInterval(() => {
+// Old windows are dropped (from take(), at most once a minute) so the map can't grow without end.
+let lastSweep = 0;
+function dropExpired() {
   const now = Date.now();
   for (const [k, entry] of windows) if (entry.resetAt <= now) windows.delete(k);
-}, MINUTE).unref();
+}
 
 function rateOf(kind) {
   const rate = RATES[kind];
@@ -60,6 +61,7 @@ function rateOf(kind) {
 // Counts one use of `kind` by `key` and refuses (429) once the limit is passed.
 function take(kind, key) {
   if (key == null) return;
+  if (Date.now() - lastSweep > MINUTE) { lastSweep = Date.now(); dropExpired(); }
   const rate = rateOf(kind);
   const now = Date.now();
   const k = `${kind}:${key}`;

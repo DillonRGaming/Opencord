@@ -36,9 +36,9 @@ function pendingUpload(req) {
   return upload;
 }
 
-function finish(upload) {
+async function finish(upload) {
   const kind = storage.kindFor(upload.mime);
-  const path = storage.finishUpload(upload.id, kind, upload.name);
+  const path = await storage.finishUpload(upload.id, kind, upload.name);
   attachments.removePending(upload.id);
   const row = attachments.create({
     id: upload.id, uploaderId: upload.user_id, kind, name: upload.name, mime: upload.mime, size: upload.size, path,
@@ -57,28 +57,32 @@ router.post('/', async (req, res) => {
   await requireSpace(size);
 
   const upload = { id: newId(), user_id: req.user.id, name, mime, size };
-  storage.createTmp(upload.id);
-  if (size === 0) return res.status(201).json({ attachment: finish(upload) });
+  await storage.createTmp(upload.id);
+  if (size === 0) return res.status(201).json({ attachment: await finish(upload) });
 
   attachments.createPending({ id: upload.id, userId: req.user.id, name, mime, size });
   res.status(201).json({ id: upload.id, chunkSize: config.chunkSize, received: 0 });
 });
 
-router.put('/:id', async (req, res) => {
+// One piece of an upload, as the raw request body (at most chunkSize bytes; bigger is refused with 413).
+const rawChunk = express.raw({ type: () => true, limit: config.chunkSize });
+
+router.put('/:id', rawChunk, async (req, res) => {
   const upload = pendingUpload(req);
   const offset = Number(req.query.offset);
   if (inFlight.has(upload.id) || offset !== upload.received) {
     fail(409, 'That chunk is out of order.', { received: upload.received });
   }
+  const chunk = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!chunk.length) fail(400, 'The chunk was empty.');
+  if (offset + chunk.length > upload.size) fail(413, 'That chunk goes past the end of the file.');
 
   inFlight.add(upload.id);
   try {
-    await requireSpace(0);
-    const maxBytes = Math.min(config.chunkSize, upload.size - offset);
-    const received = offset + (await storage.appendChunk(upload.id, offset, req, maxBytes));
-    if (received === offset) fail(400, 'The chunk was empty.');
+    await requireSpace(chunk.length);
+    const received = await storage.appendChunk(upload.id, offset, chunk);
     attachments.setReceived(upload.id, received);
-    res.json(received === upload.size ? { received, attachment: finish(upload) } : { received });
+    res.json(received === upload.size ? { received, attachment: await finish(upload) } : { received });
   } finally {
     inFlight.delete(upload.id);
   }

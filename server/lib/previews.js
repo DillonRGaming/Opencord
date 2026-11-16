@@ -7,93 +7,16 @@
 //    so DNS tricks can't swap the address after the check),
 //  - follows at most 3 redirects (each one checked again), gives up after 5 seconds, reads at most 512 KB.
 // Preview images are loaded through /media/preview-image, so viewers' IP addresses aren't sent to other sites.
-const http = require('node:http');
-const https = require('node:https');
-const dns = require('node:dns');
-const net = require('node:net');
 const db = require('../db');
+const platform = require('../platform');
 
 const MAX_LINKS = 3;
-const TIMEOUT_MS = 5000;
 const MAX_HTML = 512 * 1024;
 const MAX_IMAGE = 8 * 1024 * 1024;
 const CACHE_MS = 24 * 60 * 60 * 1000;
-const USER_AGENT = 'Mozilla/5.0 (compatible; OpencordBot/1.0; link previews)';
 
-// --- which addresses are off limits ---
-
-function privateV4(ip) {
-  const [a, b] = ip.split('.').map(Number);
-  return a === 0 || a === 10 || a === 127 || a >= 224 || (a === 100 && b >= 64 && b <= 127) || (a === 169 && b === 254)
-    || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 192 && b === 0) || (a === 198 && (b === 18 || b === 19));
-}
-
-function blockedAddress(ip) {
-  if (net.isIPv4(ip)) return privateV4(ip);
-  const lower = ip.toLowerCase();
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(lower);
-  if (mapped) return privateV4(mapped[1]);
-  return lower === '::' || lower === '::1' || lower.startsWith('fc') || lower.startsWith('fd') || lower.startsWith('fe8')
-    || lower.startsWith('fe9') || lower.startsWith('fea') || lower.startsWith('feb') || lower.startsWith('ff');
-}
-
-// Used as the socket's DNS lookup, so the address we check is the address we connect to.
-function safeLookup(hostname, options, callback) {
-  dns.lookup(hostname, { ...options, all: true }, (err, addresses) => {
-    if (err) return callback(err);
-    const safe = addresses.filter((a) => !blockedAddress(a.address));
-    if (!safe.length || safe.length !== addresses.length) {
-      return callback(Object.assign(new Error('Blocked address'), { code: 'EBLOCKED' }));
-    }
-    if (options.all) return callback(null, safe);
-    callback(null, safe[0].address, safe[0].family);
-  });
-}
-
-function allowedUrl(raw) {
-  let url;
-  try { url = new URL(raw); } catch { return null; }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return null;
-  if (url.port && !['80', '443'].includes(url.port)) return null;
-  if (net.isIP(url.hostname.replace(/^\[|\]$/g, '')) && blockedAddress(url.hostname.replace(/^\[|\]$/g, ''))) return null;
-  if (/^(localhost|.*\.local|.*\.internal|.*\.localhost)$/i.test(url.hostname)) return null;
-  return url;
-}
-
-// GET a URL with all the limits above. Resolves { url, type, body } or null.
-function get(raw, { maxBytes, redirects = 3, headers = {}, timeout = TIMEOUT_MS } = {}) {
-  const url = allowedUrl(raw);
-  if (!url) return Promise.resolve(null);
-  return new Promise((resolve) => {
-    const lib = url.protocol === 'https:' ? https : http;
-    const req = lib.get(url, { lookup: safeLookup, timeout, headers: { 'User-Agent': USER_AGENT, Accept: 'text/html,image/*;q=0.9,*/*;q=0.5', 'Accept-Language': 'en', ...headers } }, (res) => {
-      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location && redirects > 0) {
-        res.resume();
-        resolve(get(new URL(res.headers.location, url).href, { maxBytes, redirects: redirects - 1, headers, timeout }));
-        return;
-      }
-      if (res.statusCode !== 200) { res.resume(); resolve(null); return; }
-      const type = String(res.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
-      const chunks = [];
-      let size = 0;
-      res.on('data', (chunk) => {
-        size += chunk.length;
-        if (size > maxBytes) {
-          // For HTML, what we have is enough (the <head> is at the top); images must be complete.
-          if (type.startsWith('image/')) { req.destroy(); resolve(null); return; }
-          req.destroy();
-          resolve({ url: url.href, type, body: Buffer.concat(chunks) });
-          return;
-        }
-        chunks.push(chunk);
-      });
-      res.on('end', () => resolve({ url: url.href, type, body: Buffer.concat(chunks) }));
-      res.on('error', () => resolve(null));
-    });
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-    req.on('error', () => resolve(null));
-  });
-}
+// The guarded GET itself is the platform's (server/lib/fetchNode.js on a computer, worker/fetch.js on Cloudflare).
+const get = (url, options) => platform.get('fetchUrl')(url, options);
 
 // --- reading a page ---
 
@@ -202,4 +125,4 @@ async function image(raw) {
   return res;
 }
 
-module.exports = { forContent, linksIn, image, blockedAddress, preview, youtubeId, get };
+module.exports = { forContent, linksIn, image, preview, youtubeId, get };

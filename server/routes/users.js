@@ -89,8 +89,8 @@ function setAvatar(req, res, file) {
   res.json(users.toMe(user));
 }
 
-router.put('/users/@me/avatar', rawImage, (req, res) => {
-  setAvatar(req, res, storage.saveImage('avatars', req.body));
+router.put('/users/@me/avatar', rawImage, async (req, res) => {
+  setAvatar(req, res, await storage.saveImage('avatars', req.body));
 });
 
 // Picks one of the built-in avatars (1 to DEFAULT_AVATARS).

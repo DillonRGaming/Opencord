@@ -114,9 +114,9 @@ function setIcon(req, res, file) {
   res.json(announce(updated));
 }
 
-router.put('/:id/icon', rawImage, (req, res) => {
+router.put('/:id/icon', rawImage, async (req, res) => {
   access.permServer(req.params.id, req.user.id, 'manageServer');
-  setIcon(req, res, storage.saveImage('icons', req.body));
+  setIcon(req, res, await storage.saveImage('icons', req.body));
 });
 
 router.delete('/:id/icon', (req, res) => {
@@ -131,9 +131,9 @@ function setBanner(req, res, file) {
   res.json(announce(updated));
 }
 
-router.put('/:id/banner', rawImage, (req, res) => {
+router.put('/:id/banner', rawImage, async (req, res) => {
   access.permServer(req.params.id, req.user.id, 'manageServer');
-  setBanner(req, res, storage.saveImage('icons', req.body));
+  setBanner(req, res, await storage.saveImage('icons', req.body));
 });
 
 router.delete('/:id/banner', (req, res) => {
@@ -444,12 +444,12 @@ const emojiName = (value) => {
   return name;
 };
 
-router.post('/:id/emojis', rawEmoji, (req, res) => {
+router.post('/:id/emojis', rawEmoji, async (req, res) => {
   const server = access.permServer(req.params.id, req.user.id, 'manageServer');
   const name = emojiName(String(req.query.name || ''));
   if (emojis.count(server.id) >= MAX_EMOJIS) fail(400, `A server can have up to ${MAX_EMOJIS} emoji.`);
   if (emojis.nameTaken(server.id, name)) fail(409, `There is already an emoji called :${name}:.`);
-  const file = storage.saveImage('emojis', req.body);
+  const file = await storage.saveImage('emojis', req.body);
   const emoji = emojis.toEmoji(emojis.create(server.id, name, file, req.user.id));
   audit.log(server.id, req.user.id, 'emoji.create', `:${name}:`);
   announce(servers.get(server.id));

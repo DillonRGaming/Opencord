@@ -1,6 +1,7 @@
 // Makes someone the Opencord owner or an admin (app-wide, not a server role), or takes it away.
 //   npm run set-role -- <username> owner|admin|none
 // The owner can then hand out admin from the dashboard.
+require('../server/node').setupNode();
 const db = require('../server/db');
 
 const [username, role] = process.argv.slice(2);

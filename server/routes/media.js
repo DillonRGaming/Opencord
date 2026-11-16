@@ -1,6 +1,5 @@
 const express = require('express');
-const path = require('node:path');
-const config = require('../config');
+const storage = require('../lib/storage');
 const { fail } = require('../lib/http');
 const channels = require('../models/channels');
 const messages = require('../models/messages');
@@ -20,27 +19,35 @@ function canSee(attachment, userId) {
   return messages.copiesOf(attachment.message_id).some((copy) => channels.canAccess(userId, channels.get(copy.channel_id)));
 }
 
-// express.sendFile handles Range requests, which video and audio seeking needs.
-router.get('/attachments/:id/:name', (req, res) => {
+// Even if a stored file were somehow opened as a page, it can't run anything.
+const FILE_CSP = "default-src 'none'; media-src 'self'; img-src 'self'; sandbox";
+const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+
+// Ordinary files download; pictures, video and audio show in the page. Range requests work for seeking.
+router.get('/attachments/:id/:name', async (req, res) => {
   const attachment = attachments.get(req.params.id);
   if (!attachment || !canSee(attachment, req.user.id)) fail(404, 'File not found.');
-
-  if (attachment.kind === 'file') {
-    res.attachment(attachment.name);
-    res.type('application/octet-stream');
-  } else {
-    res.type(attachment.mime);
-  }
-  // Even if a file were somehow opened as a page, it can't run anything.
-  res.set({ 'Cache-Control': CACHE, 'Content-Security-Policy': "default-src 'none'; media-src 'self'; img-src 'self'; sandbox" });
-  res.sendFile(attachment.path, { root: config.uploadsDir, cacheControl: false });
+  const download = attachment.kind === 'file';
+  await storage.send(req, res, attachment.path, {
+    'Content-Type': download ? 'application/octet-stream' : attachment.mime,
+    ...(download ? { 'Content-Disposition': contentDisposition(attachment.name) } : {}),
+    'Cache-Control': CACHE,
+    'Content-Security-Policy': FILE_CSP,
+  });
 });
 
+// "attachment; filename=…" with the name made safe for a header (and the full name in UTF-8 alongside).
+function contentDisposition(name) {
+  const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(name)}`;
+}
+
 function imageFolder(folder) {
-  return (req, res) => {
+  return async (req, res) => {
     if (!IMAGE_FILE.test(req.params.file)) fail(404, 'File not found.');
-    res.set('Cache-Control', CACHE);
-    res.sendFile(req.params.file, { root: path.join(config.uploadsDir, folder), cacheControl: false });
+    await storage.send(req, res, `${folder}/${req.params.file}`, {
+      'Content-Type': IMAGE_TYPES[req.params.file.split('.').pop()], 'Cache-Control': CACHE, 'Content-Security-Policy': FILE_CSP,
+    });
   };
 }
 
@@ -79,11 +86,12 @@ router.get('/remote', async (req, res) => {
 });
 
 // Custom emoji are addressed by id, so a message keeps working after the emoji is renamed.
-router.get('/emojis/:id', (req, res) => {
+router.get('/emojis/:id', async (req, res) => {
   const emoji = emojis.get(req.params.id);
   if (!emoji) fail(404, 'Emoji not found.');
-  res.set('Cache-Control', 'private, max-age=86400');
-  res.sendFile(emoji.file, { root: path.join(config.uploadsDir, 'emojis'), cacheControl: false });
+  await storage.send(req, res, `emojis/${emoji.file}`, {
+    'Content-Type': IMAGE_TYPES[emoji.file.split('.').pop()], 'Cache-Control': 'private, max-age=86400', 'Content-Security-Policy': FILE_CSP,
+  });
 });
 router.get('/icons/:file', imageFolder('icons'));
 

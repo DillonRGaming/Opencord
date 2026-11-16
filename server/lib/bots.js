@@ -720,7 +720,7 @@ post.onPost((event, payload) => {
 });
 
 // Timers: checked once a minute; a timer fires when the minutes since the epoch divide evenly.
-setInterval(() => {
+require('../platform').get('every')(60_000, () => {
   const minute = Math.floor(Date.now() / 60_000);
   for (const bot of db.prepare('SELECT * FROM bots WHERE enabled = 1').all()) {
     for (const script of JSON.parse(bot.program)) {
@@ -730,7 +730,7 @@ setInterval(() => {
       if (channel && channel.server_id === bot.server_id && channel.kind === 'text') run(bot, script.blocks, { channel });
     }
   }
-}, 60_000).unref();
+});
 
 // Someone picked from a drop-down under one of a bot's messages: run its matching "menu" scripts.
 function pickFromMenu(channel, message, user, choice) {
