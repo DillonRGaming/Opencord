@@ -27,6 +27,11 @@ import './views/ring.js';
 
 const root = document.getElementById('app');
 
+// The normal column content and the persistent music page. Only one is shown; the music page is collapsed
+// (not removed) when you browse away, so its embed keeps playing and never reloads.
+let contentEl = null;
+let musicHost = null;
+
 function emptyState(title, text) {
   return h('div', { class: 'empty-state' }, icon('message', 44), h('h2', {}, title), h('p', {}, text));
 }
@@ -49,6 +54,12 @@ function closeApps(except = null) {
 async function showMain(main) {
   const { route } = state;
   const server = route.name === 'server' && state.servers.get(route.serverId);
+  const musicChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'music');
+  if (musicHost) {
+    musicHost.classList.toggle('collapsed', !musicChannel);
+    contentEl?.classList.toggle('is-hidden', Boolean(musicChannel));
+    if (musicChannel) main = musicHost;
+  }
   const voiceChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'voice');
   if (voiceChannel) {
     closeChat();
@@ -75,6 +86,7 @@ async function showMain(main) {
     }
     const channel = picked?.kind === 'text' ? picked : null;
     if (channel) return showChat(main, channel, server.id);
+    if (document.body.dataset.panel === 'nav') return;
     const first = [...server.channels].filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position)[0];
     if (first) {
       return navigate(paths.channel(server.id, first.id), { replace: true, panel: document.body.dataset.panel });
@@ -117,8 +129,9 @@ async function handleInviteLink(code) {
 function showApp() {
   const rail = h('nav', { class: 'rail', 'aria-label': 'Servers' });
   const sidebar = h('aside', { class: 'sidebar panel' });
-  const content = h('div', { class: 'column-content' });
-  const column = h('div', { class: 'column panel' }, content);
+  contentEl = h('div', { class: 'column-content' });
+  musicHost = h('div', { class: 'music-page-host collapsed' });
+  const column = h('div', { class: 'column panel' }, contentEl, musicHost);
   const side = h('aside', { class: 'side panel', hidden: true });
   root.replaceChildren(
     h('div', { class: 'offline-bar', role: 'status' }, 'Connection lost. Reconnecting…'),
@@ -131,9 +144,9 @@ function showApp() {
   mountSidebar(sidebar);
   mountSide(side);
   mountPages(column);
-  on('route servers dms', () => showMain(content));
+  on('route servers dms', () => showMain(contentEl));
   on('presence', refreshPresenceDots);
-  showMain(content);
+  showMain(contentEl);
   // Opened from a message link (…?m=<id>): jump to that message once the chat is up.
   const linked = new URLSearchParams(location.search).get('m');
   if (linked && state.route.channelId) {

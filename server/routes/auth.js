@@ -9,6 +9,7 @@ const users = require('../models/users');
 const channels = require('../models/channels');
 const notifications = require('../models/notifications');
 const realtime = require('../realtime');
+const hq = require('../lib/hq');
 
 const router = express.Router();
 const USERNAME = /^[a-z0-9_.]{2,32}$/;
@@ -43,6 +44,7 @@ router.post('/register', async (req, res) => {
   limits.take('signupGlobal', 'all');
 
   const user = users.create({ username, displayName, passwordHash: await auth.hashPassword(password) });
+  try { hq.refresh(); } catch {}
   if (inviteCode) {
     try {
       invites.joinWithInvite(inviteCode, user);

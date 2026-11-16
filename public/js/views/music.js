@@ -12,17 +12,33 @@ import { remote } from '../fun.js';
 
 let view = null; // { root, channel, serverId, music, offset, listening, player, playerFor, progress, timer }
 
-const clock = () => Date.now() + (view?.offset || 0); // the server's clock, roughly
+// A steady clock: changes to the computer's own clock (NTP, the user) don't move it. The offset turns it into the
+// server's clock.
+const perfNow = () => performance.timeOrigin + performance.now();
+const clock = () => perfNow() + (view?.offset || 0);
 const fmt = (s) => (Number.isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}` : '–:––');
 
 export function closeMusic() {
-  if (!view) return;
-  clearInterval(view.timer);
-  window.removeEventListener('message', onPlayerMessage);
-  view = null;
+  // Browsing away hides the page (the shell collapses it); keep the player and sync running so the music plays on.
+  updateMusicDock();
 }
 
-const current = () => view.music?.playing && view.music.queue.find((q) => q.id === view.music.playing.itemId);
+function teardownMusic() {
+  if (!view) return;
+  stopListenHeartbeat();
+  if (view.listening) sendListening(false);
+  clearInterval(view.timer);
+  clearInterval(view.clockTimer);
+  window.removeEventListener('message', onPlayerMessage);
+  document.removeEventListener('visibilitychange', onVisibility);
+  view.audioCtx?.close?.().catch(() => {});
+  view.player?.remove();
+  view.root.replaceChildren();
+  view = null;
+  updateMusicDock();
+}
+
+const current = () => view?.music?.playing && view.music.queue.find((q) => q.id === view.music.playing.itemId);
 
 // Where the track should be right now, in seconds of the track (the shared speed is part of it).
 function position() {
@@ -32,6 +48,19 @@ function position() {
 }
 
 const rate = () => view.music?.playing?.rate || 1;
+
+// Where the player should be right now: the shared position, plus this device's output latency when playing,
+// so the sound that actually leaves the speaker lines up (Bluetooth and some OSes add a delay the server can't see).
+const target = () => position() + (view?.music?.playing?.pausedAt ? 0 : (view?.outputLatency || 0) * rate());
+
+// The player's own position, carried forward from its last real report at the speed it's really playing at.
+// null when we don't know (no report yet, or one from before a seek).
+function playerPosition() {
+  const p = view?.progress;
+  if (!p || !Number.isFinite(p.time) || !p.at) return null;
+  if (p.state !== 1) return p.time;
+  return p.time + ((performance.now() - p.at) / 1000) * (p.rate || view.appliedRate || rate());
+}
 
 // Volume is each listener's own, remembered in this browser.
 function savedVolume() {
@@ -43,9 +72,93 @@ function applyVolume() {
   else ytCommand('setVolume', [Math.round(view.volume * 100)]);
 }
 
+// --- automatic sync (no settings): the server's clock, this device's output latency, staying in step ---
+
+function ensureAudioContext() {
+  if (view.audioCtx) return;
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return;
+  try {
+    const ctx = new Ctx();
+    view.audioCtx = ctx;
+    ctx.resume().catch(() => {});
+    const read = () => {
+      const total = (Number(ctx.baseLatency) || 0) + (Number(ctx.outputLatency) || 0);
+      view.outputLatency = Math.max(0, Math.min(0.5, total));
+    };
+    read();
+    ctx.onstatechange = read;
+    if (navigator.mediaDevices?.addEventListener) navigator.mediaDevices.addEventListener('devicechange', read);
+    setTimeout(read, 300);
+  } catch { /* no Web Audio: carry on without the output-latency nudge */ }
+}
+
+// Ask the server for its time a few times; the quickest round trips say the most, so take the middle of the best three.
+async function syncClock() {
+  const v = view;
+  if (!v || v.clockBusy) return;
+  v.clockBusy = true;
+  try {
+    const samples = [];
+    for (let i = 0; i < 8 && view === v; i++) {
+      const t0 = perfNow();
+      try {
+        const res = await api.get('/api/time');
+        const t2 = perfNow();
+        const now = Number(res?.now);
+        if (Number.isFinite(now)) samples.push({ offset: now - (t0 + t2) / 2, rtt: t2 - t0 });
+      } catch { /* one failed ping is fine */ }
+    }
+    if (!samples.length || view !== v) return;
+    samples.sort((a, b) => a.rtt - b.rtt);
+    const best = samples.slice(0, 3).map((s) => s.offset).sort((a, b) => a - b);
+    v.offset = best[Math.floor(best.length / 2)];
+    v.wallGap = Date.now() - perfNow();
+    v.clockSynced = true;
+    sync(true);
+  } finally {
+    v.clockBusy = false;
+  }
+}
+
+function onVisibility() {
+  if (document.hidden || !view) return;
+  // The computer may have slept: check the clock again.
+  syncClock();
+  if (view.listening) sync(true);
+}
+
 function control(action, extra = {}) {
   const item = current();
   return attempt(() => api.post(`/api/channels/${view.channel.id}/music/control`, { action, itemId: item?.id, ...extra }));
+}
+
+function sendListening(on) {
+  if (!view) return;
+  api.post(`/api/channels/${view.channel.id}/music/listening`, { listening: on }).catch(() => {});
+}
+
+function startListenHeartbeat() {
+  stopListenHeartbeat();
+  if (!view) return;
+  sendListening(true);
+  view.listenTimer = setInterval(() => sendListening(true), 10000);
+}
+
+function stopListenHeartbeat() {
+  if (view?.listenTimer) {
+    clearInterval(view.listenTimer);
+    view.listenTimer = null;
+  }
+}
+
+function skip10(delta) {
+  const forward = delta > 0;
+  return h('button', {
+    type: 'button', class: 'icon-button music-skip10',
+    title: `${forward ? 'Forward' : 'Back'} 10 seconds`, 'aria-label': `${forward ? 'Forward' : 'Back'} 10 seconds`,
+    onclick: () => control('seek', { position: Math.max(0, position() + delta) }),
+  }, forward ? '+10' : '−10');
 }
 
 // --- the player (a YouTube embed driven by postMessage, or an <audio> element) ---
@@ -54,16 +167,54 @@ function ytCommand(func, args = []) {
   view?.player?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
 }
 
+// Ask the YouTube player to send us its time and state. It only starts once it's ready, so this is repeated
+// until reports arrive (and again if they stop).
+function ytHandshake() {
+  view?.player?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
+}
+
+function setPlayerState(n) {
+  view.progress.state = n;
+  if (n === 0) ended();
+}
+
+function setReportedRate(r) {
+  const s = view.sync;
+  view.progress.rate = r;
+  // A nudge (say 1.05×) that comes back as something else means this player only takes its preset speeds.
+  if (view.appliedRate && view.appliedRate !== rate() && performance.now() - s.rateSetAt > 500) {
+    s.fineRate = Math.abs(r - view.appliedRate) < 0.001;
+  }
+}
+
 function onPlayerMessage(event) {
   if (!view?.player || event.source !== view.player.contentWindow) return;
   let data;
   try { data = typeof event.data === 'string' ? JSON.parse(event.data) : event.data; } catch { return; }
-  if (data?.event === 'onReady' || data?.event === 'initialDelivery') sync(true);
+  const pr = view.progress;
+  if (data?.event === 'onReady' || data?.event === 'initialDelivery') {
+    pr.ready = true;
+    sync(true);
+  }
+  if (data?.event === 'onStateChange' && typeof data.info === 'number') setPlayerState(data.info);
+  if (data?.event === 'onPlaybackRateChange' && typeof data.info === 'number') setReportedRate(data.info);
   const info = data?.info;
   if (!info || typeof info !== 'object') return;
-  if (typeof info.currentTime === 'number') view.progress.time = info.currentTime;
-  if (typeof info.duration === 'number' && info.duration > 0) view.progress.duration = info.duration;
-  if (info.playerState === 0) ended();
+  pr.ready = true;
+  if (typeof info.playerState === 'number') setPlayerState(info.playerState);
+  if (typeof info.playbackRate === 'number') setReportedRate(info.playbackRate);
+  if (typeof info.duration === 'number' && info.duration > 0) pr.duration = info.duration;
+  if (typeof info.currentTime === 'number') {
+    const received = performance.now();
+    // Newer players say when they read the time; the message itself can sit in a queue for a while.
+    let at = received;
+    const stamp = Number(info.currentTimeLastUpdated_) * 1000;
+    if (stamp > 1e12) at -= Math.max(0, Math.min(1000, Date.now() - stamp));
+    pr.time = info.currentTime;
+    pr.at = at;
+    pr.received = received;
+    sampleDrift();
+  }
 }
 
 let endedFor = null;
@@ -75,27 +226,154 @@ function ended() {
 }
 
 function buildPlayer(item) {
-  view.progress = { time: 0, duration: NaN };
+  view.progress = freshProgress();
+  view.appliedRate = null;
+  resetSync();
+  view.sync.builtAt = performance.now();
   if (item.kind === 'youtube') {
     const start = Math.floor(position());
     const src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(item.source)}?enablejsapi=1&autoplay=1&controls=0&disablekb=1&modestbranding=1&rel=0&playsinline=1&start=${start}&origin=${encodeURIComponent(location.origin)}`;
     // YouTube refuses to play (error 153) unless it's told which site the player is on.
     const frame = h('iframe', { class: 'music-frame', src, allow: 'autoplay; encrypted-media', title: item.title, referrerPolicy: 'strict-origin-when-cross-origin' });
     frame.addEventListener('load', () => {
-      // Ask the player to report its time and state.
-      frame.contentWindow.postMessage(JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }), '*');
-      setTimeout(() => sync(true), 400);
+      ytHandshake();
+      view.sync.handshakeAt = performance.now();
     });
     return frame;
   }
   const audio = h('audio', { class: 'music-audio', src: item.source, preload: 'auto' });
-  audio.addEventListener('timeupdate', () => { view.progress.time = audio.currentTime; });
   audio.addEventListener('loadedmetadata', () => { view.progress.duration = audio.duration; sync(true); });
   audio.addEventListener('ended', ended);
   return audio;
 }
 
-// Bring my player in line with the shared state: right track, playing or paused, within a couple of seconds.
+// --- staying in step ---
+//
+// Each device measures how far its player is from where the song should be (its drift), using only real
+// reports from the player, and corrects it:
+//   - small drift: play a touch faster or slower (at most 5%) until it catches up, which you can't hear;
+//   - big drift (or someone seeked): jump, aiming a little ahead to make up for the time the jump itself takes.
+//     That lead is learned from how far behind this device's earlier jumps landed.
+// Play/pause is checked against what the player really does and sent again if it didn't take; a player that
+// won't start (autoplay blocked) asks for a tap instead of retrying forever.
+
+const DEADBAND = 0.04;   // closer than 40 ms counts as together (about where two speakers stop sounding like an echo)
+const SETTLED = 0.02;    // once nudging, carry on until this close
+const HARD = 1.0;        // further than this, jump instead of nudging
+const MAX_NUDGE = 0.05;  // at most 5% faster or slower
+const FRESH_MS = 1500;   // a report older than this doesn't say where a playing player is
+
+const freshProgress = () => ({ time: NaN, at: 0, received: 0, duration: NaN, state: undefined, rate: 0, ready: false });
+
+function savedLeads() {
+  try { return { youtube: 0, audio: 0, ...JSON.parse(localStorage.getItem('oc:musicLead') || '{}') }; } catch { return { youtube: 0, audio: 0 }; }
+}
+
+// Per-player bookkeeping. The learned seek lead and whether YouTube takes fine speeds outlive a track.
+function resetSync() {
+  const old = view.sync || {};
+  view.sync = {
+    status: 'syncing', drift: null, samples: [], seek: null, lastSeek: 0, failedSeeks: 0,
+    nudge: 0, nudgeStart: null, rateSetAt: 0, cmdAt: 0, cmdTries: 0, handshakeAt: 0, builtAt: 0, blocked: false,
+    stateKey: old.stateKey || '', leads: old.leads || savedLeads(), fineRate: old.fineRate ?? null,
+  };
+}
+
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+
+// Called on each real report while playing: remember how far off the player was.
+function sampleDrift() {
+  const s = view?.sync;
+  const pr = view?.progress;
+  if (!s || s.seek || pr.state !== 1 || view.music?.playing?.pausedAt) return;
+  const pos = playerPosition();
+  if (pos == null) return;
+  s.samples.push(pos - target());
+  if (s.samples.length > 5) s.samples.shift();
+}
+
+// Where an <audio> element is, read straight from it.
+function readAudio() {
+  const audio = view.player;
+  const pr = view.progress;
+  pr.time = audio.currentTime;
+  pr.at = pr.received = performance.now();
+  pr.rate = audio.playbackRate;
+  pr.ready = audio.readyState >= 1;
+  pr.state = audio.ended ? 0 : audio.paused ? 2 : audio.seeking || audio.readyState < 3 ? 3 : 1;
+  sampleDrift();
+}
+
+function seekPlayer(item, to, playing) {
+  const s = view.sync;
+  to = Math.max(0, to);
+  if (item.kind === 'youtube') ytCommand('seekTo', [to, true]);
+  else try { view.player.currentTime = to; } catch { /* not loaded yet */ }
+  s.lastSeek = performance.now();
+  s.seek = playing ? { at: s.lastSeek } : null;
+  s.samples = [];
+  s.nudge = 0;
+  s.nudgeStart = null;
+  view.progress.at = 0; // the last report says where the player was before the jump, not now
+}
+
+function sendPlayPause(item, play) {
+  const s = view.sync;
+  s.cmdAt = performance.now();
+  if (item.kind === 'youtube') return ytCommand(play ? 'playVideo' : 'pauseVideo');
+  if (!play) return view.player.pause();
+  view.player.play().then(() => { s.blocked = false; }).catch((err) => { if (err?.name === 'NotAllowedError') s.blocked = true; });
+}
+
+function applyRate(item) {
+  const s = view.sync;
+  const base = rate();
+  // YouTube takes speeds in steps of 0.05; an <audio> element takes any speed.
+  const want = item.kind === 'youtube' ? Math.round((base + Math.sign(s.nudge) * 0.05) * 100) / 100 : base * (1 + s.nudge);
+  if (view.appliedRate != null && Math.abs(view.appliedRate - want) < 0.004) return;
+  if (item.kind === 'youtube') ytCommand('setPlaybackRate', [want]);
+  else view.player.playbackRate = want;
+  view.appliedRate = want;
+  s.rateSetAt = performance.now();
+}
+
+// After a jump, see where the player really landed, and learn from it how far ahead to aim next time.
+function settleSeek(item, pos, want) {
+  const s = view.sync;
+  const err = pos - want; // negative: landed behind
+  const leads = s.leads;
+  const ideal = Math.max(0, Math.min(3, leads[item.kind] - err));
+  leads[item.kind] = leads[item.kind] * 0.5 + ideal * 0.5;
+  try { localStorage.setItem('oc:musicLead', JSON.stringify(leads)); } catch { /* fine */ }
+  s.failedSeeks = Math.abs(err) > HARD ? s.failedSeeks + 1 : 0;
+  s.seek = null;
+  s.samples = [err];
+}
+
+function nudgeToward(item, drift) {
+  const s = view.sync;
+  const now = performance.now();
+  if (item.kind === 'youtube') {
+    s.nudge = drift > 0 ? -MAX_NUDGE : MAX_NUDGE;
+  } else {
+    // Ahead → a little slower; behind → a little faster. Closes the gap in a couple of seconds.
+    s.nudge = -Math.max(-MAX_NUDGE, Math.min(MAX_NUDGE, drift / 2));
+  }
+  // If nudging doesn't shrink the gap, this player isn't really changing speed: stop relying on it.
+  if (!s.nudgeStart) s.nudgeStart = { at: now, drift: Math.abs(drift) };
+  else if (now - s.nudgeStart.at > 8000) {
+    if (Math.abs(drift) > s.nudgeStart.drift * 0.7) s.fineRate = false;
+    s.nudgeStart = { at: now, drift: Math.abs(drift) };
+  }
+}
+
+function stopNudge() {
+  view.sync.nudge = 0;
+  view.sync.nudgeStart = null;
+}
+
+// Bring my player in line with the shared state. `force` means something changed (new state from the server,
+// the player became ready, the tab came back): look now instead of waiting.
 function sync(force = false) {
   if (!view?.listening) return;
   const item = current();
@@ -113,26 +391,130 @@ function sync(force = false) {
     endedFor = null;
     slot.replaceChildren(view.player);
     updateSlot();
-    if (item.kind === 'audio') view.player.play().catch(() => {});
+    if (item.kind === 'audio') sendPlayPause(item, !view.music.playing.pausedAt);
     return;
   }
-  const paused = Boolean(view.music.playing.pausedAt);
-  const want = position();
-  if (item.kind === 'youtube') {
-    if (force || Math.abs(view.progress.time - want) > 2.5) ytCommand('seekTo', [want, true]);
-    ytCommand('setPlaybackRate', [rate()]);
-    if (force) applyVolume();
-    ytCommand(paused ? 'pauseVideo' : 'playVideo');
-  } else {
-    const audio = view.player;
-    if (audio.playbackRate !== rate()) audio.playbackRate = rate();
-    if (force) applyVolume();
-    if (force || Math.abs(audio.currentTime - want) > 1.5) {
-      try { audio.currentTime = want; } catch { /* not loaded yet */ }
-    }
-    if (paused) audio.pause();
-    else audio.play().catch(() => {});
+  const s = view.sync;
+  const pr = view.progress;
+  const youtube = item.kind === 'youtube';
+  const now = performance.now();
+  const p = view.music.playing;
+  const paused = Boolean(p.pausedAt);
+  // Someone pressed play, pause, seek or changed the speed.
+  const key = `${p.itemId}:${p.startedAt}:${p.pausedAt || ''}:${p.rate || 1}`;
+  const changed = key !== s.stateKey;
+  s.stateKey = key;
+  if (changed) { s.seek = null; s.samples = []; s.failedSeeks = 0; s.cmdTries = 0; stopNudge(); }
+
+  if (!youtube) readAudio();
+  // Is the YouTube player talking to us? Until it is (or if it goes quiet while playing), keep asking.
+  const quiet = !pr.ready || (!paused && (!pr.received || now - pr.received > FRESH_MS));
+  if (youtube && quiet && now - s.handshakeAt > 1000) {
+    ytHandshake();
+    s.handshakeAt = now;
   }
+  if (!pr.ready) { s.status = 'syncing'; return; }
+  if (force) applyVolume();
+  if (paused) stopNudge();
+  applyRate(item);
+
+  // Playing or paused, as it should be? Ask again if not; after a few tries it's waiting for a tap.
+  const going = pr.state === 1 || pr.state === 3;
+  const right = paused ? !going : going;
+  if (right) { s.cmdTries = 0; s.blocked = false; }
+  if (force || changed) sendPlayPause(item, !paused);
+  else if (!right && pr.state !== 0 && now - s.cmdAt > 1200) {
+    sendPlayPause(item, !paused);
+    s.cmdTries += 1;
+  }
+  if (!paused && !right && s.cmdTries >= 3) s.blocked = true;
+
+  const pos = playerPosition();
+  const want = target();
+
+  if (paused) {
+    // Paused: just sit at the right spot.
+    if (pos == null ? (force || changed) : Math.abs(pos - want) > 0.25 && (force || changed || now - s.lastSeek > 1500)) seekPlayer(item, want, false);
+    s.drift = pos == null ? null : pos - want;
+    // A paused YouTube player often stays quiet; that's fine as long as it's paused.
+    s.status = right && (s.drift == null || Math.abs(s.drift) <= 0.25) ? 'synced' : 'syncing';
+    return;
+  }
+
+  // Waiting to see where a jump landed.
+  if (s.seek) {
+    if (pr.state === 1 && pos != null && pr.received > s.seek.at + 300) settleSeek(item, pos, want);
+    else if (now - s.seek.at < 8000) { s.status = s.blocked ? 'blocked' : 'syncing'; return; }
+    else { s.seek = null; s.failedSeeks += 1; }
+  }
+
+  if (pr.state !== 1 || pos == null || (youtube && now - pr.received > FRESH_MS)) {
+    // Buffering, not started, or not reporting: we can't tell where it is, so don't claim it's in step.
+    s.drift = null;
+    s.status = s.blocked ? 'blocked' : 'syncing';
+    // A player that's been silent a long while: a jump usually gets it talking again.
+    if (pos == null && (force || changed || now - s.lastSeek > 10000) && now - s.builtAt > 3000) seekPlayer(item, want + s.leads[item.kind], true);
+    return;
+  }
+
+  const drift = s.samples.length ? median(s.samples) : pos - want;
+  s.drift = drift;
+  const far = Math.abs(drift);
+  const struggling = s.failedSeeks >= 3;
+  const hard = struggling ? 3 : HARD; // jumps keep missing on this device: lean on nudging instead
+  const lead = s.leads[item.kind];
+  const canNudge = !youtube || s.fineRate !== false;
+  if ((force || changed) && far > 0.25 && now - s.lastSeek > 500) seekPlayer(item, want + lead, true);
+  else if (far > hard && now - s.lastSeek > 2000) seekPlayer(item, want + lead, true);
+  else if (!canNudge) {
+    // This player only takes its preset speeds: small jumps (aimed with the learned lead) instead.
+    stopNudge();
+    if (far > 0.25 && now - s.lastSeek > 4000) seekPlayer(item, want + lead, true);
+  } else if (far > DEADBAND || (s.nudge && far > SETTLED)) nudgeToward(item, drift);
+  else stopNudge();
+  applyRate(item);
+
+  const ok = canNudge ? 0.1 : 0.3;
+  s.status = struggling && far > 0.5 ? 'struggling' : far <= ok ? 'synced' : 'syncing';
+}
+
+// The little badge by the Listen button: says honestly whether this device is in step.
+const SYNC_LABELS = {
+  synced: 'In sync', syncing: 'Syncing…', blocked: 'Tap to play', struggling: 'Can’t keep up',
+};
+
+function syncBadge() {
+  return h('button', { type: 'button', class: 'music-sync', onclick: resyncNow }, h('i'), h('span', {}, ''));
+}
+
+function updateSyncBadge() {
+  const badge = view?.root.querySelector('.music-sync');
+  if (!badge) return;
+  const s = view.sync;
+  const status = s?.blocked ? 'blocked' : s?.status || 'syncing';
+  badge.dataset.status = status;
+  badge.lastChild.textContent = SYNC_LABELS[status];
+  const ms = s?.drift == null ? null : Math.round(s.drift * 1000);
+  badge.title = `${status === 'blocked' ? 'Your browser stopped the music from starting. Tap to start it.' : ms == null ? 'Finding where the song is…' : `${Math.abs(ms)} ms ${ms > 0 ? 'ahead' : 'behind'}`}${status === 'blocked' ? '' : ' · tap to sync again'}`;
+}
+
+// A tap counts as permission to play, and starts the checks over.
+function resyncNow() {
+  if (!view?.listening) return;
+  ensureAudioContext();
+  view.audioCtx?.resume?.().catch(() => {});
+  const item = current();
+  const s = view.sync;
+  if (item && s) {
+    if (item.kind === 'audio') sendPlayPause(item, !view.music.playing.pausedAt);
+    else if (s.blocked && !view.showVideo) toggleVideo(); // YouTube may need a tap on the video itself
+    s.failedSeeks = 0;
+    s.cmdTries = 0;
+    s.handshakeAt = 0;
+    if (item.kind === 'youtube') ytHandshake();
+  }
+  syncClock();
+  sync(true);
 }
 
 // --- drawing ---
@@ -150,6 +532,8 @@ function nowPlaying() {
   const paused = Boolean(view.music.playing.pausedAt);
   const adder = state.users.get(item.addedBy);
   const bar = h('div', { class: 'music-bar', role: 'slider', 'aria-label': 'Position', tabIndex: 0 }, h('span', { class: 'music-fill' }));
+  const len = view.progress?.duration;
+  if (Number.isFinite(len) && len > 0) bar.firstElementChild.style.width = `${Math.min(100, (position() / len) * 100)}%`;
   bar.addEventListener('click', (event) => {
     const box = bar.getBoundingClientRect();
     const duration = view.progress?.duration;
@@ -169,17 +553,20 @@ function nowPlaying() {
     h('div', { class: 'music-controls' },
       h('div', { class: 'music-side' },
         view.listening
-          ? iconButton('headphones', 'Stop listening', () => { view.listening = false; view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'on')
-          : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { view.listening = true; render(); sync(true); } }, icon('headphones', 16), 'Listen'),
-        view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : '')),
+          ? iconButton('headphones', 'Stop listening', () => { view.listening = false; stopListenHeartbeat(); sendListening(false); view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'on')
+          : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { ensureAudioContext(); view.listening = true; startListenHeartbeat(); render(); sync(true); } }, icon('headphones', 16), 'Listen'),
+        view.listening && syncBadge(),
+        view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : ''),
+        iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : '')),
       h('div', { class: 'music-transport' },
+        skip10(-10),
         iconButton('skipBack', 'Previous (or restart)', () => control('previous')),
         iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause'), 'music-main'),
-        iconButton('skip', 'Skip', () => control('skip'))),
+        iconButton('skip', 'Skip', () => control('skip')),
+        skip10(10)),
       h('div', { class: 'music-side end' },
         speedPicker(),
-        volumeSlider(),
-        iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : ''))));
+        volumeSlider())));
 }
 
 function toggleVideo() {
@@ -336,7 +723,6 @@ function queueList() {
       queue.length > 0 && h('span', { class: 'muted' }, at === -1 ? `${queue.length} song${queue.length === 1 ? '' : 's'}` : left ? `${left} up next` : 'Last song')),
     queue.length > 0 && h('div', { class: 'music-list' }, queue.map(row)),
     canAdd ? add : h('p', { class: 'muted' }, 'Only some roles can add songs here.'),
-    queue.length > 0 && !left && at !== -1 && h('p', { class: 'music-hint' }, 'That’s the end of the list. Add more to keep it going.'),
     at === -1 && queue.length > 0 && h('p', { class: 'music-hint' }, 'The playlist finished. Tap any song to play it again.'));
 }
 
@@ -344,6 +730,8 @@ function queueList() {
 // which would restart the song.
 function render() {
   if (!view?.root.isConnected) return;
+  updateMusicDock();
+  if (view.root.classList.contains('collapsed')) return;
   const { channel } = view;
   if (!view.shell) {
     view.head = h('div');
@@ -369,6 +757,7 @@ function render() {
   }
   view.content.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
   view.body.scrollTop = scroll;
+  updateSyncBadge();
 }
 
 // The video sits above the card when shown. Hidden, it stays in the page (tiny and invisible) so the
@@ -380,26 +769,77 @@ function updateSlot() {
   view.slot.classList.toggle('collapsed', !view.showVideo);
 }
 
+// The little player above the user panel: thumbnail, title and a stop button. The real player stays in the page
+// (collapsed, not removed) so it never reloads; this only mirrors its state.
+export function updateMusicDock() {
+  const dock = document.getElementById('music-dock');
+  if (!dock) return;
+  const item = current();
+  if (!view?.listening || !item) {
+    dock.hidden = true;
+    dock.replaceChildren();
+    dock.dataset.key = '';
+    return;
+  }
+  const paused = Boolean(view.music.playing.pausedAt);
+  const key = `${item.id}:${paused}`;
+  if (!dock.hidden && dock.dataset.key === key) return;
+  dock.dataset.key = key;
+  dock.hidden = false;
+  const art = item.kind === 'youtube'
+    ? h('img', { class: 'music-dock-thumb', src: `/media/preview-image?url=${encodeURIComponent(`https://i.ytimg.com/vi/${item.source}/hqdefault.jpg`)}`, alt: '', loading: 'lazy' })
+    : h('span', { class: 'music-dock-thumb audio' }, icon('music', 20));
+  dock.replaceChildren(
+    art,
+    h('div', { class: 'music-dock-text' },
+      h('strong', { class: 'music-dock-title', title: item.title }, shortTitle(item.title)),
+      h('span', { class: 'music-dock-sub' }, paused ? 'Paused' : 'Playing')),
+    iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause')),
+    iconButton('headphones', 'Stop listening', stopListening, 'on'));
+}
+
+function stopListening() {
+  if (!view) return;
+  view.listening = false;
+  stopListenHeartbeat();
+  sendListening(false);
+  view.player?.remove();
+  view.player = null;
+  view.playerFor = null;
+  updateMusicDock();
+  render();
+}
+
 // The time and bar move on their own between updates.
 function tick() {
   if (!view?.root.isConnected) return;
-  const at = view.root.querySelector('.music-at');
-  if (!at) return;
-  const pos = view.listening && Number.isFinite(view.progress?.time) && view.progress.time > 0 ? view.progress.time : position();
-  at.textContent = fmt(pos);
-  if (view.lyricsOpen) followLyrics(pos);
-  view.root.querySelector('.music-length').textContent = fmt(view.progress?.duration);
-  const fill = view.root.querySelector('.music-fill');
-  if (fill) fill.style.width = Number.isFinite(view.progress?.duration) ? `${Math.min(100, (pos / view.progress.duration) * 100)}%` : '0%';
+  // The computer's clock jumped (sleep, a clock change): measure the server's clock again.
+  if (view.clockSynced && Math.abs(Date.now() - perfNow() - view.wallGap) > 300) {
+    view.wallGap = Date.now() - perfNow();
+    syncClock();
+  }
   if (view.listening) {
     sync();
+    updateSyncBadge();
     // An audio file reports its own end; for YouTube, also end when the time runs out (in case the embed can't say).
     if (Number.isFinite(view.progress?.duration) && !view.music?.playing?.pausedAt && position() > view.progress.duration + 3) ended();
   }
+  if (view.root.classList.contains('collapsed')) return;
+  const at = view.root.querySelector('.music-at');
+  if (!at) return;
+  // The player runs ahead by this device's output latency so the sound lands on time; the words and the
+  // progress bar follow what is actually being heard, so subtract it back out.
+  const mine = view.listening ? playerPosition() : null;
+  const heard = mine != null && mine > 0 ? Math.max(0, mine - (view.outputLatency || 0) * rate()) : position();
+  at.textContent = fmt(heard);
+  if (view.lyricsOpen) followLyrics(heard);
+  view.root.querySelector('.music-length').textContent = fmt(view.progress?.duration);
+  const fill = view.root.querySelector('.music-fill');
+  if (fill) fill.style.width = Number.isFinite(view.progress?.duration) ? `${Math.min(100, (heard / view.progress.duration) * 100)}%` : '0%';
 }
 
 function apply(music) {
-  view.offset = music.now - Date.now();
+  if (!view.clockSynced) view.offset = music.now - perfNow();
   view.music = music;
   render();
   sync(true);
@@ -409,6 +849,7 @@ on('music:update', (music) => {
   if (music.channelId === view?.channel.id) apply(music);
 });
 on('users members', () => view && render());
+on('reload', () => { if (view) syncClock(); }); // reconnected: the clock may have moved
 on('reload', () => view && api.get(`/api/channels/${view.channel.id}/music`).then(apply).catch(() => {}));
 
 export async function showMusic(container, channel, serverId) {
@@ -416,13 +857,16 @@ export async function showMusic(container, channel, serverId) {
     view.channel = channel;
     return render();
   }
-  closeMusic();
-  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, listening: false, player: null, playerFor: null, progress: { time: 0, duration: NaN }, volume: savedVolume(), lyricsOpen: false, showVideo: (() => { try { return localStorage.getItem('oc:musicVideo') !== '0'; } catch { return true; } })() };
+  if (view) teardownMusic();
+  view = { root: container, shell: false, channel, serverId, music: null, offset: 0, wallGap: 0, sync: null, clockSynced: false, outputLatency: 0, audioCtx: null, listenTimer: null, listening: false, player: null, playerFor: null, progress: freshProgress(), volume: savedVolume(), lyricsOpen: false, showVideo: (() => { try { return localStorage.getItem('oc:musicVideo') !== '0'; } catch { return true; } })() };
   window.addEventListener('message', onPlayerMessage);
-  view.timer = setInterval(tick, 500);
+  document.addEventListener('visibilitychange', onVisibility);
+  view.timer = setInterval(tick, 250);
   ensureMembers(serverId);
   render();
   const music = await api.get(`/api/channels/${channel.id}/music`).catch((err) => { toast(err.message); return null; });
   if (music && view?.channel.id === channel.id) apply(music);
+  syncClock();
+  view.clockTimer = setInterval(syncClock, 60000);
   return undefined;
 }

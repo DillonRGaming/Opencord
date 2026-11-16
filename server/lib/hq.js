@@ -1,4 +1,5 @@
-// Dev: the owner's dashboard, as a server. Only the owner is in it (no invites, no joining). An "Opencord" bot posts
+// Dev: the owner's dashboard, as a server. The owner can invite people to see it (only the owner can make invites,
+// and only the owner can press its buttons). An "Opencord" bot posts
 // the numbers as messages with real tables, tiles and charts (drawn by public/js/views/rich.js) and keeps editing
 // them in place. Clicking anyone in a table opens their stats page (public/js/views/personStats.js).
 //
@@ -22,7 +23,7 @@ const { postMessage } = require('./post');
 const { fail } = require('./http');
 
 const NAME = 'Dev';
-const LOGO = '@default/1'; // the lock logo on green, like the favicon
+const LOGO = '@default/lock'; // the lock logo on green
 const LAYOUT = [
   ['OVERVIEW', ['today', 'free-plan', 'limits']],
   ['PEOPLE', ['users', 'sign-ups']],
@@ -73,6 +74,10 @@ function isHq(serverId) {
   return Boolean(serverId) && state()?.serverId === serverId;
 }
 
+function hqServerId() {
+  return state()?.serverId || null;
+}
+
 // Makes (or repairs) Dev: the bot, the server with the owner as its only member, the categories and channels.
 function ensure() {
   const boss = owner();
@@ -94,9 +99,8 @@ function ensure() {
     realtime.joinServer(boss.id, server.id);
   }
   if (server.name !== NAME || server.icon !== LOGO) servers.update(server.id, { name: NAME, icon: LOGO });
-  // The owner (and only the owner) is in it, and owns it; the bot is in it to post.
+  // The owner is in it and owns it (anyone else is there because the owner invited them); the bot is in it to post.
   if (server.owner_id !== boss.id) servers.update(server.id, { ownerId: boss.id });
-  for (const id of servers.memberIds(server.id)) if (id !== boss.id && id !== s.botId) servers.removeMember(server.id, id);
   if (!servers.isMember(server.id, boss.id)) { servers.addMember(server.id, boss.id); realtime.joinServer(boss.id, server.id); }
   if (!servers.isMember(server.id, s.botId)) servers.addMember(server.id, s.botId);
 
@@ -257,7 +261,7 @@ function usersView(s, o) {
 function signupsView(s, o) {
   const label = { open: 'Open: anyone can make an account', invite: 'Invite only: a server invite is needed', closed: 'Closed: nobody new can join' }[o.registration];
   const latest = db.prepare('SELECT * FROM users WHERE is_bot = 0 ORDER BY created_at DESC LIMIT 15').all();
-  upsert(s, 'sign-ups', 'sign-ups', `# Sign-ups\n**${label}.**\n-# Open still allows only 3 accounts a day per network and 30 an hour overall.`, [
+  upsert(s, 'sign-ups', 'sign-ups', `# Sign-ups\n**${label}.**\n-# Open still allows only 10 accounts every 10 minutes per network and 30 an hour overall.`, [
     { label: 'Open', style: o.registration === 'open' ? 'primary' : 'secondary' },
     { label: 'Invite only', style: o.registration === 'invite' ? 'primary' : 'secondary' },
     { label: 'Closed', style: o.registration === 'closed' ? 'primary' : 'secondary' },
@@ -289,6 +293,22 @@ function serversView(s) {
     { type: 'table', columns: [{ label: 'Server' }, { label: 'Members', align: 'right' }, { label: 'Messages this week', align: 'right' }, { label: 'Made', align: 'right' }],
       rows: list.length ? list.map((x) => [{ text: escape(x.name) }, n(x.members), n(x.messagesWeek), ago(x.createdAt)]) : [[{ text: 'No servers yet', tone: 'muted' }, '', '', '']] },
   ]);
+}
+
+const VIEWS = {
+  today, 'free-plan': freePlan, limits: limitsView, users: usersView, 'sign-ups': signupsView, activity: activityView, servers: serversView,
+};
+const VIEWS_WITH_OVERVIEW = new Set(['today', 'free-plan', 'limits', 'sign-ups', 'activity']);
+
+function refreshChannel(channelId) {
+  const s = state();
+  if (!s) return false;
+  const key = Object.keys(VIEWS).find((name) => s.channels[name] === channelId);
+  if (!key) return false;
+  const o = VIEWS_WITH_OVERVIEW.has(key) ? stats.overview({ onlineNow: realtime.onlineCount() }) : null;
+  VIEWS[key](s, o);
+  saveState(s);
+  return true;
 }
 
 // --- refreshing ---
@@ -327,4 +347,4 @@ function start() {
   platform.get('every')(10 * 60 * 1000, refresh, { needed: () => Boolean(owner()) });
 }
 
-module.exports = { refresh, ensure, isHq, click, start };
+module.exports = { refresh, refreshChannel, ensure, isHq, hqServerId, click, start };

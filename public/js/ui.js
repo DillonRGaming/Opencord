@@ -104,10 +104,11 @@ const NOTICE_HOSTS = '.settings-card, .post-draft, .wiki-editor, .wiki-page, .ev
 
 function noticeHost(anchor) {
   const el = anchor?.isConnected ? anchor : null;
-  const chat = el?.closest('.chat') || (!el && document.querySelector('.column-content .chat'));
-  const composer = chat?.querySelector('.composer');
+  // (Not `a || (!el && b)`: that's `false` when the click wasn't in a chat, and false?.querySelector throws.)
+  const chat = el ? el.closest?.('.chat') : document.querySelector('.column-content .chat');
+  const composer = chat ? chat.querySelector('.composer') : null;
   if (composer) return { composer };
-  const host = el?.closest(NOTICE_HOSTS) || document.querySelector('.page-open .page-scroll, .column-content .page-scroll, .column-content .main-header');
+  const host = el?.closest?.(NOTICE_HOSTS) || document.querySelector('.page-open .page-scroll, .column-content .page-scroll, .column-content .main-header');
   return { host };
 }
 
@@ -122,6 +123,7 @@ export function toast(message, kind = 'error', anchor = lastTarget) {
   const note = h('p', { class: `inline-notice ${kind}`, role: kind === 'error' ? 'alert' : 'status' }, message);
   // One notice per place: a new one replaces the last.
   const box = host.matches('.main-header') ? host.parentElement : host;
+  if (!box) return;
   box.querySelector(':scope > .inline-notice')?.remove();
   if (host.matches('.main-header')) host.after(note);
   else box.append(note);

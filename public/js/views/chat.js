@@ -331,8 +331,8 @@ function fillScreen(v) {
 }
 
 function startEdit(message, row) {
-  const main = row.querySelector('.message-main');
-  if (main.querySelector('.message-edit')) return;
+  const main = row?.querySelector('.message-main');
+  if (!main || main.querySelector('.message-edit')) return;
   const cancel = () => {
     const index = view?.messages.findIndex((m) => m.id === message.id) ?? -1;
     if (index !== -1) redrawRow(view, index);
@@ -528,7 +528,25 @@ on('members servers', () => {
   }
 });
 
+function stopDevLive() {
+  if (view?.devTimer) {
+    clearInterval(view.devTimer);
+    view.devTimer = null;
+  }
+}
+
+function startDevLive(v) {
+  stopDevLive();
+  if (v.serverId !== state.hqServerId || state.me?.appRole !== 'owner') return;
+  const channelId = v.channel.id;
+  v.devTimer = setInterval(() => {
+    if (document.hidden) return;
+    api.post('/api/admin/hq', { channelId }).catch(() => {});
+  }, 5000);
+}
+
 export function closeChat() {
+  stopDevLive();
   if (view) clearTimeout(view.lockTimer);
   view?.composer.destroy();
   view?.resizeWatcher.disconnect();
@@ -539,7 +557,7 @@ export function showChat(container, channel, serverId = null) {
   if (view?.channel.id === channel.id && view.root.isConnected) {
     // Same chat (for example a phone coming back from the channel list): keep it, refresh the header.
     view.channel = channel;
-    view.root.querySelector('.main-header').replaceWith(header(channel, serverId));
+    view.root.querySelector('.main-header')?.replaceWith(header(channel, serverId));
     updateLock(view);
     ack(view);
     return;
@@ -599,6 +617,7 @@ export function showChat(container, channel, serverId = null) {
   container.replaceChildren(header(channel, serverId), chat);
 
   view = v;
+  startDevLive(v);
   v.translateKey = translateKey();
   updateLock(v);
   drawTop(v);

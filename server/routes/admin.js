@@ -74,6 +74,10 @@ router.put('/people/:id/role', (req, res) => {
 // Builds or refreshes Opencord HQ right away (it also refreshes itself every 10 minutes). Owner only.
 router.post('/hq', (req, res) => {
   if (req.user.app_role !== 'owner') fail(403, 'Only the owner has Opencord HQ.');
+  if (typeof req.body?.channelId === 'string') {
+    res.json({ ok: hq.refreshChannel(req.body.channelId) });
+    return;
+  }
   hq.refresh();
   res.json({ serverId: appSettings.get('hq', {}).serverId });
 });

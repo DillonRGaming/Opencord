@@ -63,7 +63,7 @@ function modNotes(serverId, user) {
   });
   input.addEventListener('keydown', (event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); add(); } });
   api.get(base).then((rows) => { notes = rows; draw(); }).catch((err) => toast(err.message));
-  return h('div', { class: 'mod-notes' },
+  return h('div', { class: 'mod-notes profile-notes' },
     h('div', { class: 'profile-roles-title' }, 'Moderator notes'), list,
     h('div', { class: 'mod-notes-add' }, input, button('Add', add, 'ghost small')));
 }
@@ -77,7 +77,7 @@ export function openProfile(user, { serverId } = {}) {
     onClose: () => { showing = null; },
     build: () => {
       const fresh = state.users.get(user.id) || user;
-      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), [serverId && roleChips(serverId, fresh), notes].filter(Boolean));
+      return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), serverId && roleChips(serverId, fresh), notes);
     },
   });
 }

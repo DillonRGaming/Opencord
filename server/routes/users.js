@@ -10,6 +10,7 @@ const relationships = require('../models/relationships');
 const servers = require('../models/servers');
 const channels = require('../models/channels');
 const realtime = require('../realtime');
+const hq = require('../lib/hq');
 
 const router = express.Router();
 const rawImage = express.raw({ type: () => true, limit: config.maxImageBytes });
@@ -27,6 +28,7 @@ router.get('/bootstrap', (req, res) => {
     me: users.toMe(me),
     relationships: relationships.list(me.id),
     servers: servers.forUser(me.id).map(servers.toServer),
+    hqServerId: hq.hqServerId(),
     dms: channels.dmsForUser(me.id),
     readStates: channels.readStates(me.id),
     dmPings: channels.dmUnreadCounts(me.id),
@@ -35,6 +37,10 @@ router.get('/bootstrap', (req, res) => {
     statuses: Object.fromEntries([me.id, ...users.audienceIds(me.id)].map((id) => [id, realtime.statusOf(id)]).filter(([, s]) => s !== 'offline')),
     unreadNotifications: notifications.unreadCount(me.id),
   });
+});
+
+router.get('/time', (req, res) => {
+  res.json({ now: Date.now() });
 });
 
 router.get('/users/@me', (req, res) => {

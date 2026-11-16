@@ -534,9 +534,11 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .music-by { display: flex; align-items: center; gap: 6px; font-size: 0.8rem; color: var(--text-faint); }
 .music-progress { display: grid; gap: 6px; }
 .music-time { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 0.7rem; color: var(--text-faint); }
-.music-bar { height: 5px; border-radius: 3px; background: var(--active); cursor: pointer; overflow: hidden; }
-.music-bar:hover { height: 7px; margin: -1px 0; }
-.music-fill { display: block; height: 100%; width: 0; background: var(--accent); transition: width 0.5s linear; }
+.music-bar { position: relative; height: 20px; cursor: pointer; touch-action: manipulation; }
+.music-bar::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 5px; transform: translateY(-50%); border-radius: 3px; background: var(--active); }
+.music-bar:hover::before { height: 7px; }
+.music-fill { display: block; position: absolute; left: 0; top: 50%; transform: translateY(-50%); height: 5px; width: 0; border-radius: 3px; background: var(--accent); transition: width 0.5s linear; }
+.music-bar:hover .music-fill { height: 7px; }
 .music-controls { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; min-width: 0; }
 .music-side { display: flex; align-items: center; gap: 4px; }
 .music-side.end { justify-content: flex-end; }
@@ -580,11 +582,19 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 @media (max-width: 799px) {
   .music-page, .music-player-slot { padding-left: 0.75rem; padding-right: 0.75rem; }
 }
-/* A narrow column: play and skip on their own row, everything else below. */
+/* A narrow column: transport on top, every other control on one line below. */
 @container music (max-width: 560px) {
-  .music-controls { grid-template-columns: 1fr; justify-items: center; }
-  .music-transport { order: -1; }
-  .music-side, .music-side.end { justify-content: center; flex-wrap: wrap; }
+  .music-controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 2px; }
+  .music-transport { order: -1; flex: 0 0 100%; justify-content: center; gap: 4px; }
+  .music-side, .music-side.end { justify-content: center; flex-wrap: nowrap; gap: 2px; }
+  .music-controls .music-main { width: 40px; height: 40px; }
+  .music-controls .icon-button { width: 32px; height: 32px; }
+  .music-controls .button.small { min-height: 32px; padding: 0 7px; gap: 5px; font-size: 0.78rem; }
+  .music-speed { min-width: 36px; height: 30px; padding: 0 6px; }
+  .music-sync { height: 30px; padding: 0 9px; }
+  .music-sync span { display: none; }
+  .music-volume-wrap { gap: 4px; padding: 0 4px; }
+  .music-volume { width: 50px; }
 }
 
 /* --- wiki channels --- */

@@ -276,3 +276,20 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
   content: ""; position: absolute; left: 8px; right: 8px; top: -7px; height: 3px; border-radius: 2px; background: var(--accent);
 }
 .rail { padding-bottom: 24px; }
+
+/* --- music keeps playing while you browse: the page collapses (the embed stays in the DOM so it never reloads) --- */
+.column-content.is-hidden { display: none; }
+.column.page-open > .music-page-host { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+.music-page-host { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
+.music-page-host.collapsed { position: absolute; width: 1px; height: 1px; overflow: hidden; opacity: 0; pointer-events: none; }
+
+/* --- mini player in the sidebar, above the user panel --- */
+.sidebar-body, .sidebar-foot { display: contents; }
+.music-dock { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px; border-radius: var(--radius); background: var(--bg-raised); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.sidebar:has(.music-dock:not([hidden])) .user-panel { border-top-left-radius: 0; border-top-right-radius: 0; }
+.music-dock[hidden] { display: none; }
+.music-dock-thumb { flex: none; width: 40px; height: 40px; border-radius: var(--radius-small); object-fit: cover; background: var(--bg-input); }
+.music-dock-thumb.audio { display: grid; place-items: center; color: var(--accent-ink); }
+.music-dock-text { flex: 1; min-width: 0; line-height: 1.3; }
+.music-dock-title { display: block; font-weight: 500; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.music-dock-sub { display: block; font-size: 0.76rem; color: var(--text-faint); }

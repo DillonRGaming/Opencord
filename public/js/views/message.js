@@ -238,7 +238,7 @@ function textBlock(message, mine) {
 }
 
 export function openTranslate(row) {
-  row.querySelector('.message-text')?.openTranslate();
+  row?.querySelector('.message-text')?.openTranslate();
 }
 
 // The line above a reply: who it answers and the start of what they said. Click to jump there.

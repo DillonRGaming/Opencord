@@ -126,6 +126,8 @@ async function run() {
   await new Client().expect(401, 'POST', '/api/auth/login', { username: 'alice', password: 'wrong-password' });
   const res = await alice.request('POST', '/api/servers', { name: 'x' }, { origin: 'https://evil.example' });
   assert.equal(res.status, 403);
+  const clock = await alice.call('GET', '/api/time');
+  assert.ok(Math.abs(clock.now - Date.now()) < 5000);
   ok('register, login errors, cross-site requests refused');
 
   // --- realtime setup ---
@@ -850,12 +852,12 @@ async function run() {
   const { serverId: hqId } = await alice.call('POST', '/api/admin/hq');
   const hqServer = (await alice.call('GET', '/api/bootstrap')).servers.find((x) => x.id === hqId);
   assert.equal(hqServer.name, 'Dev');
-  assert.equal(hqServer.icon, '/avatars/1.svg');
+  assert.equal(hqServer.icon, '/avatars/lock.svg');
   const hqNames = hqServer.channels.map((c) => c.name);
   for (const name of ['OVERVIEW', 'today', 'free-plan', 'limits', 'users', 'sign-ups', 'activity', 'servers']) assert.ok(hqNames.includes(name), name);
   const hqChannel = (name) => hqServer.channels.find((c) => c.name === name);
   const todayMsg = (await alice.call('GET', `/api/channels/${hqChannel('today').id}/messages`))[0];
-  assert.equal(todayMsg.author.avatar, '/avatars/1.svg');
+  assert.equal(todayMsg.author.avatar, '/avatars/lock.svg');
   assert.ok(todayMsg.components.some((c) => c.type === 'tiles') && todayMsg.components.some((c) => c.type === 'table'));
   // #users: one table of everyone; each person links to their stats.
   const usersMsg = (await alice.call('GET', `/api/channels/${hqChannel('users').id}/messages`))[0];
@@ -868,9 +870,8 @@ async function run() {
   assert.equal(detail.onlineByHour.length, 24);
   assert.ok(typeof detail.counts.onlineMinutes === 'number' && typeof detail.counts.friends === 'number');
   await carol.expect(404, 'GET', `/api/admin/people/${malloryRow[0].user.id}`);
-  // Nobody else can see it, get in, or post in it.
+  // Nobody else can see it unless the owner invites them.
   await carol.expect(404, 'GET', `/api/channels/${hqChannel('today').id}/messages`);
-  await alice.expect(403, 'POST', `/api/servers/${hqId}/invites`, {});
   assert.ok(!(await carol.call('GET', '/api/bootstrap')).servers.some((x) => x.id === hqId));
   // The sign-ups buttons work, only for the owner; a table isn't a button.
   const signupMsg = (await alice.call('GET', `/api/channels/${hqChannel('sign-ups').id}/messages`))[0];
@@ -884,7 +885,24 @@ async function run() {
   // Refreshing edits in place, never re-posts.
   await alice.call('POST', '/api/admin/hq');
   assert.equal((await alice.call('GET', `/api/channels/${hqChannel('today').id}/messages`)).length, 1);
-  ok('Dev: private dashboard server, tables and charts, person stats, owner-only buttons');
+  // A per-channel refresh updates just that channel; a category has nothing to refresh.
+  assert.equal((await alice.call('POST', '/api/admin/hq', { channelId: hqChannel('users').id })).ok, true);
+  assert.equal((await alice.call('POST', '/api/admin/hq', { channelId: hqChannel('OVERVIEW').id })).ok, false);
+  // A new account shows up in #users straight away.
+  await register('newcomer');
+  const usersTable2 = (await alice.call('GET', `/api/channels/${hqChannel('users').id}/messages`))[0].components.find((c) => c.type === 'table');
+  assert.ok(usersTable2.rows.some((r) => r[0].user?.username === 'newcomer'));
+  // The owner can invite people; they can read it, but can't invite others or press its buttons, and a refresh
+  // doesn't throw them out.
+  const hqInvite = await alice.call('POST', `/api/servers/${hqId}/invites`, {});
+  await carol.call('POST', `/api/invites/${hqInvite.code}`);
+  assert.ok((await carol.call('GET', '/api/bootstrap')).servers.some((x) => x.id === hqId));
+  assert.ok((await carol.call('GET', `/api/channels/${hqChannel('today').id}/messages`)).length);
+  await carol.expect(403, 'POST', `/api/servers/${hqId}/invites`, {});
+  await carol.expect(403, 'POST', `/api/messages/${signupMsg.id}/buttons/${closedIndex}`);
+  await alice.call('POST', '/api/admin/hq');
+  assert.ok((await carol.call('GET', '/api/bootstrap')).servers.some((x) => x.id === hqId));
+  ok('Dev: dashboard server, tables and charts, person stats, owner-only invites and buttons');
 
   // --- pages and headers ---
   const page1 = await new Client().request('GET', '/channels/@me');

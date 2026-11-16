@@ -14,6 +14,7 @@ import { openProfile } from './profile.js';
 import { openSettings } from './settings.js';
 import { openNotifications } from './notifications.js';
 import { openNewGroup } from './groups.js';
+import { updateMusicDock } from './music.js';
 
 // The server whose action list (under its name) is folded open, if any.
 let actionsFor = null;
@@ -250,7 +251,7 @@ async function statusMenu(event) {
   // The other accounts logged in on this browser, to switch to.
   const accounts = await listAccounts().catch(() => []);
   const others = accounts.filter((a) => !a.current);
-  showMenu({ clientX: box.left, clientY: box.top - 400, preventDefault() {}, stopPropagation() {} }, [
+  showMenu({ clientX: box.left, clientY: box.top - 6, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
       label, checked: current === value, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
     })),
@@ -261,7 +262,7 @@ async function statusMenu(event) {
     ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), badge: user.pings, onClick: () => attempt(() => switchAccount(user.id)) })),
     { label: 'Add an account', icon: 'userPlus', onClick: () => addAccount() },
     others.length > 0 && { label: 'Manage accounts', icon: 'settings', onClick: () => openSettings('account') },
-  ]);
+  ], { above: true });
 }
 
 // While you're in a call your picture gets a thin green ring, which lights up fully while you talk.
@@ -291,10 +292,16 @@ on('voice:speaking', () => {
 });
 
 export function mountSidebar(el) {
+  const list = h('div', { class: 'sidebar-body' });
+  const dock = h('div', { class: 'music-dock', id: 'music-dock', hidden: true });
+  const foot = h('div', { class: 'sidebar-foot' });
+  el.replaceChildren(list, dock, foot);
   redraw = () => {
     const server = state.route.name === 'server' && state.servers.get(state.route.serverId);
     if (actionsFor && actionsFor !== server?.id) actionsFor = null;
-    el.replaceChildren(...[(server ? serverList(server) : homeList()), userPanel()].flat().filter(Boolean));
+    list.replaceChildren(...(server ? serverList(server) : homeList()).flat().filter(Boolean));
+    foot.replaceChildren(userPanel());
+    updateMusicDock();
   };
   on('servers dms unread route relationships me users voice notifications', redraw);
   redraw();

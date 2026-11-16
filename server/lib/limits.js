@@ -27,7 +27,7 @@ const SIZES = {
 };
 
 const RATES = {
-  signupPerIp: { limit: 3, windowMs: DAY, label: 'Sign-ups from one address', message: 'Too many accounts were made from your network today. Try again tomorrow.' },
+  signupPerIp: { limit: 10, windowMs: 10 * MINUTE, label: 'Sign-ups from one address', message: 'Too many accounts were made from your network. Try again in a few minutes.' },
   signupGlobal: { limit: 30, windowMs: HOUR, label: 'Sign-ups across Opencord', message: 'Lots of people are signing up right now. Try again in a little while.' },
   loginPerIp: { limit: 30, windowMs: 15 * MINUTE, label: 'Log-in attempts from one address' },
   loginFailsPerAccount: { limit: 10, windowMs: 15 * MINUTE, label: 'Wrong passwords for one account', message: 'Too many wrong passwords for this account. Try again in 15 minutes.' },

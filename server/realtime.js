@@ -329,14 +329,17 @@ function isOnline(userId) {
 }
 
 function toUser(userId, event, payload) {
+  if (!io) return;
   io.to(userRoom(userId)).emit(event, payload);
 }
 
 function toUsers(userIds, event, payload) {
-  if (userIds.length) io.to(userIds.map(userRoom)).emit(event, payload);
+  if (!io || !userIds.length) return;
+  io.to(userIds.map(userRoom)).emit(event, payload);
 }
 
 function toServer(serverId, event, payload) {
+  if (!io) return;
   io.to(serverRoom(serverId)).emit(event, payload);
 }
 
@@ -355,6 +358,7 @@ function toAudience(userId, event, payload) {
 }
 
 function joinServer(userId, serverId) {
+  if (!io) return;
   io.in(userRoom(userId)).socketsJoin(serverRoom(serverId));
 }
 

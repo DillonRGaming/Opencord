@@ -50,12 +50,8 @@ export function navigate(path, { replace = false, panel = 'main' } = {}) {
   emit('route');
 }
 
-// The back arrow on a phone: back to the lists. Uses the browser's history when the lists are the page before.
+// The back arrow on a phone: show the lists, keeping the current page so its channel stays selected.
 export function showNav() {
-  if (history.state?.back && !currentLayers().length) {
-    history.back();
-    return;
-  }
   history.replaceState({ ...history.state, panel: 'nav', back: false, layers: [] }, '');
   setPanel('nav');
 }
@@ -63,7 +59,9 @@ export function showNav() {
 // From the lists back to the open chat (a swipe on a phone).
 export function showMain() {
   if (document.body.dataset.panel === 'main') return;
-  history.pushState({ panel: 'main', back: true }, '');
+  const entry = { panel: 'main', back: true };
+  if (history.state?.panel === 'nav') history.replaceState(entry, '');
+  else history.pushState(entry, '');
   setPanel('main');
 }
 

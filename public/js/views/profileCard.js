@@ -4,7 +4,7 @@ import { timeAgo, formatStamp } from '../format.js';
 import { bannerStyle } from '../patterns.js';
 
 // The profile card: shown in the popout and as the live preview in settings.
-export function profileCard(user, actionButtons = [], extra = null) {
+export function profileCard(user, actionButtons = [], extra = null, footer = null) {
   return h('div', { class: 'profile-card' },
     h('div', { class: 'profile-banner', style: bannerStyle(user) }),
     h('div', { class: 'profile-body' },
@@ -16,5 +16,6 @@ export function profileCard(user, actionButtons = [], extra = null) {
         && h('p', { class: 'profile-last-seen', title: formatStamp(user.lastSeen) }, `Last online ${timeAgo(user.lastSeen)}`),
       extra,
       user.bio && h('p', { class: 'profile-bio' }, user.bio),
-      actionButtons.length > 0 && h('div', { class: 'profile-actions' }, actionButtons)));
+      actionButtons.length > 0 && h('div', { class: 'profile-actions' }, actionButtons),
+      footer && h('div', { class: 'profile-footer' }, footer)));
 }

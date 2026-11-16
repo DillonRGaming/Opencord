@@ -42,6 +42,9 @@
 .profile-bio { padding-top: 0.9rem; border-top: 1px solid var(--border); font-size: 0.9rem; color: var(--text-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 .profile-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
 .profile-actions .button.primary { flex: 1; }
+.profile-footer { padding-top: 0.9rem; border-top: 1px solid var(--border); }
+.profile-notes { padding: 0.75rem; border-radius: var(--radius); background: var(--bg-panel); border: 1px solid var(--border); }
+.profile-notes .profile-roles-title { margin: 0 0 0.15rem; }
 
 /* --- auth: full screen, form on the left, art on the right --- */
 

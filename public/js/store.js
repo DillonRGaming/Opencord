@@ -18,6 +18,7 @@ export const state = {
   myRoles: {}, // serverId → my role ids (kept up to date from member updates)
   dmPings: new Map(), // DM channelId → unread messages from others, shown as red counts
   voice: new Map(), // voice channelId → [{ userId, muted, deafened, speaking }]
+  hqServerId: null, // the Dev dashboard server, if the owner has one
   route: { name: 'home' },
 };
 
@@ -43,6 +44,7 @@ export function emit(topic, payload) {
 
 export function load(data) {
   state.me = data.me;
+  state.hqServerId = data.hqServerId ?? null;
   state.relationships = new Map(data.relationships.map((relation) => [relation.user.id, relation]));
   state.servers = new Map(data.servers.map((server) => [server.id, server]));
   state.dms = new Map(data.dms.map((dm) => [dm.id, dm]));

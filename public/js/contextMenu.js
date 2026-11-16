@@ -53,7 +53,7 @@ function row(item) {
   return el;
 }
 
-export function showMenu(event, items) {
+export function showMenu(event, items, { above = false } = {}) {
   const rows = items.filter(Boolean);
   // Drop dividers at the ends or next to each other.
   const clean = rows.filter((item, i) => item !== '-' || (i > 0 && i < rows.length - 1 && rows[i - 1] !== '-'));
@@ -66,8 +66,9 @@ export function showMenu(event, items) {
   document.body.append(el);
   const { innerWidth: w, innerHeight: vh } = window;
   const box = el.getBoundingClientRect();
+  const top = above ? event.clientY - box.height : event.clientY;
   el.style.left = `${Math.max(8, Math.min(event.clientX, w - box.width - 8))}px`;
-  el.style.top = `${Math.max(8, Math.min(event.clientY, vh - box.height - 8))}px`;
+  el.style.top = `${Math.max(8, Math.min(top, vh - box.height - 8))}px`;
 
   open = { el, release: onEscape(closeMenu) };
   document.addEventListener('pointerdown', outside, true);

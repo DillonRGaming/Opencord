@@ -9,6 +9,7 @@ const servers = require('../models/servers');
 const realtime = require('../realtime');
 const audit = require('../models/audit');
 const previews = require('../lib/previews');
+const appSettings = require('../models/appSettings');
 
 const router = express.Router();
 
@@ -154,8 +155,55 @@ function advance(channelId, step = 1) {
 
 const musicChanged = (channel) => realtime.toServer(channel.server_id, 'music:update', musicState(channel.id));
 
+// Who is listening. Each listener refreshes a timestamp; when nobody has for a while, the track pauses so an
+// empty channel doesn't keep playing to nobody.
+const LISTEN_STALE_MS = 35 * 1000;
+const listenKey = 'musicListeners';
+
+function musicListeners() {
+  return appSettings.get(listenKey, {});
+}
+
+function someoneListening(channelId) {
+  const set = musicListeners()[channelId] || {};
+  const now = Date.now();
+  return Object.values(set).some((t) => now - t < LISTEN_STALE_MS);
+}
+
+function stopIfNobodyListening(channelId) {
+  if (someoneListening(channelId)) return;
+  const p = musicState(channelId).playing;
+  if (!p || p.pausedAt) return;
+  const channel = channels.get(channelId);
+  if (!channel) return;
+  setPlaying(channelId, p.itemId, p.startedAt, Date.now(), p.rate);
+  musicChanged(channel);
+}
+
+function markListening(channelId, userId, on) {
+  const map = musicListeners();
+  const set = map[channelId] || {};
+  if (on) set[userId] = Date.now();
+  else delete set[userId];
+  if (Object.keys(set).length) map[channelId] = set;
+  else delete map[channelId];
+  appSettings.set(listenKey, map);
+  if (!on) stopIfNobodyListening(channelId);
+}
+
+function sweepMusicListeners() {
+  const rows = db.prepare('SELECT channel_id FROM music_state WHERE item_id IS NOT NULL AND paused_at IS NULL').all();
+  for (const row of rows) stopIfNobodyListening(row.channel_id);
+}
+
 router.get('/:id/music', (req, res) => {
   res.json(musicState(appChannel(req.params.id, req.user.id, 'music').id));
+});
+
+router.post('/:id/music/listening', (req, res) => {
+  const channel = appChannel(req.params.id, req.user.id, 'music');
+  markListening(channel.id, req.user.id, req.body.listening !== false);
+  res.json({ ok: true });
 });
 
 // Add a YouTube link, or a link to an audio file someone uploaded here.
@@ -383,3 +431,4 @@ router.delete('/:id/pages/:pageId', (req, res) => {
 });
 
 module.exports = router;
+module.exports.sweepMusicListeners = sweepMusicListeners;

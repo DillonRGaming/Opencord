@@ -378,7 +378,7 @@ const INVITE_EXPIRY = [0, 3600, 86400, 7 * 86400, 30 * 86400]; // seconds, 0 = n
 
 router.post('/:id/invites', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
-  if (hq.isHq(server.id)) fail(403, 'Opencord HQ is private: nobody else can join it.');
+  if (hq.isHq(server.id) && server.owner_id !== req.user.id) fail(403, 'Only the Opencord owner can invite people to Dev.');
   if (server.invites_admin_only && !servers.can(server.id, req.user.id, 'createInvites')) fail(403, 'You need permission to make invites in this server.');
   const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
   if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');
