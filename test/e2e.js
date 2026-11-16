@@ -1010,7 +1010,16 @@ function fakeAi() {
       const lastText = String(last.content).split('\n').at(-1);
       const say = (text) => send(200, anthropic ? { content: [{ type: 'text', text }], stop_reason: 'end_turn' } : { choices: [{ message: { role: 'assistant', content: text } }] });
       const has = (tool) => system.includes(`- ${tool}:`);
-      if (String(last.content).startsWith('Tool results')) return say(`Tool said: ${String(last.content).split('\n')[1].replace(/^[\w-]+: /, '')}`);
+      if (String(last.content).startsWith('Tool results')) {
+        const results = String(last.content).split('\n').slice(1).filter((l) => /^[\w-]+: /.test(l)).map((l) => l.replace(/^[\w-]+: /, ''));
+        return say(`Tool said: ${results.join(' | ')}`);
+      }
+      // Models that use their own trained formats instead of ours.
+      if (/make a role/i.test(lastText) && has('manage_role')) {
+        return say('<tool_call>\n<function=manage_role>\n<parameter=action>\ncreate\n</parameter>\n<parameter=role>\nhello\n</parameter>\n</function>\n</tool_call>\n'
+          + '<tool_call>\n<function=manage_role>\n<parameter=action>\ngive\n</parameter>\n<parameter=role>\nhello\n</parameter>\n<parameter=username>\n@Bobby\n</parameter>\n</function>\n</tool_call>');
+      }
+      if (/hermes channel/i.test(lastText) && has('create_channel')) return say('On it. <tool_call>{"name": "create_channel", "arguments": {"name": "hermes"}}</tool_call>');
       if (/roll/i.test(lastText) && has('roll_dice')) return say(`Sure!\n<tool name="roll_dice">{"sides": ${anthropic ? 20 : 6}}</tool>`);
       if (/make a channel/i.test(lastText) && has('create_channel')) return say('<tool name="create_channel">{"name": "AI Made"}</tool>');
       return say(`${anthropic ? 'Claude echo' : 'Echo'}: ${lastText}`);
@@ -1103,6 +1112,13 @@ async function aiBots(alice, bob, server, general, bSock) {
     await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
     assert.match((await wait2).content, /Tool said: Created the text channel #ai-made\./);
     assert.match(ai.seen.at(-1).body.messages[0].content, /may ask you to: create channel/);
+    // Other tool formats (Qwen/GLM style, Hermes style) work too, and display names find people.
+    wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a role` });
+    assert.equal((await wait2).content, 'Tool said: Created the role hello. | Gave hello to @bob.');
+    wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} hermes channel` });
+    assert.equal((await wait2).content, 'Tool said: Created the text channel #hermes.');
     const made = (await alice.call('GET', '/api/bootstrap')).servers.find((x) => x.id === server.id).channels.find((c) => c.name === 'ai-made');
     assert.ok(made, 'the channel exists');
     await alice.call('DELETE', `/api/channels/${made.id}`).catch(() => {});

@@ -606,10 +606,15 @@ function channelByName(ctx, name, kind = null) {
   const wanted = channelName(str(name).replace(/^#/, ''));
   return channels.forServer(ctx.bot.server_id).find((c) => c.name === wanted && (!kind || c.kind === kind) && c.kind !== 'category') || null;
 }
+// A member by @username, or else by display name (both ignoring case).
 function memberByName(ctx, name) {
   const wanted = str(name, 40).replace(/^@/, '').toLowerCase();
+  if (!wanted) return null;
   const user = users.getByUsername(wanted);
-  return user && servers.isMember(ctx.bot.server_id, user.id) ? user : null;
+  if (user && servers.isMember(ctx.bot.server_id, user.id)) return user;
+  const ids = servers.memberIds(ctx.bot.server_id);
+  const found = ids.map((id) => users.get(id)).filter((u) => u && u.display_name.toLowerCase() === wanted);
+  return found.length === 1 ? found[0] : null;
 }
 const CH = { type: 'string', description: 'Channel name, without #. Leave out for the current channel.' };
 const WHO = { type: 'string', description: 'Their @username, without @.' };

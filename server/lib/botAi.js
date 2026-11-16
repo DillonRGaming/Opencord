@@ -204,7 +204,14 @@ async function ask(ai, system, messages) {
 // The model asks for a tool by writing <tool name="create_channel">{"name": "games"}</tool> in its reply.
 // The bot runs each one, sends the results back as a message, and the model then answers (or uses more).
 
+// Models trained on their own tool format sometimes use it anyway, so these are understood too:
+//   <tool name="x">{json}</tool>                                       (the one we ask for)
+//   <tool_call><function=x><parameter=k>v</parameter></function></tool_call>   (Qwen, GLM…)
+//   <tool_call>{"name": "x", "arguments": {json}}</tool_call>                (Hermes, many others)
 const TOOL_TAG = /<tool\s+name\s*=\s*["']?([\w-]+)["']?\s*>([\s\S]*?)<\/tool>/gi;
+const TOOL_CALL = /<tool_call>([\s\S]*?)(?:<\/tool_call>|$)/gi;
+const FUNCTION = /<function\s*=\s*["']?([\w-]+)["']?\s*>([\s\S]*?)(?:<\/function>|$)/i;
+const PARAMETER = /<parameter\s*=\s*["']?([\w-]+)["']?\s*>([\s\S]*?)<\/parameter>/gi;
 
 function toolPrompt(tools) {
   if (!tools.length) return '';
@@ -223,21 +230,39 @@ function toolPrompt(tools) {
     ...lines].join('\n');
 }
 
+function parseArgs(raw) {
+  const text = raw.trim();
+  if (!text) return { args: {} };
+  try {
+    const value = JSON.parse(text);
+    return { args: value && typeof value === 'object' ? value : {} };
+  } catch {
+    return { args: {}, bad: text };
+  }
+}
+
 function readTools(text) {
   const calls = [];
-  for (const m of text.matchAll(TOOL_TAG)) {
-    let args = {};
-    let bad = null;
-    const raw = m[2].trim();
-    if (raw) {
-      try { args = JSON.parse(raw); } catch { bad = raw; }
+  for (const m of text.matchAll(TOOL_TAG)) calls.push({ name: m[1], ...parseArgs(m[2]) });
+  for (const m of text.matchAll(TOOL_CALL)) {
+    const inner = m[1];
+    const fn = FUNCTION.exec(inner);
+    if (fn) {
+      const args = {};
+      for (const p of fn[2].matchAll(PARAMETER)) args[p[1]] = p[2].trim();
+      calls.push({ name: fn[1], args });
+      continue;
     }
-    calls.push({ name: m[1], args: args && typeof args === 'object' ? args : {}, bad });
+    const { args, bad } = parseArgs(inner);
+    if (args.name) calls.push({ name: String(args.name), ...parseArgs(JSON.stringify(args.arguments ?? args.parameters ?? args.input ?? {})) });
+    else if (bad) calls.push({ name: '?', args: {}, bad });
   }
   return calls;
 }
 
-const stripTools = (text) => text.replace(TOOL_TAG, '').replace(/\n{3,}/g, '\n\n').trim();
+// The answer without any tool calls in it (in any of the formats, finished or not).
+const stripTools = (text) => text.replace(TOOL_TAG, '').replace(TOOL_CALL, '').replace(/<\/?tool_call>/gi, '')
+  .replace(/\n{3,}/g, '\n\n').trim();
 
 const busy = new Map(); // botId → answers being written
 
