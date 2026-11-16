@@ -1,134 +1,211 @@
 // The bot builder: drag blocks from the palette onto the canvas and snap them together, like Scratch.
 // A program is a list of scripts { trigger, blocks, x, y }; blocks can hold more blocks (`do`, `else`).
-// Programs are plain data; the server checks them and runs them with hard limits (server/lib/bots.js).
+// Inputs hold typed text or reporters: round value blocks and pointed true/false blocks, { r: type, … },
+// which can hold more reporters. Programs are plain data; the server checks and runs them (server/lib/bots.js).
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { attempt, button, toast } from '../ui.js';
 import { openPage } from './page.js';
 import { colorField } from '../colorPicker.js';
-import { aiPanel } from './botAi.js';
 
-// --- block definitions ---
-// Each part of `parts` is a word, or a field: { key, kind: 'text' | 'number' | 'select' | 'lines' | 'channel', … }.
+// --- categories (Scratch's colours) ---
 
 const CATEGORIES = [
   { id: 'events', label: 'Events', colors: ['#ffbf00', '#e6ac00', '#cc9900'] },
   { id: 'messages', label: 'Messages', colors: ['#9966ff', '#855cd6', '#774dcb'] },
-  { id: 'ai', label: 'AI', colors: ['#5b6ee1', '#4c5fd4', '#3c4cb8'] },
   { id: 'control', label: 'Control', colors: ['#ffab19', '#ec9c13', '#cf8b17'] },
-  { id: 'voice', label: 'Voice', colors: ['#cf63cf', '#c94fc9', '#bd42bd'] },
+  { id: 'operators', label: 'Operators', colors: ['#59c059', '#46b946', '#389438'] },
   { id: 'variables', label: 'Variables', colors: ['#ff8c1a', '#ff8000', '#db6e00'] },
-  { id: 'data', label: 'Data & web', colors: ['#4cb4d8', '#3ea6ca', '#2f8db0'] },
+  { id: 'lists', label: 'Lists', colors: ['#ff661a', '#ff5500', '#e64d00'] },
+  { id: 'info', label: 'Info', colors: ['#5cb1d6', '#47a8d1', '#2e8eb8'] },
+  { id: 'ai', label: 'AI', colors: ['#5b6ee1', '#4c5fd4', '#3c4cb8'] },
+  { id: 'voice', label: 'Voice', colors: ['#cf63cf', '#c94fc9', '#bd42bd'] },
   { id: 'admin', label: 'Admin', colors: ['#ff6680', '#ff4d6a', '#ff3355'], admin: true },
   { id: 'roles', label: 'Roles', colors: ['#0fbd8c', '#0da57a', '#0b8e69'], admin: true },
-  { id: 'values', label: 'Values', colors: ['#59c059', '#46b946', '#389438'] },
 ];
-const TARGET = [['person', 'the person'], ['mentioned', 'the mentioned person']];
+const catById = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]));
+// Primary, secondary (dropdowns) and tertiary (outlines) colours, as CSS variables on the block.
+const tones = (cat) => ({ '--bb': catById[cat].colors[0], '--bb2': catById[cat].colors[1], '--bb3': catById[cat].colors[2] });
 
+const TARGET = [['person', 'the person'], ['mentioned', 'the mentioned person']];
 const MATCH = [['contains', 'contains'], ['starts', 'starts with'], ['equals', 'is exactly'], ['any', 'is anything']];
-const OPS = [['equals', '='], ['not', '≠'], ['contains', 'contains'], ['starts', 'starts with'], ['greater', '>'], ['less', '<'],
-  ['has_role', 'person has role'], ['not_role', 'person lacks role']];
-const MATH = [['+', '+'], ['-', '−'], ['*', '×'], ['/', '÷'], ['%', 'remainder'], ['min', 'smaller of'], ['max', 'bigger of'], ['round', 'rounded']];
-const CASES = [['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['length', 'the length'], ['reverse', 'reversed'], ['trim', 'trimmed']];
+
+// --- stack blocks and hats ---
+// `parts` are words, or inputs: { key, kind } where kind is
+//   text / number  typed value, or a reporter dropped in        bool    a pointed slot for true/false blocks
+//   select         a fixed choice ({ options })                   var / list  a variable or list name
+//   channel / voice / role / color / lines / secret
+
+const T = (key) => ({ key, kind: 'text' });
+const N = (key) => ({ key, kind: 'number' });
+const B = (key) => ({ key, kind: 'bool' });
+const V = { key: 'name', kind: 'var' };
+const L = { key: 'name', kind: 'list' };
+const CH = { key: 'channel', kind: 'channel', here: true };
+const WHO = { key: 'target', kind: 'select', options: TARGET };
 
 const BLOCKS = {
-  // triggers ("hats")
-  message: { hat: true, category: 'events', parts: ['when a message', { key: 'match', kind: 'select', options: MATCH }, { key: 'text', kind: 'text', placeholder: 'hello', hideWhen: (b) => b.match === 'any' }], make: () => ({ type: 'message', match: 'contains', text: 'hello' }) },
-  command: { hat: true, category: 'events', parts: ['when someone types /', { key: 'name', kind: 'text', placeholder: 'ping', width: 6 }, 'described as', { key: 'description', kind: 'text', placeholder: 'shown in the / list' }], make: () => ({ type: 'command', name: 'ping', description: '' }) },
-  button: { hat: true, category: 'events', parts: ['when the button', { key: 'text', kind: 'text', placeholder: 'any button' }, 'is clicked'], make: () => ({ type: 'button', text: '' }) },
-  reaction: { hat: true, category: 'events', parts: ['when someone reacts with', { key: 'emoji', kind: 'text', placeholder: 'any emoji', width: 6 }], make: () => ({ type: 'reaction', emoji: '' }) },
-  menu: { hat: true, category: 'events', parts: ['when someone picks', { key: 'text', kind: 'text', placeholder: 'anything' }, 'from a menu'], make: () => ({ type: 'menu', text: '' }) },
-  leave: { hat: true, category: 'events', parts: ['when someone leaves the server'], make: () => ({ type: 'leave' }) },
-  join: { hat: true, category: 'events', parts: ['when someone joins the server'], make: () => ({ type: 'join' }) },
-  timer: { hat: true, category: 'events', parts: ['every', { key: 'minutes', kind: 'number', width: 3 }, 'minutes in', { key: 'channel', kind: 'channel' }], make: () => ({ type: 'timer', minutes: 60, channel: '' }) },
-
-  // AI: tools the model can call (the blocks under the hat run), and blocks that use the model
-  tool: { hat: true, category: 'ai', parts: ['the AI can use the tool', { key: 'name', kind: 'text', placeholder: 'roll_dice', width: 8 }, 'to', { key: 'description', kind: 'text', placeholder: 'what it does, for the AI' }, 'given', { key: 'options', kind: 'lines', placeholder: 'one per line, like\ncity: the city name\ndays (number): how many\nunits?: optional' }], make: () => ({ type: 'tool', name: 'roll_dice', description: 'Roll a dice for someone', options: ['sides (number): how many sides the dice has'] }) },
-  ai_message: { hat: true, category: 'ai', parts: ['when someone talks to me'], make: () => ({ type: 'ai_message' }) },
-  ai_reply: { category: 'ai', parts: ['answer them with AI, also told', { key: 'text', kind: 'text', placeholder: 'nothing extra' }], make: () => ({ type: 'ai_reply', text: '' }) },
-  ai_ask: { category: 'ai', parts: ['ask the AI', { key: 'text', kind: 'text', placeholder: 'Write a haiku about {args}' }, { key: 'mode', kind: 'select', options: [['plain', 'without tools'], ['tools', 'with tools']] }, 'and keep the answer in', { key: 'name', kind: 'text', placeholder: 'answer', width: 6 }], make: () => ({ type: 'ai_ask', text: 'Write a haiku about {args}', mode: 'plain', name: 'answer' }) },
-  ai_tell: { category: 'ai', parts: ['tell the AI', { key: 'text', kind: 'text', placeholder: 'Rolled {var.roll}' }], make: () => ({ type: 'ai_tell', text: 'Rolled {var.roll}' }) },
-  ai_instructions: { category: 'ai', parts: ['add AI instructions', { key: 'text', kind: 'text', placeholder: 'Talk like a pirate' }], make: () => ({ type: 'ai_instructions', text: 'Talk like a pirate.' }) },
-  ai_model: { category: 'ai', parts: ['use the model', { key: 'value', kind: 'text', placeholder: 'model id', width: 10 }], make: () => ({ type: 'ai_model', value: '' }) },
-  ai_remember: { category: 'ai', parts: ['AI: remember', { key: 'text', kind: 'text', placeholder: '{user} likes cats' }], make: () => ({ type: 'ai_remember', text: '{user} likes cats' }) },
-  ai_forget: { category: 'ai', parts: ['AI: forget', { key: 'what', kind: 'select', options: [['chat', 'this conversation'], ['memory', 'everything it remembers']] }], make: () => ({ type: 'ai_forget', what: 'chat' }) },
+  // events
+  message: { hat: true, category: 'events', parts: ['when a message', { key: 'match', kind: 'select', options: MATCH }, { key: 'text', kind: 'name', hideWhen: (b) => b.match === 'any' }], make: () => ({ type: 'message', match: 'contains', text: 'hello' }) },
+  command: { hat: true, category: 'events', parts: ['when someone types /', { key: 'name', kind: 'name' }], make: () => ({ type: 'command', name: 'ping' }) },
+  ai_message: { hat: true, category: 'events', parts: ['when someone talks to me'], make: () => ({ type: 'ai_message' }) },
+  join: { hat: true, category: 'events', parts: ['when someone joins'], make: () => ({ type: 'join' }) },
+  leave: { hat: true, category: 'events', parts: ['when someone leaves'], make: () => ({ type: 'leave' }) },
+  reaction: { hat: true, category: 'events', parts: ['when someone reacts with', { key: 'emoji', kind: 'name', placeholder: 'any' }], make: () => ({ type: 'reaction', emoji: '👍' }) },
+  button: { hat: true, category: 'events', parts: ['when button', { key: 'text', kind: 'name', placeholder: 'any' }, 'is clicked'], make: () => ({ type: 'button', text: 'Yes' }) },
+  menu: { hat: true, category: 'events', parts: ['when someone picks', { key: 'text', kind: 'name', placeholder: 'anything' }, 'from a menu'], make: () => ({ type: 'menu', text: '' }) },
+  timer: { hat: true, category: 'events', parts: ['every', { key: 'minutes', kind: 'name' }, 'minutes in', { key: 'channel', kind: 'channel' }], make: () => ({ type: 'timer', minutes: 60, channel: '' }) },
 
   // messages
-  send: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Hi {user}!' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'send', text: 'Hi {user}!', channel: '' }) },
-  reply: { category: 'messages', parts: ['reply', { key: 'text', kind: 'text', placeholder: 'Pong!' }], make: () => ({ type: 'reply', text: 'Pong!' }) },
-  random: { category: 'messages', parts: ['send one of', { key: 'options', kind: 'lines', placeholder: 'one line per choice' }], make: () => ({ type: 'random', options: ['Heads', 'Tails'] }) },
-  react: { category: 'messages', parts: ['react with', { key: 'emoji', kind: 'text', width: 4, placeholder: '👍' }], make: () => ({ type: 'react', emoji: '👍' }) },
-  ping: { category: 'messages', parts: ['ping', { key: 'target', kind: 'select', options: TARGET }, 'and say', { key: 'text', kind: 'text', placeholder: 'hi!' }], make: () => ({ type: 'ping', target: 'person', text: 'hi!' }) },
-  dm: { category: 'messages', parts: ['DM', { key: 'target', kind: 'select', options: TARGET }, { key: 'text', kind: 'text', placeholder: 'Welcome!' }], make: () => ({ type: 'dm', target: 'person', text: 'Welcome to {server}!' }) },
+  send: { category: 'messages', parts: ['send', T('text'), 'in', CH], make: () => ({ type: 'send', text: 'Hello!', channel: '' }) },
+  reply: { category: 'messages', parts: ['reply', T('text')], make: () => ({ type: 'reply', text: 'Hello!' }) },
+  dm: { category: 'messages', parts: ['message', WHO, 'privately', T('text')], make: () => ({ type: 'dm', target: 'person', text: 'Welcome!' }) },
+  react: { category: 'messages', parts: ['react with', T('emoji')], make: () => ({ type: 'react', emoji: '👍' }) },
+  buttons: { category: 'messages', parts: ['send', T('text'), 'with buttons', { key: 'options', kind: 'lines' }, 'in', CH], make: () => ({ type: 'buttons', text: 'Pick one:', options: ['Yes', 'No'], channel: '' }) },
+  menu_send: { category: 'messages', parts: ['send', T('text'), 'with a menu', { key: 'options', kind: 'lines' }, 'in', CH], make: () => ({ type: 'menu_send', text: 'Pick one:', options: ['Red', 'Green', 'Blue'], channel: '' }) },
   pin: { category: 'messages', parts: ['pin the message'], make: () => ({ type: 'pin' }) },
-  menu_send: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Pick a game:' }, 'with a menu called', { key: 'name', kind: 'text', placeholder: 'Pick one', width: 8 }, 'of', { key: 'options', kind: 'lines', placeholder: 'one choice per line' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'menu_send', text: 'What should we play?', name: 'Pick a game', options: ['Minecraft', 'Among Us', 'Chess'], channel: '' }) },
   unpin: { category: 'messages', parts: ['unpin the message'], make: () => ({ type: 'unpin' }) },
-  buttons: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Pick one:' }, 'with buttons', { key: 'options', kind: 'lines', placeholder: 'one button per line' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'buttons', text: 'Pick a team:', options: ['Red', 'Blue'], channel: '' }) },
-
-  // voice
-  join_voice: { category: 'voice', parts: ['join voice channel', { key: 'channel', kind: 'voice' }], make: () => ({ type: 'join_voice', channel: '' }) },
-  leave_voice: { category: 'voice', parts: ['leave voice'], make: () => ({ type: 'leave_voice' }) },
 
   // control
-  wait: { category: 'control', parts: ['wait', { key: 'seconds', kind: 'number', width: 2 }, 'seconds'], make: () => ({ type: 'wait', seconds: 1 }) },
-  if: { category: 'control', parts: ['if', { key: 'left', kind: 'text', placeholder: '{args}', width: 6 }, { key: 'op', kind: 'select', options: OPS }, { key: 'right', kind: 'text', placeholder: 'yes', width: 6 }], mouths: ['do', 'else'], make: () => ({ type: 'if', left: '{args}', op: 'equals', right: 'yes', do: [], else: [] }) },
-  repeat: { category: 'control', parts: ['repeat', { key: 'times', kind: 'number', width: 2 }, 'times'], mouths: ['do'], make: () => ({ type: 'repeat', times: 3, do: [] }) },
+  wait: { category: 'control', parts: ['wait', N('seconds'), 'seconds'], make: () => ({ type: 'wait', seconds: 1 }) },
+  repeat: { category: 'control', parts: ['repeat', N('times')], mouths: ['do'], make: () => ({ type: 'repeat', times: 10, do: [] }) },
   forever: { category: 'control', cap: true, parts: ['forever'], mouths: ['do'], make: () => ({ type: 'forever', do: [] }) },
-  until: { category: 'control', parts: ['repeat until', { key: 'left', kind: 'text', placeholder: '{var.score}', width: 6 }, { key: 'op', kind: 'select', options: OPS }, { key: 'right', kind: 'text', placeholder: '10', width: 4 }], mouths: ['do'], make: () => ({ type: 'until', left: '{var.score}', op: 'greater', right: '10', do: [] }) },
+  if: { category: 'control', parts: ['if', B('cond'), 'then'], mouths: ['do'], make: () => ({ type: 'if', do: [] }) },
+  if_else: { category: 'control', parts: ['if', B('cond'), 'then'], mouths: ['do', 'else'], make: () => ({ type: 'if_else', do: [], else: [] }) },
+  wait_until: { category: 'control', parts: ['wait until', B('cond')], make: () => ({ type: 'wait_until' }) },
+  until: { category: 'control', parts: ['repeat until', B('cond')], mouths: ['do'], make: () => ({ type: 'until', do: [] }) },
   stop: { category: 'control', cap: true, parts: ['stop this script'], make: () => ({ type: 'stop' }) },
 
-  // variables
-  set: { category: 'variables', parts: ['set', { key: 'name', kind: 'text', placeholder: 'score', width: 5 }, 'to', { key: 'value', kind: 'text', placeholder: '0', width: 5 }], make: () => ({ type: 'set', name: 'score', value: '0' }) },
-  invite: { category: 'admin', parts: ['make an invite into', { key: 'name', kind: 'text', placeholder: 'invite', width: 5 }], make: () => ({ type: 'invite', name: 'invite' }) },
-  everyone: { category: 'admin', parts: ['ping @everyone', { key: 'text', kind: 'text', placeholder: 'news!' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'everyone', text: 'Big news!', channel: '' }) },
+  // variables and lists
+  set: { category: 'variables', parts: ['set', V, 'to', T('value')], make: () => ({ type: 'set', name: '', value: '0' }) },
+  change: { category: 'variables', parts: ['change', V, 'by', N('value')], make: () => ({ type: 'change', name: '', value: 1 }) },
+  list_add: { category: 'lists', parts: ['add', T('value'), 'to', L], make: () => ({ type: 'list_add', value: 'thing', name: '' }) },
+  list_delete: { category: 'lists', parts: ['delete', T('index'), 'of', L], make: () => ({ type: 'list_delete', index: '1', name: '' }) },
+  list_clear: { category: 'lists', parts: ['delete all of', L], make: () => ({ type: 'list_clear', name: '' }) },
+  list_insert: { category: 'lists', parts: ['insert', T('value'), 'at', N('index'), 'of', L], make: () => ({ type: 'list_insert', value: 'thing', index: 1, name: '' }) },
+  list_replace: { category: 'lists', parts: ['replace item', T('index'), 'of', L, 'with', T('value')], make: () => ({ type: 'list_replace', index: '1', name: '', value: 'thing' }) },
+
+  // AI
+  tool: { hat: true, category: 'ai', parts: ['when the AI uses', { key: 'name', kind: 'name' }, 'to', { key: 'description', kind: 'name', placeholder: 'what it does' }, 'with', { key: 'options', kind: 'lines', placeholder: 'sides (number): how many sides' }], make: () => ({ type: 'tool', name: 'roll_dice', description: 'roll a dice', options: ['sides (number): how many sides'] }) },
+  ai_connect: { category: 'ai', parts: ['use AI at', T('url'), 'key', { key: 'key', kind: 'secret' }, 'model', T('model')], make: () => ({ type: 'ai_connect', url: 'https://openrouter.ai/api/v1', key: '', model: 'openrouter/auto' }) },
+  ai_instructions: { category: 'ai', parts: ['add AI instructions', T('text')], make: () => ({ type: 'ai_instructions', text: 'Be friendly and short.' }) },
+  ai_reply: { category: 'ai', parts: ['answer them with AI'], make: () => ({ type: 'ai_reply' }) },
+  ai_tell: { category: 'ai', parts: ['tell the AI', T('text')], make: () => ({ type: 'ai_tell', text: 'done' }) },
+
+  // voice
+  join_voice: { category: 'voice', parts: ['join voice', { key: 'channel', kind: 'voice' }], make: () => ({ type: 'join_voice', channel: '' }) },
+  leave_voice: { category: 'voice', parts: ['leave voice'], make: () => ({ type: 'leave_voice' }) },
+
+  // admin
   delete: { category: 'admin', parts: ['delete the message'], make: () => ({ type: 'delete' }) },
-  purge: { category: 'admin', parts: ['delete the last', { key: 'count', kind: 'number', width: 2 }, 'messages in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'purge', count: 10, channel: '' }) },
-  create_channel: { category: 'admin', parts: ['create', { key: 'kind', kind: 'select', options: [['text', 'text'], ['voice', 'voice']] }, 'channel', { key: 'name', kind: 'text', placeholder: 'new-channel' }], make: () => ({ type: 'create_channel', kind: 'text', name: '{arg1}' }) },
-  delete_channel: { category: 'admin', parts: ['delete channel named', { key: 'name', kind: 'text', placeholder: 'old-channel' }], make: () => ({ type: 'delete_channel', name: '{arg1}' }) },
-  rename_channel: { category: 'admin', parts: ['rename', { key: 'channel', kind: 'channel', here: true }, 'to', { key: 'name', kind: 'text', placeholder: 'new-name' }], make: () => ({ type: 'rename_channel', channel: '', name: '{args}' }) },
-  topic: { category: 'admin', parts: ['set topic of', { key: 'channel', kind: 'channel', here: true }, 'to', { key: 'text', kind: 'text', placeholder: 'topic' }], make: () => ({ type: 'topic', channel: '', text: '{args}' }) },
-  slowmode: { category: 'admin', parts: ['set slowmode in', { key: 'channel', kind: 'channel', here: true }, 'to', { key: 'slow', kind: 'number', width: 3 }, 'seconds'], make: () => ({ type: 'slowmode', channel: '', slow: 10 }) },
-  lock: { category: 'admin', parts: [{ key: 'lock', kind: 'select', options: [['lock', 'lock'], ['unlock', 'unlock']] }, { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'lock', lock: 'lock', channel: '' }) },
-  kick: { category: 'admin', parts: ['kick', { key: 'target', kind: 'select', options: TARGET }, 'because', { key: 'reason', kind: 'text', placeholder: 'reason' }], make: () => ({ type: 'kick', target: 'mentioned', reason: '' }) },
-  ban: { category: 'admin', parts: ['ban', { key: 'target', kind: 'select', options: TARGET }, 'because', { key: 'reason', kind: 'text', placeholder: 'reason' }], make: () => ({ type: 'ban', target: 'mentioned', reason: '' }) },
-  timeout: { category: 'admin', parts: ['time out', { key: 'target', kind: 'select', options: TARGET }, 'for', { key: 'minutes', kind: 'number', width: 3 }, 'minutes'], make: () => ({ type: 'timeout', target: 'mentioned', minutes: 10 }) },
-  untimeout: { category: 'admin', parts: ['remove timeout from', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'untimeout', target: 'mentioned' }) },
-  // roles (by name, so {arg1} works too; roles with admin powers are off limits)
-  give_role: { category: 'roles', parts: ['give', { key: 'target', kind: 'select', options: TARGET }, 'the role', { key: 'role', kind: 'role' }], make: () => ({ type: 'give_role', target: 'person', role: '' }) },
-  take_role: { category: 'roles', parts: ['take the role', { key: 'role', kind: 'role' }, 'from', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'take_role', target: 'person', role: '' }) },
-  toggle_role: { category: 'roles', parts: ['toggle the role', { key: 'role', kind: 'role' }, 'for', { key: 'target', kind: 'select', options: TARGET }], make: () => ({ type: 'toggle_role', target: 'person', role: '' }) },
-  create_role: { category: 'roles', parts: ['create a role named', { key: 'role', kind: 'text', placeholder: 'Members' }, 'coloured', { key: 'color', kind: 'color' }], make: () => ({ type: 'create_role', role: '{arg1}', color: '#a99bf0' }) },
-  rename_role: { category: 'roles', parts: ['rename role', { key: 'role', kind: 'role' }, 'to', { key: 'name', kind: 'text', placeholder: 'new name' }], make: () => ({ type: 'rename_role', role: '', name: '{args}' }) },
+  purge: { category: 'admin', parts: ['delete the last', N('count'), 'messages in', CH], make: () => ({ type: 'purge', count: 10, channel: '' }) },
+  everyone: { category: 'admin', parts: ['ping @everyone', T('text'), 'in', CH], make: () => ({ type: 'everyone', text: 'News!', channel: '' }) },
+  kick: { category: 'admin', parts: ['kick', WHO, 'because', T('reason')], make: () => ({ type: 'kick', target: 'mentioned', reason: '' }) },
+  ban: { category: 'admin', parts: ['ban', WHO, 'because', T('reason')], make: () => ({ type: 'ban', target: 'mentioned', reason: '' }) },
+  timeout: { category: 'admin', parts: ['time out', WHO, 'for', N('minutes'), 'minutes'], make: () => ({ type: 'timeout', target: 'mentioned', minutes: 10 }) },
+  untimeout: { category: 'admin', parts: ['end time out for', WHO], make: () => ({ type: 'untimeout', target: 'mentioned' }) },
+  create_channel: { category: 'admin', parts: ['create', { key: 'kind', kind: 'select', options: [['text', 'text'], ['voice', 'voice']] }, 'channel', T('name')], make: () => ({ type: 'create_channel', kind: 'text', name: 'new-channel' }) },
+  delete_channel: { category: 'admin', parts: ['delete channel', T('name')], make: () => ({ type: 'delete_channel', name: 'old-channel' }) },
+  rename_channel: { category: 'admin', parts: ['rename', CH, 'to', T('name')], make: () => ({ type: 'rename_channel', channel: '', name: 'new-name' }) },
+  topic: { category: 'admin', parts: ['set topic of', CH, 'to', T('text')], make: () => ({ type: 'topic', channel: '', text: 'Hello' }) },
+  slowmode: { category: 'admin', parts: ['set slowmode in', CH, 'to', N('slow'), 'seconds'], make: () => ({ type: 'slowmode', channel: '', slow: 10 }) },
+  lock: { category: 'admin', parts: [{ key: 'lock', kind: 'select', options: [['lock', 'lock'], ['unlock', 'unlock']] }, CH], make: () => ({ type: 'lock', lock: 'lock', channel: '' }) },
+  invite: { category: 'admin', parts: ['set', V, 'to a new invite link'], make: () => ({ type: 'invite', name: '' }) },
+
+  // roles (by name; roles with admin powers are off limits)
+  give_role: { category: 'roles', parts: ['give', WHO, 'the role', { key: 'role', kind: 'role' }], make: () => ({ type: 'give_role', target: 'person', role: '' }) },
+  take_role: { category: 'roles', parts: ['take the role', { key: 'role', kind: 'role' }, 'from', WHO], make: () => ({ type: 'take_role', target: 'person', role: '' }) },
+  toggle_role: { category: 'roles', parts: ['toggle the role', { key: 'role', kind: 'role' }, 'for', WHO], make: () => ({ type: 'toggle_role', target: 'person', role: '' }) },
+  create_role: { category: 'roles', parts: ['create the role', { key: 'role', kind: 'role' }, 'coloured', { key: 'color', kind: 'color' }], make: () => ({ type: 'create_role', role: 'Members', color: '#a99bf0' }) },
+  rename_role: { category: 'roles', parts: ['rename role', { key: 'role', kind: 'role' }, 'to', T('name')], make: () => ({ type: 'rename_role', role: '', name: 'New name' }) },
   color_role: { category: 'roles', parts: ['colour role', { key: 'role', kind: 'role' }, { key: 'color', kind: 'color' }], make: () => ({ type: 'color_role', role: '', color: '#8fc1d6' }) },
   delete_role: { category: 'roles', parts: ['delete the role', { key: 'role', kind: 'role' }], make: () => ({ type: 'delete_role', role: '' }) },
-  // data & web
-  http: { category: 'data', parts: ['get', { key: 'url', kind: 'text', placeholder: 'https://api.example.com/{arg1}' }, 'and keep', { key: 'field', kind: 'text', placeholder: 'all of it (or a.json.path)' }, 'in', { key: 'name', kind: 'text', placeholder: 'response', width: 6 }], make: () => ({ type: 'http', url: 'https://api.adviceslip.com/advice', field: 'slip.advice', name: 'advice' }) },
-  math: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'total', width: 5 }, 'to', { key: 'left', kind: 'text', placeholder: '{var.a}', width: 5 }, { key: 'math', kind: 'select', options: MATH }, { key: 'right', kind: 'text', placeholder: '2', width: 4 }], make: () => ({ type: 'math', name: 'total', left: '{var.score}', math: '*', right: '2' }) },
-  random_number: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'roll', width: 5 }, 'to a random number from', { key: 'min', kind: 'number', width: 3 }, 'to', { key: 'max', kind: 'number', width: 3 }], make: () => ({ type: 'random_number', name: 'roll', min: 1, max: 6 }) },
-  text_case: { category: 'data', parts: ['set', { key: 'name', kind: 'text', placeholder: 'shout', width: 5 }, 'to', { key: 'textCase', kind: 'select', options: CASES }, 'of', { key: 'value', kind: 'text', placeholder: '{args}', width: 6 }], make: () => ({ type: 'text_case', name: 'shout', textCase: 'upper', value: '{args}' }) },
-  list_add: { category: 'data', parts: ['add', { key: 'value', kind: 'text', placeholder: '{user}', width: 6 }, 'to list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_add', value: '{user}', name: 'queue' }) },
-  list_remove: { category: 'data', parts: ['remove', { key: 'value', kind: 'text', placeholder: '{user}', width: 6 }, 'from list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_remove', value: '{user}', name: 'queue' }) },
-  list_pick: { category: 'data', parts: ['pick a random item from list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }, 'into', { key: 'value', kind: 'text', placeholder: 'picked', width: 5 }], make: () => ({ type: 'list_pick', name: 'queue', value: 'picked' }) },
-  list_clear: { category: 'data', parts: ['empty the list', { key: 'name', kind: 'text', placeholder: 'queue', width: 5 }], make: () => ({ type: 'list_clear', name: 'queue' }) },
-  change: { category: 'variables', parts: ['change', { key: 'name', kind: 'text', placeholder: 'score', width: 5 }, 'by', { key: 'value', kind: 'text', placeholder: '1', width: 3 }], make: () => ({ type: 'change', name: 'score', value: '1' }) },
+
+  // Older blocks: not in the palette any more, but bots made with them still show and run.
+  ping: { legacy: true, category: 'messages', parts: ['ping', WHO, 'and say', T('text')], make: () => ({ type: 'ping', target: 'person', text: '' }) },
+  random: { legacy: true, category: 'messages', parts: ['send one of', { key: 'options', kind: 'lines' }], make: () => ({ type: 'random', options: [] }) },
+  http: { legacy: true, category: 'info', parts: ['get', T('url'), 'and keep', T('field'), 'in', V], make: () => ({ type: 'http', url: '', field: '', name: '' }) },
+  math: { legacy: true, category: 'operators', parts: ['set', V, 'to', T('left'), { key: 'math', kind: 'select', options: [['+', '+'], ['-', '−'], ['*', '×'], ['/', '÷'], ['%', 'mod'], ['min', 'min'], ['max', 'max'], ['round', 'round']] }, T('right')], make: () => ({ type: 'math', name: '', left: '', math: '+', right: '' }) },
+  random_number: { legacy: true, category: 'operators', parts: ['set', V, 'to random', N('min'), 'to', N('max')], make: () => ({ type: 'random_number', name: '', min: 1, max: 6 }) },
+  text_case: { legacy: true, category: 'operators', parts: ['set', V, 'to', { key: 'textCase', kind: 'select', options: [['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['length', 'length'], ['reverse', 'reversed'], ['trim', 'trimmed']] }, 'of', T('value')], make: () => ({ type: 'text_case', name: '', textCase: 'upper', value: '' }) },
+  list_remove: { legacy: true, category: 'lists', parts: ['remove', T('value'), 'from', L], make: () => ({ type: 'list_remove', value: '', name: '' }) },
+  list_pick: { legacy: true, category: 'lists', parts: ['pick a random item from', L, 'into', T('value')], make: () => ({ type: 'list_pick', name: '', value: '' }) },
+  ai_ask: { legacy: true, category: 'ai', parts: ['ask the AI', T('text'), 'and keep the answer in', V], make: () => ({ type: 'ai_ask', text: '', name: '' }) },
 };
 
-// Values are chips: click one to drop it into the field you last typed in.
-const VALUES = [
-  ['{user}', 'their name'], ['{mention}', '@them'], ['{args}', 'command words'], ['{arg1}', 'first word'],
-  ['{message}', 'the message'], ['{channel}', 'channel name'], ['{server}', 'server name'],
-  ['{var.score}', 'a variable'], ['{random 1 10}', 'random number'], ['{roles}', 'their roles'],
-  ['{button}', 'button clicked'], ['{choice}', 'menu choice'], ['{emoji}', 'reaction emoji'], ['{list.queue}', 'a list'], ['{list.queue.length}', 'list size'],
-  ['{time}', 'the time'], ['{date}', 'the date'],
-  ['{prompt}', 'what they said to the AI'], ['{param.sides}', 'a tool parameter'], ['{params}', 'all tool parameters'],
-  ['{answer}', 'the AI’s last answer'], ['{ai.model}', 'the model'], ['{ai.error}', 'why the AI failed'],
-];
+// --- reporters: round value blocks and pointed true/false blocks ---
 
-const categoryOf = (type) => CATEGORIES.find((c) => c.id === BLOCKS[type].category);
-// Primary, secondary (dropdowns) and tertiary (outlines) colours, as CSS variables on the block.
-const tones = (colors) => ({ '--bb': colors[0], '--bb2': colors[1], '--bb3': colors[2] });
-const colorOf = (type) => tones(categoryOf(type).colors);
+const ROUND = 'round';
+const BOOL = 'bool';
+const REPORTERS = {
+  // operators
+  add: { category: 'operators', parts: [T('a'), '+', T('b')], make: () => ({ r: 'add', a: '', b: '' }) },
+  sub: { category: 'operators', parts: [T('a'), '−', T('b')], make: () => ({ r: 'sub', a: '', b: '' }) },
+  mul: { category: 'operators', parts: [T('a'), '×', T('b')], make: () => ({ r: 'mul', a: '', b: '' }) },
+  div: { category: 'operators', parts: [T('a'), '÷', T('b')], make: () => ({ r: 'div', a: '', b: '' }) },
+  random: { category: 'operators', parts: ['pick random', T('a'), 'to', T('b')], make: () => ({ r: 'random', a: '1', b: '10' }) },
+  gt: { category: 'operators', shape: BOOL, parts: [T('a'), '>', T('b')], make: () => ({ r: 'gt', a: '', b: '50' }) },
+  lt: { category: 'operators', shape: BOOL, parts: [T('a'), '<', T('b')], make: () => ({ r: 'lt', a: '', b: '50' }) },
+  eq: { category: 'operators', shape: BOOL, parts: [T('a'), '=', T('b')], make: () => ({ r: 'eq', a: '', b: '50' }) },
+  and: { category: 'operators', shape: BOOL, parts: [B('a'), 'and', B('b')], make: () => ({ r: 'and' }) },
+  or: { category: 'operators', shape: BOOL, parts: [B('a'), 'or', B('b')], make: () => ({ r: 'or' }) },
+  not: { category: 'operators', shape: BOOL, parts: ['not', B('a')], make: () => ({ r: 'not' }) },
+  join: { category: 'operators', parts: ['join', T('a'), T('b')], make: () => ({ r: 'join', a: 'apple ', b: 'banana' }) },
+  letter: { category: 'operators', parts: ['letter', T('a'), 'of', T('b')], make: () => ({ r: 'letter', a: '1', b: 'apple' }) },
+  length: { category: 'operators', parts: ['length of', T('a')], make: () => ({ r: 'length', a: 'apple' }) },
+  contains: { category: 'operators', shape: BOOL, parts: [T('a'), 'contains', T('b'), '?'], make: () => ({ r: 'contains', a: 'apple', b: 'a' }) },
+  starts: { category: 'operators', shape: BOOL, parts: [T('a'), 'starts with', T('b'), '?'], make: () => ({ r: 'starts', a: 'apple', b: 'a' }) },
+  mod: { category: 'operators', parts: [T('a'), 'mod', T('b')], make: () => ({ r: 'mod', a: '', b: '' }) },
+  round: { category: 'operators', parts: ['round', T('a')], make: () => ({ r: 'round', a: '' }) },
+  math: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['abs', 'abs'], ['floor', 'floor'], ['ceiling', 'ceiling'], ['sqrt', 'sqrt']] }, 'of', T('a')], make: () => ({ r: 'math', fn: 'abs', a: '' }) },
+  case: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['upper', 'UPPERCASE'], ['lower', 'lowercase']] }, 'of', T('a')], make: () => ({ r: 'case', fn: 'upper', a: 'hello' }) },
+
+  // variables and lists (one of each per name in the palette)
+  var: { category: 'variables', parts: [V], make: (name) => ({ r: 'var', name }) },
+  list: { category: 'lists', parts: [L], make: (name) => ({ r: 'list', name }) },
+  item: { category: 'lists', parts: ['item', T('a'), 'of', L], make: (name) => ({ r: 'item', a: '1', name }) },
+  list_random: { category: 'lists', parts: ['random item of', L], make: (name) => ({ r: 'list_random', name }) },
+  list_length: { category: 'lists', parts: ['length of', L], make: (name) => ({ r: 'list_length', name }) },
+  list_contains: { category: 'lists', shape: BOOL, parts: [L, 'contains', T('a'), '?'], make: (name) => ({ r: 'list_contains', name, a: 'thing' }) },
+
+  // info: who, what and where
+  user_name: { category: 'info', parts: ['their name'], make: () => ({ r: 'user_name' }) },
+  user_mention: { category: 'info', parts: ['@them'], make: () => ({ r: 'user_mention' }) },
+  user_id: { category: 'info', parts: ['their username'], make: () => ({ r: 'user_id' }) },
+  message: { category: 'info', parts: ['the message'], make: () => ({ r: 'message' }) },
+  said: { category: 'info', parts: ['what they said to me'], make: () => ({ r: 'said' }) },
+  words: { category: 'info', parts: ['words after the command'], make: () => ({ r: 'words' }) },
+  word: { category: 'info', parts: ['word', T('a'), 'after the command'], make: () => ({ r: 'word', a: '1' }) },
+  mentioned_name: { category: 'info', parts: ['mentioned person’s name'], make: () => ({ r: 'mentioned_name' }) },
+  mentioned_mention: { category: 'info', parts: ['@mentioned person'], make: () => ({ r: 'mentioned_mention' }) },
+  has_role: { category: 'info', shape: BOOL, parts: ['they have the role', T('a'), '?'], make: () => ({ r: 'has_role', a: 'Members' }) },
+  channel_name: { category: 'info', parts: ['channel name'], make: () => ({ r: 'channel_name' }) },
+  server_name: { category: 'info', parts: ['server name'], make: () => ({ r: 'server_name' }) },
+  member_count: { category: 'info', parts: ['member count'], make: () => ({ r: 'member_count' }) },
+  button: { category: 'info', parts: ['button clicked'], make: () => ({ r: 'button' }) },
+  choice: { category: 'info', parts: ['menu choice'], make: () => ({ r: 'choice' }) },
+  emoji: { category: 'info', parts: ['reaction emoji'], make: () => ({ r: 'emoji' }) },
+  now: { category: 'info', parts: ['current', { key: 'fn', kind: 'select', options: [['hour', 'hour'], ['minute', 'minute'], ['second', 'second'], ['weekday', 'day of week'], ['date', 'date'], ['month', 'month'], ['year', 'year'], ['time', 'time'], ['day', 'day']] }], make: () => ({ r: 'now', fn: 'hour' }) },
+  web: { category: 'info', parts: ['data from', T('a'), 'at', T('b')], make: () => ({ r: 'web', a: 'https://api.adviceslip.com/advice', b: 'slip.advice' }) },
+
+  // AI
+  ai_answer: { category: 'ai', parts: ['AI answer to', T('a')], make: () => ({ r: 'ai_answer', a: 'Tell me a joke' }) },
+  tool_input: { category: 'ai', parts: ['tool input', { key: 'name', kind: 'name' }], make: () => ({ r: 'tool_input', name: 'sides' }) },
+  ai_error: { category: 'ai', parts: ['AI error'], make: () => ({ r: 'ai_error' }) },
+};
+
+// Which reporters go in each palette group, after the stack blocks (variables and lists add one per name).
+const REPORTER_ORDER = {
+  operators: ['add', 'sub', 'mul', 'div', 'random', 'gt', 'lt', 'eq', 'and', 'or', 'not', 'join', 'letter', 'length', 'contains', 'starts', 'mod', 'round', 'math', 'case'],
+  info: ['user_name', 'user_mention', 'user_id', 'message', 'said', 'words', 'word', 'mentioned_name', 'mentioned_mention', 'has_role', 'channel_name', 'server_name', 'member_count', 'button', 'choice', 'emoji', 'now', 'web'],
+  ai: ['ai_answer', 'tool_input', 'ai_error'],
+};
+const LIST_REPORTERS = ['item', 'list_random', 'list_length', 'list_contains'];
+
+const isReporter = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x) && typeof x.r === 'string';
+const shapeOf = (node) => REPORTERS[node.r]?.shape || ROUND;
+const SLOT_KINDS = ['text', 'number', 'bool', 'role', 'secret'];
 
 // --- Scratch 3 block outlines (geometry from scratch-blocks' vertical renderer) ---
 const SVG = 'http://www.w3.org/2000/svg';
@@ -198,13 +275,53 @@ function shapeAll(root) {
 }
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+// Bots made before reporters had "if [a] [op] [b]": turn those into a pointed block.
+const OLD_OPS = { equals: 'eq', greater: 'gt', less: 'lt', contains: 'contains', starts: 'starts' };
+function upgrade(blocks) {
+  for (const b of blocks || []) {
+    if ((b.type === 'if' || b.type === 'until') && b.cond === undefined && b.op) {
+      const pair = { a: b.left ?? '', b: b.right ?? '' };
+      if (OLD_OPS[b.op]) b.cond = { r: OLD_OPS[b.op], ...pair };
+      else if (b.op === 'not') b.cond = { r: 'not', a: { r: 'eq', ...pair } };
+      else if (b.op === 'has_role') b.cond = { r: 'has_role', a: b.right ?? '' };
+      else if (b.op === 'not_role') b.cond = { r: 'not', a: { r: 'has_role', a: b.right ?? '' } };
+      if (b.type === 'if' && b.else?.length) b.type = 'if_else';
+      for (const key of ['left', 'right', 'op']) delete b[key];
+    }
+    upgrade(b.do);
+    upgrade(b.else);
+  }
+}
+
+// Every variable or list name used anywhere in the program.
+function namesIn(program, kind) {
+  const out = new Set();
+  const listTypes = ['list_add', 'list_delete', 'list_clear', 'list_insert', 'list_replace', 'list_remove', 'list_pick'];
+  const listReporters = ['list', ...LIST_REPORTERS];
+  const visit = (x) => {
+    if (Array.isArray(x)) return x.forEach(visit);
+    if (!x || typeof x !== 'object') return;
+    const isList = listTypes.includes(x.type) || listReporters.includes(x.r);
+    const isVar = ['set', 'change', 'invite', 'http', 'math', 'random_number', 'text_case', 'ai_ask'].includes(x.type) || x.r === 'var';
+    if (x.name && (kind === 'list' ? isList : isVar)) out.add(x.name);
+    for (const value of Object.values(x)) if (value && typeof value === 'object') visit(value);
+  };
+  visit(program.map((s) => [s.trigger, s.blocks]));
+  return out;
+}
+
 // --- the editor ---
 
-export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
+export function openBotBuilder(server, bot) {
   let program = clone(bot.program || []);
+  for (const script of program) upgrade(script.blocks);
   let dirty = false;
-  let lastField = null;
-  let drag = null; // { kind: 'new' | 'move', type, payload, ghost, from }
+  let drag = null; // { kind: 'new' | 'move' | 'move-script', type, payload, ghost }
+  let carry = null; // a reporter being dragged: { node, ghost }
+  const madeVars = new Set(['my variable']);
+  const madeLists = new Set(['my list']);
+  const variables = () => [...new Set([...madeVars, ...namesIn(program, 'var')])].sort();
+  const lists = () => [...new Set([...madeLists, ...namesIn(program, 'list')])].sort();
 
   const textChannels = server.channels.filter((c) => c.kind === 'text').sort((a, b) => a.position - b.position);
   const voiceChannels = server.channels.filter((c) => c.kind === 'voice').sort((a, b) => a.position - b.position);
@@ -220,71 +337,110 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     status.classList.add('dirty');
   }
 
-  // --- paths: ['s', i] is script i; then pairs of [listKey, index] walk down into blocks ---
+  // --- paths: [scriptIndex, key, idx, key, idx, …, key] → the list of blocks at the end ---
   function listAt(path) {
-    // path: [scriptIndex, key, idx, key, idx, …, key] → the array at the end
     let node = program[path[0]];
     for (let i = 1; i < path.length - 1; i += 2) node = node[path[i]][path[i + 1]];
     return node[path.at(-1)];
   }
 
-  // --- fields ---
-  function fieldView(block, part) {
-    const set = (value) => { block[part.key] = value; markDirty(); };
-    const remember = (el) => el.addEventListener('focus', () => { lastField = { el, block, key: part.key }; });
+  // --- inputs ---
+  const drops = new WeakMap(); // input element → { holder, key, kind }: where a dropped reporter goes
+  const fit = (el, text, min = 2) => { el.style.width = `${Math.max(min, [...String(text)].length) + 1}ch`; };
+
+  // A name picker for variables and lists, with the current name kept even if nothing else uses it.
+  function namePicker(holder, part, names, live) {
+    if (!holder[part.key]) holder[part.key] = names[0] || '';
+    if (!live) return h('span', { class: 'bb-field fake select' }, holder[part.key]);
+    const all = [...new Set([...names, holder[part.key]])];
+    const el = h('select', { class: 'bb-field', onchange: () => { holder[part.key] = el.value; markDirty(); } },
+      all.map((n) => h('option', { value: n, selected: n === holder[part.key] }, n)));
+    return el;
+  }
+
+  // One input of a block or reporter. `live` is false in the palette and in drag ghosts.
+  function inputView(holder, part, live) {
+    const value = holder[part.key];
+    if (SLOT_KINDS.includes(part.kind) && isReporter(value)) return reporterView(value, live, { holder, key: part.key, kind: part.kind });
+    if (part.kind === 'bool') {
+      const el = h('span', { class: 'bb-bool-slot' });
+      if (live) drops.set(el, { holder, key: part.key, kind: 'bool' });
+      return el;
+    }
+    // A variable or list block just shows its name, like Scratch.
+    if ((part.kind === 'var' || part.kind === 'list') && (holder.r === 'var' || holder.r === 'list')) return h('span', { class: 'bb-word' }, holder.name);
+    if (part.kind === 'var') return namePicker(holder, part, variables(), live);
+    if (part.kind === 'list') return namePicker(holder, part, lists(), live);
     if (part.kind === 'select') {
-      const el = h('select', { class: 'bb-field', onchange: () => { set(el.value); draw(); } },
-        part.options.map(([value, label]) => h('option', { value, selected: block[part.key] === value }, label)));
+      const current = part.options.find(([v]) => v === value) || part.options[0];
+      if (!live) return h('span', { class: 'bb-field fake select' }, current[1]);
+      const el = h('select', { class: 'bb-field', onchange: () => { holder[part.key] = el.value; markDirty(); draw(); } },
+        part.options.map(([v, label]) => h('option', { value: v, selected: current[0] === v }, label)));
       return el;
     }
     if (part.kind === 'channel' || part.kind === 'voice') {
       const list = part.kind === 'voice' ? voiceChannels : textChannels;
-      const el = h('select', { class: 'bb-field', onchange: () => set(el.value) },
-        part.here && h('option', { value: '' }, 'this channel'),
-        !part.here && h('option', { value: '' }, 'pick a channel'),
-        list.map((c) => h('option', { value: c.id, selected: block[part.key] === c.id }, `${part.kind === 'voice' ? '🔊 ' : '#'}${c.name}`)));
+      const name = list.find((c) => c.id === value)?.name;
+      if (!live) return h('span', { class: 'bb-field fake select' }, name ? `#${name}` : part.here ? 'this channel' : 'channel');
+      const el = h('select', { class: 'bb-field', onchange: () => { holder[part.key] = el.value; markDirty(); } },
+        h('option', { value: '' }, part.here ? 'this channel' : 'pick a channel'),
+        list.map((c) => h('option', { value: c.id, selected: value === c.id }, `${part.kind === 'voice' ? '🔊 ' : '#'}${c.name}`)));
       return el;
     }
     if (part.kind === 'color') {
-      return colorField({ value: block[part.key], label: 'Colour', onChange: (c) => set(c) });
-    }
-    if (part.kind === 'role') {
-      // Pick a role, or type a name (or {arg1}) for one that doesn't exist yet.
-      const el = h('input', {
-        class: 'bb-field', type: 'text', value: block[part.key] ?? '', placeholder: 'role name', list: roleList.id,
-        style: { width: `${Math.max(8, String(block[part.key] || '').length) + 1.5}ch` },
-        oninput: () => { set(el.value); el.style.width = `${Math.max(8, el.value.length) + 1.5}ch`; },
-      });
-      remember(el);
-      return el;
+      if (!live) return h('span', { class: 'bb-field fake', style: { background: value || '#fff', width: '22px', padding: 0 } });
+      return colorField({ value, label: 'Colour', onChange: (c) => { holder[part.key] = c; markDirty(); } });
     }
     if (part.kind === 'lines') {
+      const lines = Array.isArray(value) ? value : [];
+      if (!live) return h('span', { class: 'bb-field fake' }, lines.join(', ') || '…');
       const el = h('textarea', {
-        class: 'bb-field bb-lines', rows: Math.max(2, (block[part.key] || []).length), placeholder: part.placeholder,
-        style: { width: `${Math.min(48, Math.max(18, ...(block[part.key] || []).map((l) => l.length + 2)))}ch` },
-        value: (block[part.key] || []).join('\n'),
-        oninput: () => { block[part.key] = el.value.split('\n'); el.rows = Math.max(2, block[part.key].length); markDirty(); },
+        class: 'bb-field bb-lines', rows: Math.max(2, lines.length), placeholder: part.placeholder || 'one per line', value: lines.join('\n'),
+        style: { width: `${Math.min(44, Math.max(14, ...lines.map((l) => l.length + 2)))}ch` },
+        oninput: () => { holder[part.key] = el.value.split('\n'); el.rows = Math.max(2, holder[part.key].length); markDirty(); },
       });
-      remember(el);
       return el;
     }
+    // text, number, secret, role, name: something typed (the first four also take reporters).
+    const shown = value ?? '';
+    if (!live) return h('span', { class: `bb-field fake${part.kind === 'number' ? ' number' : ''}` }, part.kind === 'secret' && shown ? '••••' : String(shown || part.placeholder || ' '));
     const el = h('input', {
-      class: `bb-field${part.kind === 'number' ? ' number' : ''}`, type: part.kind === 'number' ? 'number' : 'text',
-      value: block[part.key] ?? '', placeholder: part.placeholder || '',
-      style: { width: `${Math.max(part.kind === 'number' ? 2 : 3, String(block[part.key] || part.placeholder || '').length) + 0.5}ch` },
-      oninput: () => {
-        set(part.kind === 'number' ? Number(el.value) : el.value);
-        el.style.width = `${Math.max(part.kind === 'number' ? 2 : 3, (el.value || part.placeholder || '').length) + 0.5}ch`;
-      },
+      class: `bb-field${part.kind === 'number' ? ' number' : ''}`, value: shown, placeholder: part.placeholder || '',
+      type: part.kind === 'secret' ? 'password' : 'text', inputMode: part.kind === 'number' ? 'decimal' : null,
+      autocomplete: part.kind === 'secret' ? 'off' : null, spellcheck: false,
+      list: part.kind === 'role' ? roleList.id : null,
+      oninput: () => { holder[part.key] = el.value; fit(el, el.value || part.placeholder || '', part.kind === 'secret' ? 8 : 2); markDirty(); },
     });
-    remember(el);
+    fit(el, shown || part.placeholder || '', part.kind === 'secret' ? 8 : 2);
+    if (part.kind !== 'name') drops.set(el, { holder, key: part.key, kind: part.kind });
     return el;
   }
 
-  function label(block, def) {
+  function parts(holder, def, live) {
     return def.parts.map((part) => (typeof part === 'string'
       ? h('span', { class: 'bb-word' }, part)
-      : part.hideWhen?.(block) ? null : fieldView(block, part)));
+      : part.hideWhen?.(holder) ? null : inputView(holder, part, live)));
+  }
+
+  // A reporter, in a block's input (`from` says which) or in the palette.
+  function reporterView(node, live, from = null) {
+    const def = REPORTERS[node.r];
+    if (!def) return h('span', { class: 'bb-field fake' }, '?');
+    const el = h('div', { class: `bb-rep ${shapeOf(node)}`, style: tones(def.category) }, parts(node, def, live));
+    if (live && from) {
+      // Dragging it pulls it out of the input, like Scratch.
+      el.addEventListener('pointerdown', (event) => {
+        if (event.target.closest('.bb-rep') !== el) return;
+        afterNudge(event, (e) => {
+          delete from.holder[from.key];
+          if (from.kind !== 'bool') from.holder[from.key] = '';
+          markDirty();
+          draw();
+          carryReporter(e, node);
+        });
+      });
+    }
+    return el;
   }
 
   // --- drawing ---
@@ -297,21 +453,29 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     const el = h('div', { class: 'bb-stack' }, slot([...path, 0]));
     list.forEach((block, i) => {
       el.append(blockView(block, [...path, i]));
-      if (!BLOCKS[block.type].cap) el.append(slot([...path, i + 1]));
+      if (!BLOCKS[block.type]?.cap) el.append(slot([...path, i + 1]));
     });
+    return el;
+  }
+
+  function blockShell(def, type, row, extraClass = '') {
+    const el = h('div', { class: `bb-block${def.hat ? ' hat' : ''}${def.mouths ? ' c' : ''}${def.cap ? ' cap' : ''}${extraClass}`, style: tones(def.category) }, row);
+    for (const [i, mouth] of (def.mouths || []).entries()) {
+      if (i > 0) el.append(h('div', { class: 'bb-row bb-else' }, h('span', { class: 'bb-word' }, 'else')));
+      el.append(h('div', { class: 'bb-mouth', dataset: { mouth } }));
+    }
+    if (def.mouths) el.append(h('div', { class: 'bb-foot' }));
     return el;
   }
 
   function blockView(block, path) {
     const def = BLOCKS[block.type];
-    const locked = categoryOf(block.type).admin && !admin;
-    const el = h('div', { class: `bb-block${def.mouths ? ' c' : ''}${def.cap ? ' cap' : ''}${locked ? ' locked' : ''}`, style: colorOf(block.type), title: locked ? 'Turn on Admin for this block to run' : null },
-      h('div', { class: 'bb-row', onpointerdown: (event) => afterNudge(event, (e) => startMove(e, path)) }, label(block, def)));
-    for (const [i, mouth] of (def.mouths || []).entries()) {
-      if (i > 0) el.append(h('div', { class: 'bb-row bb-else' }, h('span', { class: 'bb-word' }, 'else')));
-      el.append(h('div', { class: 'bb-mouth' }, stackView([...path, mouth])));
-    }
-    if (def.mouths) el.append(h('div', { class: 'bb-foot' }));
+    if (!def) return h('div', { class: 'bb-block' }, h('div', { class: 'bb-row' }, h('span', { class: 'bb-word' }, `unknown block ${block.type}`)));
+    const locked = catById[def.category].admin && !admin;
+    const row = h('div', { class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMove(e, path)) }, parts(block, def, true));
+    const el = blockShell(def, block.type, row, locked ? ' locked' : '');
+    if (locked) el.title = 'Turn on Admin for this block to run';
+    for (const mouth of el.querySelectorAll(':scope > .bb-mouth')) mouth.append(stackView([...path, mouth.dataset.mouth]));
     return el;
   }
 
@@ -320,8 +484,8 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     const el = h('div', { class: `bb-script${script.trigger ? '' : ' loose'}`, style: { left: `${script.x}px`, top: `${script.y}px` } });
     if (script.trigger) {
       const def = BLOCKS[script.trigger.type];
-      el.append(h('div', { class: 'bb-block hat', style: colorOf(script.trigger.type) },
-        h('div', { class: 'bb-row', onpointerdown: (event) => afterNudge(event, (e) => startMoveScript(e, index)) }, label(script.trigger, def))));
+      el.append(blockShell(def, script.trigger.type,
+        h('div', { class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMoveScript(e, index)) }, parts(script.trigger, def, true))));
     }
     el.append(stackView([index, 'blocks']));
     return el;
@@ -347,13 +511,10 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     shapeAll(canvas);
   }
 
-  // --- dragging ---
+  // --- dragging blocks ---
   function ghostFor(type, payload) {
-    const tmp = { ...payload };
     const def = BLOCKS[type];
-    const el = h('div', { class: `bb-ghost bb-block${def.hat ? ' hat' : ''}${def.mouths ? ' c' : ''}`, style: colorOf(type) },
-      h('div', { class: 'bb-row' }, def.parts.map((p) => (typeof p === 'string' ? h('span', { class: 'bb-word' }, p) : h('span', { class: `bb-field fake${p.kind === 'select' || p.kind === 'channel' ? ' select' : ''}` }, String(tmp[p.key] ?? p.placeholder ?? '…'))))));
-    if (def.mouths) el.append(h('div', { class: 'bb-mouth' }), h('div', { class: 'bb-foot' }));
+    const el = blockShell(def, type, h('div', { class: 'bb-row' }, parts(clone(payload), def, false)), ' bb-ghost');
     document.body.append(el);
     shapeBlock(el);
     return el;
@@ -377,7 +538,8 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
 
   // Nothing is picked up until the pointer has moved a few pixels, so clicking into a block is safe.
   function afterNudge(event, start) {
-    if (event.button !== 0 || event.target.closest('input, select, textarea')) return;
+    if (event.button !== 0 || event.target.closest('input, select, textarea, .color-field')) return;
+    event.stopPropagation();
     const x = event.clientX;
     const y = event.clientY;
     const target = event.currentTarget;
@@ -394,6 +556,12 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     window.addEventListener('pointerup', cancel);
   }
 
+  // Grabbing a block's row, unless the press was on a reporter inside it (that drags the reporter instead).
+  function grab(event, start) {
+    if (event.target.closest('.bb-rep')) return;
+    afterNudge(event, start);
+  }
+
   function startNew(event, type) {
     begin(event, { kind: 'new', type, payload: BLOCKS[type].make() });
   }
@@ -401,8 +569,7 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
   function startMove(event, path) {
     // Takes the block and everything under it, like Scratch.
     const list = listAt(path.slice(0, -1));
-    const index = path.at(-1);
-    const taken = list.splice(index);
+    const taken = list.splice(path.at(-1));
     tidy();
     markDirty();
     draw();
@@ -421,8 +588,8 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
       const script = program[drag.index];
       script.x = Math.max(0, Math.round(at.x - drag.offX / zoom));
       script.y = Math.max(0, Math.round(at.y - drag.offY / zoom));
-      canvas.children[drag.index].style.left = `${script.x}px`;
-      canvas.children[drag.index].style.top = `${script.y}px`;
+      canvas.children[drag.index + 1].style.left = `${script.x}px`;
+      canvas.children[drag.index + 1].style.top = `${script.y}px`;
       markDirty();
       return;
     }
@@ -465,9 +632,7 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
       }
     } else if (hovered && !overPalette) {
       const path = JSON.parse(hovered.dataset.path);
-      const list = listAt(path.slice(0, -1));
-      const blocks = drag.kind === 'new' ? [drag.payload] : drag.payload;
-      list.splice(path.at(-1), 0, ...blocks);
+      listAt(path.slice(0, -1)).splice(path.at(-1), 0, ...(drag.kind === 'new' ? [drag.payload] : drag.payload));
       markDirty();
     } else if (!overPalette && dropPoint(event)) {
       // Dropped on empty canvas: it stays there as a loose stack.
@@ -475,8 +640,7 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
       program.push({ trigger: null, blocks: drag.kind === 'new' ? [drag.payload] : drag.payload, x: at.x, y: at.y });
       markDirty();
     } else if (drag.kind === 'move') {
-      // Dropped on the palette: the blocks are deleted.
-      markDirty();
+      markDirty(); // dropped on the palette: deleted
     }
     tidy();
     hovered?.classList.remove('active');
@@ -485,7 +649,48 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     draw();
   }
 
-  // --- palette ---
+  // --- dragging reporters into inputs ---
+  // A round block fits any input; a pointed (true/false) block fits pointed slots and inputs too.
+  function targetAt(x, y, node) {
+    let el = document.elementFromPoint(x, y);
+    while (el && el !== canvas) {
+      const spot = drops.get(el);
+      if (spot && (spot.kind !== 'bool' || shapeOf(node) === BOOL)) return el;
+      el = el.parentElement;
+    }
+    return null;
+  }
+
+  function carryReporter(event, node) {
+    const ghost = reporterView(clone(node), false);
+    ghost.classList.add('bb-ghost');
+    document.body.append(ghost);
+    carry = { node, ghost, target: null };
+    document.body.classList.add('bb-dragging');
+    const follow = (e) => {
+      ghost.style.left = `${e.clientX - 10}px`;
+      ghost.style.top = `${e.clientY - 14}px`;
+      carry.target?.classList.remove('bb-drop-on');
+      carry.target = canvas.contains(document.elementFromPoint(e.clientX, e.clientY)) ? targetAt(e.clientX, e.clientY, node) : null;
+      carry.target?.classList.add('bb-drop-on');
+    };
+    const drop = () => {
+      window.removeEventListener('pointermove', follow);
+      document.body.classList.remove('bb-dragging');
+      ghost.remove();
+      const spot = carry.target && drops.get(carry.target);
+      if (spot) {
+        spot.holder[spot.key] = node;
+        markDirty();
+      }
+      carry = null;
+      draw();
+    };
+    follow(event);
+    window.addEventListener('pointermove', follow);
+    window.addEventListener('pointerup', drop, { once: true });
+  }
+
   // --- canvas position, zoom and tidy-up ---
   let zoom = 1;
   function toCanvas(event) {
@@ -498,9 +703,9 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
   }
   function cleanUp() {
     let y = 32;
-    [...canvas.children].forEach((el, i) => {
+    [...canvas.querySelectorAll(':scope > .bb-script')].forEach((el, i) => {
       program[i].x = 32;
-      program[i].y = y + (program[i].trigger ? 0 : 0);
+      program[i].y = y;
       y += el.offsetHeight + 40;
     });
     markDirty();
@@ -513,9 +718,12 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     h('button', { type: 'button', title: 'Clean up blocks', onclick: cleanUp }, icon('scroll', 17)));
   const wrap = h('div', { class: 'bb-canvas-wrap' }, canvas);
 
-  // --- category rail (like Scratch's coloured circles) ---
+  // --- palette ---
   const rail = h('nav', { class: 'bb-rail', 'aria-label': 'Block categories' });
-  const drawRail = () => rail.replaceChildren(...CATEGORIES.filter((cat) => !cat.admin || admin).map((cat) => h('button', {
+  const palette = h('div', { class: 'bb-palette', onscroll: () => markRail() });
+  const shown = () => CATEGORIES.filter((cat) => !cat.admin || admin);
+
+  const drawRail = () => rail.replaceChildren(...shown().map((cat) => h('button', {
     type: 'button', class: 'bb-rail-item', dataset: { cat: cat.id },
     onclick: () => palette.querySelector(`[data-cat="${cat.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
   }, h('span', { class: 'bb-rail-dot', style: { background: cat.colors[0], borderColor: cat.colors[2] } }), cat.label)));
@@ -526,30 +734,56 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
     for (const item of rail.children) item.classList.toggle('active', item.dataset.cat === (current || rail.firstChild?.dataset.cat));
   };
 
-  const palette = h('div', { class: 'bb-palette', onscroll: () => markRail() });
-  const drawPalette = () => palette.replaceChildren(...CATEGORIES.filter((cat) => !cat.admin || admin).map((cat) => h('div', { class: 'bb-group', dataset: { cat: cat.id } },
-    h('div', { class: 'bb-group-title' }, h('span', { class: 'bb-dot', style: { background: cat.colors[0] } }), cat.label),
-    cat.id === 'values'
-      ? h('div', { class: 'bb-values' }, VALUES.map(([value, title]) => h('button', {
-        type: 'button', class: 'bb-value', title,
-        onmousedown: (event) => event.preventDefault(),
-        onclick: () => {
-          if (!lastField?.el.isConnected) return toast('Click into a block’s text box first, then pick a value.');
-          const { el } = lastField;
-          el.setRangeText(value, el.selectionStart ?? el.value.length, el.selectionEnd ?? el.value.length, 'end');
-          el.dispatchEvent(new Event('input'));
-          el.focus();
-        },
-      }, value)))
-      : Object.entries(BLOCKS).filter(([, def]) => def.category === cat.id).map(([type, def]) => h('div', {
-        class: `bb-block palette${def.hat ? ' hat' : ''}${def.mouths ? ' c' : ''}${def.cap ? ' cap' : ''}`, style: tones(cat.colors),
-        onpointerdown: (event) => afterNudge(event, (e) => startNew(e, type)),
-      }, h('div', { class: 'bb-row' }, def.parts.map((p) => (typeof p === 'string'
-        ? h('span', { class: 'bb-word' }, p)
-        : h('span', { class: `bb-field fake${['select', 'channel', 'voice'].includes(p.kind) ? ' select' : ''}` }, p.kind === 'select' ? (p.options.find(([v]) => v === def.make()[p.key]) || p.options[0])[1] : p.kind === 'channel' ? (p.here ? 'this channel' : 'channel') : p.kind === 'voice' ? 'voice channel' : p.kind === 'role' ? 'role' : p.kind === 'color' ? '●' : [def.make()[p.key] ?? p.placeholder ?? ''].flat().join(', '))))),
-      def.mouths && [h('div', { class: 'bb-mouth' }), h('div', { class: 'bb-foot' })])))));
+  const paletteBlock = (type) => {
+    const def = BLOCKS[type];
+    return blockShell(def, type, h('div', { class: 'bb-row' }, parts(def.make(), def, false)), ' palette');
+  };
+  const paletteReporter = (node) => {
+    const el = reporterView(node, false);
+    el.classList.add('palette');
+    el.addEventListener('pointerdown', (event) => afterNudge(event, (e) => carryReporter(e, clone(node))));
+    return el;
+  };
+
+  // "Make a variable" / "Make a list": a box for the name; Enter adds it to the palette.
+  function maker(label, set) {
+    const input = h('input', { class: 'input bb-make-input', placeholder: 'name', maxLength: 40 });
+    const holder = h('div', { class: 'bb-make' }, h('button', {
+      type: 'button', class: 'button ghost small',
+      onclick: () => { holder.replaceChildren(input); input.focus(); },
+    }, label));
+    const done = () => {
+      const name = input.value.trim();
+      if (name) { set.add(name); drawPalette(); } else holder.replaceChildren(holder.firstChild);
+    };
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') done(); if (e.key === 'Escape') { input.value = ''; done(); } });
+    input.addEventListener('blur', done);
+    return holder;
+  }
+
+  function groupItems(cat) {
+    const blocks = Object.entries(BLOCKS).filter(([, def]) => def.category === cat.id && !def.legacy).map(([type]) => {
+      const el = paletteBlock(type);
+      el.addEventListener('pointerdown', (event) => afterNudge(event, (e) => startNew(e, type)));
+      return el;
+    });
+    if (cat.id === 'variables') return [maker('Make a variable', madeVars), ...variables().map((n) => paletteReporter(REPORTERS.var.make(n))), ...blocks];
+    if (cat.id === 'lists') {
+      const first = lists()[0];
+      return [maker('Make a list', madeLists), ...lists().map((n) => paletteReporter(REPORTERS.list.make(n))), ...blocks,
+        ...LIST_REPORTERS.map((r) => paletteReporter(REPORTERS[r].make(first)))];
+    }
+    return [...blocks, ...(REPORTER_ORDER[cat.id] || []).map((r) => paletteReporter(REPORTERS[r].make()))];
+  }
+
+  function drawPalette() {
+    const scroll = palette.scrollTop;
+    palette.replaceChildren(...shown().map((cat) => h('div', { class: 'bb-group', dataset: { cat: cat.id } },
+      h('div', { class: 'bb-group-title' }, cat.label), groupItems(cat))));
+    shapeAll(palette);
+    palette.scrollTop = scroll;
+  }
   drawPalette();
-  shapeAll(palette);
   drawRail();
   requestAnimationFrame(markRail);
 
@@ -562,7 +796,6 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
       bot.admin = admin;
       drawAdmin();
       drawPalette();
-      shapeAll(palette);
       drawRail();
       markRail();
       draw();
@@ -577,8 +810,7 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
 
   // --- saving ---
   async function save() {
-    const cleaned = program.map((s) => ({ ...s, blocks: s.blocks }));
-    const updated = await api.patch(`/api/servers/${server.id}/bots/${bot.id}`, { program: cleaned, name: nameInput.value.trim() || bot.user.displayName });
+    const updated = await api.patch(`/api/servers/${server.id}/bots/${bot.id}`, { program, name: nameInput.value.trim() || bot.user.displayName });
     program = clone(updated.program);
     bot.program = updated.program;
     dirty = false;
@@ -588,9 +820,6 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
   }
 
   const saveButton = button('Save', () => attempt(save), 'primary small');
-  // The AI drawer: settings (endpoint, key, model…) and a test chat. Testing saves the blocks first, so the
-  // AI sees the tools as they are on screen.
-  const ai = aiPanel({ server, bot, program: () => program, saveFirst: async () => { if (dirty) await save(); } });
   const page = openPage({
     title: 'Bot builder',
     actions: h('div', { class: 'bb-actions' }, nameInput,
@@ -599,13 +828,12 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
         const { openBotSettings } = await import('./botSettings.js');
         openBotSettings(server, bot);
       } }, icon('settings', 16), 'Settings'),
-      ai.button, adminToggle, status, saveButton),
-    content: h('div', { class: 'bb' }, rail, palette, h('div', { class: 'bb-stage' }, wrap, controls, ai.el)),
+      adminToggle, status, saveButton),
+    content: h('div', { class: 'bb' }, rail, palette, h('div', { class: 'bb-stage' }, wrap, controls)),
     onClose: () => { if (dirty) toast('Your bot had unsaved changes.'); },
   });
   page.el?.classList.add('wide');
   draw();
-  if (openAi) ai.toggle(true);
 
   const keys = (event) => {
     if (!canvas.isConnected) return window.removeEventListener('keydown', keys);
@@ -617,4 +845,3 @@ export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
   window.addEventListener('keydown', keys);
   return page;
 }
-

@@ -23,6 +23,8 @@ const MAX_VARS = 200;
 const MAX_TEXT = 2000;
 const MAX_HTTP = 3; // web requests per run
 const MAX_LIST = 200; // items in a list variable
+const MAX_REPEAT = 100; // times round one "repeat" block
+const MAX_NODES = 60; // reporter blocks inside one block's inputs
 
 // --- storage ---
 
@@ -31,7 +33,6 @@ function toBot(row) {
   return {
     id: row.id, serverId: row.server_id, enabled: Boolean(row.enabled), program: JSON.parse(row.program),
     admin: servers.roleOf(row.server_id, row.user_id) === 'admin',
-    ai: botAi.publicSettings(row),
     user: users.toUser(user), createdAt: row.created_at,
   };
 }
@@ -120,7 +121,8 @@ const TRIGGERS = ['message', 'command', 'join', 'timer', 'button', 'reaction', '
 const ACTIONS = ['send', 'reply', 'react', 'wait', 'set', 'change', 'if', 'repeat', 'random', 'stop',
   'forever', 'until', 'dm', 'ping', 'pin', 'join_voice', 'leave_voice',
   'buttons', 'menu_send', 'http', 'math', 'random_number', 'list_add', 'list_remove', 'list_pick', 'list_clear', 'text_case', 'unpin',
-  'ai_reply', 'ai_ask', 'ai_tell', 'ai_instructions', 'ai_remember', 'ai_forget', 'ai_model'];
+  'ai_connect', 'ai_reply', 'ai_ask', 'ai_tell', 'ai_instructions',
+  'if_else', 'wait_until', 'list_delete', 'list_insert', 'list_replace'];
 // These only run when the bot is an admin.
 const ADMIN_ACTIONS = ['delete', 'purge', 'create_channel', 'delete_channel', 'rename_channel', 'topic', 'slowmode', 'lock',
   'kick', 'ban', 'timeout', 'untimeout', 'everyone', 'invite',
@@ -133,12 +135,65 @@ function clean(value, max = MAX_TEXT) {
   return String(value ?? '').slice(0, max);
 }
 
+// --- reporters: the round (value) and pointed (true/false) blocks that go inside inputs ---
+// Each is { r: type, …its inputs (a, b) and settings }. `fields` are fixed choices or names, `slots` take
+// typed text or more reporters.
+const VAR = { name: 'text' };
+const REPORTERS = {
+  // operators
+  add: { slots: ['a', 'b'] }, sub: { slots: ['a', 'b'] }, mul: { slots: ['a', 'b'] }, div: { slots: ['a', 'b'] },
+  mod: { slots: ['a', 'b'] }, random: { slots: ['a', 'b'] }, round: { slots: ['a'] },
+  math: { slots: ['a'], fields: { fn: ['abs', 'floor', 'ceiling', 'sqrt'] } },
+  join: { slots: ['a', 'b'] }, letter: { slots: ['a', 'b'] }, length: { slots: ['a'] },
+  case: { slots: ['a'], fields: { fn: ['upper', 'lower'] } },
+  contains: { slots: ['a', 'b'] }, starts: { slots: ['a', 'b'] }, gt: { slots: ['a', 'b'] }, lt: { slots: ['a', 'b'] }, eq: { slots: ['a', 'b'] },
+  and: { slots: ['a', 'b'] }, or: { slots: ['a', 'b'] }, not: { slots: ['a'] },
+  // variables and lists
+  var: { fields: VAR }, list: { fields: VAR }, item: { slots: ['a'], fields: VAR }, list_length: { fields: VAR },
+  list_contains: { slots: ['a'], fields: VAR }, list_random: { fields: VAR },
+  // what happened
+  user_name: {}, user_mention: {}, user_id: {}, message: {}, words: {}, word: { slots: ['a'] }, channel_name: {}, server_name: {},
+  member_count: {}, button: {}, choice: {}, emoji: {}, said: {}, mentioned_name: {}, mentioned_mention: {}, has_role: { slots: ['a'] },
+  now: { fields: { fn: ['year', 'month', 'date', 'weekday', 'hour', 'minute', 'second', 'time', 'day'] } },
+  // web and AI
+  web: { slots: ['a', 'b'] }, ai_answer: { slots: ['a'] }, tool_input: { fields: VAR }, ai_error: {},
+};
+const isReporter = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x) && typeof x.r === 'string';
+// Block inputs that may hold reporters.
+const SLOT_KEYS = ['text', 'emoji', 'name', 'value', 'left', 'right', 'channel', 'reason', 'role', 'url', 'field', 'key', 'model',
+  'seconds', 'times', 'count', 'minutes', 'slow', 'min', 'max', 'index', 'cond'];
+
+function validateSlot(x, budget, depth = 0) {
+  if (x == null) return '';
+  if (typeof x === 'number') return Number.isFinite(x) ? x : 0;
+  if (!isReporter(x)) return clean(x);
+  const def = REPORTERS[x.r];
+  if (!def || depth > 12 || (budget.n += 1) > MAX_NODES) throw new Error('Unknown or too many value blocks.');
+  const out = { r: x.r };
+  for (const key of def.slots || []) out[key] = validateSlot(x[key], budget, depth + 1);
+  for (const [key, allowed] of Object.entries(def.fields || {})) {
+    out[key] = Array.isArray(allowed) ? (allowed.includes(x[key]) ? x[key] : allowed[0]) : clean(x[key], 100);
+  }
+  return out;
+}
+
 function validateBlocks(blocks, depth = 0) {
   if (!Array.isArray(blocks) || depth > 6) throw new Error('Blocks are nested too deep.');
-  return blocks.slice(0, 100).map((b) => {
-    if (!b || !ALL_ACTIONS.includes(b.type)) throw new Error('Unknown block.');
-    const out = { type: b.type };
-    for (const key of ['text', 'emoji', 'name', 'value', 'left', 'right', 'channel', 'reason', 'role', 'url', 'field']) if (b[key] !== undefined) out[key] = clean(b[key]);
+  const RETIRED = ['ai_model', 'ai_remember', 'ai_forget'];
+  return blocks.slice(0, 100).filter((b) => !RETIRED.includes(b?.type)).map((raw) => {
+    if (!raw || !ALL_ACTIONS.includes(raw.type)) throw new Error('Unknown block.');
+    const out = { type: raw.type };
+    // Inputs holding reporters are checked here; plain ones below, as before.
+    const b = { ...raw };
+    const budget = { n: 0 };
+    for (const key of SLOT_KEYS) {
+      if (isReporter(raw[key])) {
+        out[key] = validateSlot(raw[key], budget);
+        delete b[key];
+      }
+    }
+    if (b.index !== undefined) out.index = clean(b.index, 20);
+    for (const key of ['text', 'emoji', 'name', 'value', 'left', 'right', 'channel', 'reason', 'role', 'url', 'field', 'key', 'model']) if (b[key] !== undefined) out[key] = clean(b[key]);
     if (b.math !== undefined) out.math = MATH.includes(b.math) ? b.math : '+';
     if (b.textCase !== undefined) out.textCase = ['upper', 'lower', 'length', 'reverse', 'trim'].includes(b.textCase) ? b.textCase : 'upper';
     if (b.min !== undefined) out.min = Math.round(Number(b.min)) || 0;
@@ -151,10 +206,8 @@ function validateBlocks(blocks, depth = 0) {
     if (b.count !== undefined) out.count = Math.min(Math.max(Math.round(Number(b.count)) || 1, 1), 100);
     if (b.minutes !== undefined) out.minutes = Math.min(Math.max(Math.round(Number(b.minutes)) || 1, 1), 10080);
     if (b.op !== undefined) out.op = OPS.includes(b.op) ? b.op : 'equals';
-    if (b.mode !== undefined) out.mode = b.mode === 'plain' ? 'plain' : 'tools';
-    if (b.what !== undefined) out.what = b.what === 'memory' ? 'memory' : 'chat';
     if (b.seconds !== undefined) out.seconds = Math.min(Math.max(Number(b.seconds) || 0, 0), MAX_WAIT);
-    if (b.times !== undefined) out.times = Math.min(Math.max(Math.round(Number(b.times)) || 1, 1), 10);
+    if (b.times !== undefined) out.times = Math.min(Math.max(Math.round(Number(b.times)) || 0, 0), MAX_REPEAT);
     if (b.options !== undefined) out.options = (Array.isArray(b.options) ? b.options : []).slice(0, 20).map((o) => clean(o));
     if (b.do !== undefined) out.do = validateBlocks(b.do, depth + 1);
     if (b.else !== undefined) out.else = validateBlocks(b.else, depth + 1);
@@ -231,9 +284,8 @@ function fill(text, ctx) {
       case 'prompt': return ctx.prompt ?? ctx.message?.content ?? '';
       case 'answer': return ctx.answer ?? '';
       case 'ai': {
-        const settings = botAi.settingsOf(get(ctx.bot.id) || ctx.bot);
         if (rest === 'error') return ctx.aiError ?? '';
-        return ctx.aiModel || settings.modelName || settings.model;
+        return ctx.ai?.model ?? '';
       }
       case 'list': {
         // {list.name} → the items joined with commas; {list.name.length} → how many.
@@ -354,6 +406,159 @@ function stillOn(ctx) {
   if (!row?.enabled) throw new Stop();
 }
 
+// --- working out inputs ---
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+// 0.1 + 0.2 shows as 0.3, like Scratch.
+const tidyNumber = (n) => (Number.isFinite(n) ? Math.round(n * 1e10) / 1e10 : 0);
+const truthy = (x) => x === true || String(x).toLowerCase() === 'true';
+// "1".."n" → 0..n-1; "last" → the last one; anything else → -1.
+function listIndex(raw, length) {
+  const text = String(raw ?? '').trim().toLowerCase();
+  if (text === 'last') return length - 1;
+  const n = Math.round(Number(text));
+  return n >= 1 && n <= length ? n - 1 : -1;
+}
+
+// Scratch's comparison: numbers as numbers, everything else as text, ignoring case.
+function compare(a, b) {
+  const x = Number(a);
+  const y = Number(b);
+  if (String(a).trim() !== '' && String(b).trim() !== '' && !Number.isNaN(x) && !Number.isNaN(y)) return x - y;
+  const p = String(a).toLowerCase();
+  const q = String(b).toLowerCase();
+  return p < q ? -1 : p > q ? 1 : 0;
+}
+
+// One input: a reporter is worked out; typed text still understands the old {user}-style templates.
+async function slot(x, ctx) {
+  if (isReporter(x)) return evaluate(x, ctx);
+  if (typeof x === 'number') return x;
+  return fill(x ?? '', ctx);
+}
+
+async function evaluate(node, ctx) {
+  const a = () => slot(node.a, ctx);
+  const b = () => slot(node.b, ctx);
+  const n = async (x) => Number(await x) || 0;
+  switch (node.r) {
+    case 'add': return tidyNumber(await n(a()) + await n(b()));
+    case 'sub': return tidyNumber(await n(a()) - await n(b()));
+    case 'mul': return tidyNumber(await n(a()) * await n(b()));
+    case 'div': { const d = await n(b()); return d ? tidyNumber(await n(a()) / d) : 0; }
+    case 'mod': { const d = await n(b()); const x = await n(a()); return d ? tidyNumber(((x % d) + d) % d) : 0; }
+    case 'random': {
+      const lo = await n(a());
+      const hi = await n(b());
+      const [min, max] = lo <= hi ? [lo, hi] : [hi, lo];
+      if (Number.isInteger(min) && Number.isInteger(max)) return min + Math.floor(Math.random() * (max - min + 1));
+      return tidyNumber(min + Math.random() * (max - min));
+    }
+    case 'round': return Math.round(await n(a()));
+    case 'math': {
+      const x = await n(a());
+      return tidyNumber({ abs: Math.abs(x), floor: Math.floor(x), ceiling: Math.ceil(x), sqrt: x >= 0 ? Math.sqrt(x) : 0 }[node.fn] ?? x);
+    }
+    case 'join': return `${await a()}${await b()}`.slice(0, MAX_TEXT);
+    case 'letter': return [...String(await b())][Math.round(await n(a())) - 1] ?? '';
+    case 'length': return [...String(await a())].length;
+    case 'case': return node.fn === 'lower' ? String(await a()).toLowerCase() : String(await a()).toUpperCase();
+    case 'contains': return String(await a()).toLowerCase().includes(String(await b()).toLowerCase());
+    case 'starts': return String(await a()).toLowerCase().startsWith(String(await b()).toLowerCase());
+    case 'gt': return compare(await a(), await b()) > 0;
+    case 'lt': return compare(await a(), await b()) < 0;
+    case 'eq': return compare(await a(), await b()) === 0;
+    case 'and': return truthy(await a()) && truthy(await b());
+    case 'or': return truthy(await a()) || truthy(await b());
+    case 'not': return !truthy(await a());
+    case 'var': return getVar(ctx.bot.id, node.name);
+    case 'list': return getList(ctx.bot.id, node.name).join(' ');
+    case 'item': {
+      const items = getList(ctx.bot.id, node.name);
+      const raw = String(await a()).trim().toLowerCase();
+      if (raw === 'random') return items.length ? items[Math.floor(Math.random() * items.length)] : '';
+      return items[listIndex(raw, items.length)] ?? '';
+    }
+    case 'list_length': return getList(ctx.bot.id, node.name).length;
+    case 'list_contains': {
+      const want = String(await a()).toLowerCase();
+      return getList(ctx.bot.id, node.name).some((item) => item.toLowerCase() === want);
+    }
+    case 'list_random': {
+      const items = getList(ctx.bot.id, node.name);
+      return items.length ? items[Math.floor(Math.random() * items.length)] : '';
+    }
+    case 'user_name': return ctx.user?.displayName ?? '';
+    case 'user_mention': return ctx.user ? `@${ctx.user.username}` : '';
+    case 'user_id': return ctx.user?.username ?? '';
+    case 'message': return ctx.message?.content ?? '';
+    case 'words': return (ctx.args || []).join(' ');
+    case 'word': return (ctx.args || [])[Math.round(await n(a())) - 1] ?? '';
+    case 'channel_name': return ctx.channel?.name ?? '';
+    case 'server_name': return servers.get(ctx.bot.server_id)?.name ?? '';
+    case 'member_count': return servers.memberIds(ctx.bot.server_id).length;
+    case 'button': return ctx.button ?? '';
+    case 'choice': return ctx.choice ?? '';
+    case 'emoji': return ctx.emoji ?? '';
+    case 'said': return ctx.prompt ?? ctx.message?.content ?? '';
+    case 'mentioned_name': return targetUser({ target: 'mentioned' }, ctx)?.display_name ?? '';
+    case 'mentioned_mention': { const u = targetUser({ target: 'mentioned' }, ctx); return u ? `@${u.username}` : ''; }
+    case 'has_role': {
+      const want = String(await a()).trim().toLowerCase();
+      return Boolean(ctx.user) && rolesOf(ctx, ctx.user.id).some((r) => r.name.toLowerCase() === want);
+    }
+    case 'now': {
+      const d = new Date();
+      return {
+        year: d.getUTCFullYear(), month: d.getUTCMonth() + 1, date: d.getUTCDate(), hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(),
+        weekday: d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' }),
+        time: d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+        day: d.toLocaleDateString('en-GB', { timeZone: 'UTC' }),
+      }[node.fn] ?? '';
+    }
+    case 'web': {
+      // GET a public web address (never this machine or the local network); a JSON path picks one part.
+      if ((ctx.http = (ctx.http || 0) + 1) > MAX_HTTP) return '';
+      const url = String(await a()).trim();
+      if (!/^https?:\/\//i.test(url)) return '';
+      const res = await previews.get(url, { maxBytes: 256 * 1024 });
+      let value = res ? res.body.toString('utf8') : '';
+      const path = String(await b()).trim();
+      if (value && path) {
+        try { value = pick(JSON.parse(value), path); } catch { value = ''; }
+      }
+      return value.slice(0, MAX_TEXT);
+    }
+    case 'ai_answer': {
+      const prompt = String(await a()).trim();
+      return prompt ? askAi(ctx, { prompt }) : '';
+    }
+    case 'tool_input': {
+      const value = ctx.params?.[node.name];
+      return value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+    case 'ai_error': return ctx.aiError ?? '';
+    default: return '';
+  }
+}
+
+// All of a block's inputs as text, before it runs.
+async function resolve(block, ctx) {
+  const out = {};
+  for (const key of SLOT_KEYS) {
+    if (key === 'cond' || block[key] === undefined) continue;
+    out[key] = String(await slot(block[key], ctx)).slice(0, MAX_TEXT);
+  }
+  return out;
+}
+
+// The condition of an if / repeat until / wait until: a pointed block, or the old "left op right" form.
+// An empty condition is false, like Scratch.
+async function check(block, ctx) {
+  if (block.cond !== undefined) return isReporter(block.cond) ? truthy(await evaluate(block.cond, ctx)) : truthy(fill(block.cond, ctx));
+  return block.op ? test(block, ctx) : false;
+}
+
 // --- AI ---
 
 const MAX_AI_DEPTH = 2; // a tool may ask the AI something, but that can't call tools that ask again…
@@ -363,8 +568,9 @@ function typing(ctx) {
   if (ctx.channel) realtime.toChannel(ctx.channel, 'typing', { channelId: ctx.channel.id, userId: ctx.bot.user_id });
 }
 
-// Asks the bot's AI; tools it calls run as blocks. Resolves the answer, or '' with ctx.aiError set.
-async function askAi(ctx, { extra = '', turns = null, useTools = true } = {}) {
+// Asks the AI set by the last "use AI" block; tools it calls run as blocks. Resolves the answer, or '' with
+// ctx.aiError set.
+async function askAi(ctx, { prompt = null } = {}) {
   ctx.aiError = '';
   if ((ctx.aiDepth || 0) >= MAX_AI_DEPTH) {
     ctx.aiError = 'Tools can’t ask the AI this deep.';
@@ -376,7 +582,7 @@ async function askAi(ctx, { extra = '', turns = null, useTools = true } = {}) {
   const keepTyping = setInterval(() => typing(ctx), 4000);
   try {
     const answer = await botAi.converse(row, {
-      channel: ctx.channel, message: ctx.message, turns, extra, useTools, model: ctx.aiModel,
+      ai: ctx.ai, channel: ctx.channel, message: ctx.message, prompt, instructions: ctx.aiExtra || '',
       runTool: (script, params) => runTool(row, script, params, ctx),
     });
     ctx.answer = answer;
@@ -396,7 +602,7 @@ async function runTool(bot, script, params, parent = {}) {
   const ctx = {
     bot, steps: 0, sends: 0, started: Date.now(), channel: parent.channel || null, message: parent.message || null, user: parent.user || null,
     params, args: Object.values(params).map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))),
-    prompt: parent.prompt, toolResult: [], aiDepth: (parent.aiDepth || 0) + 1, aiModel: parent.aiModel,
+    prompt: parent.prompt, toolResult: [], aiDepth: (parent.aiDepth || 0) + 1, ai: parent.ai, aiExtra: parent.aiExtra,
   };
   try {
     await runBlocks(script.blocks || [], ctx);
@@ -411,27 +617,29 @@ async function runBlocks(blocks, ctx) {
   for (const block of blocks) {
     tick(ctx);
     if (ADMIN_ACTIONS.includes(block.type) && !isAdmin(ctx)) continue;
+    // Every input, worked out now: typed text (old {…} templates still work) or the blocks dropped into it.
+    const v = await resolve(block, ctx);
     switch (block.type) {
       case 'send':
       case 'random': {
-        const source = block.type === 'random' ? block.options?.[Math.floor(Math.random() * (block.options?.length || 1))] : block.text;
-        say(ctx, targetChannel(block, ctx), fill(source, ctx).trim());
+        const text = block.type === 'random' ? fill(block.options?.[Math.floor(Math.random() * (block.options?.length || 1))], ctx) : v.text;
+        say(ctx, targetChannel(block, ctx), text.trim());
         break;
       }
       case 'reply':
-        say(ctx, ctx.channel, fill(block.text, ctx).trim(), ctx.message?.id);
+        say(ctx, ctx.channel, v.text.trim(), ctx.message?.id);
         break;
       case 'ping': {
         const user = targetUser(block, ctx);
-        if (user) say(ctx, ctx.channel, `@${user.username} ${fill(block.text, ctx)}`.trim());
+        if (user) say(ctx, ctx.channel, `@${user.username} ${v.text}`.trim());
         break;
       }
       case 'everyone':
-        say(ctx, targetChannel(block, ctx), `@everyone ${fill(block.text, ctx)}`.trim());
+        say(ctx, targetChannel(block, ctx), `@everyone ${v.text}`.trim());
         break;
       case 'dm': {
         const user = targetUser(block, ctx);
-        const content = fill(block.text, ctx).trim();
+        const content = v.text.trim();
         if (!user || !content || ctx.sends >= MAX_SENDS || !canSend(ctx.bot.id)) break;
         ctx.sends += 1;
         post.postMessage(channels.getOrCreateDm(ctx.bot.user_id, user.id), ctx.bot.user_id, content);
@@ -439,7 +647,7 @@ async function runBlocks(blocks, ctx) {
       }
       case 'react':
         if (ctx.message && block.emoji) {
-          messages.react(ctx.message.id, ctx.bot.user_id, fill(block.emoji, ctx).slice(0, 80));
+          messages.react(ctx.message.id, ctx.bot.user_id, v.emoji.slice(0, 80));
           realtime.toChannel(ctx.channel, 'message:update', messages.serialize(messages.get(ctx.message.id)));
         }
         break;
@@ -457,22 +665,35 @@ async function runBlocks(blocks, ctx) {
         realtime.botLeaveVoice(ctx.bot.user_id);
         break;
       case 'wait':
-        await new Promise((resolve) => setTimeout(resolve, (block.seconds || 1) * 1000));
+        await sleep(Math.min(Math.max(Number(v.seconds) || 0, 0), MAX_WAIT) * 1000);
         break;
       case 'set':
-        setVar(ctx.bot.id, block.name, fill(block.value, ctx));
+        setVar(ctx.bot.id, v.name, v.value);
         break;
       case 'change':
-        setVar(ctx.bot.id, block.name, (Number(getVar(ctx.bot.id, block.name)) || 0) + (Number(fill(block.value, ctx)) || 0));
+        setVar(ctx.bot.id, v.name, tidyNumber((Number(getVar(ctx.bot.id, v.name)) || 0) + (Number(v.value) || 0)));
         break;
       case 'if':
-        await runBlocks(test(block, ctx) ? block.do || [] : block.else || [], ctx);
+      case 'if_else':
+        await runBlocks(await check(block, ctx) ? block.do || [] : block.else || [], ctx);
         break;
-      case 'repeat':
-        for (let i = 0; i < (block.times || 1); i++) await runBlocks(block.do || [], ctx);
+      case 'repeat': {
+        const times = Math.min(Math.max(Math.round(Number(v.times)) || 0, 0), MAX_REPEAT);
+        for (let i = 0; i < times; i++) {
+          stillOn(ctx);
+          await runBlocks(block.do || [], ctx);
+        }
+        break;
+      }
+      case 'wait_until':
+        while (!(await check(block, ctx))) {
+          tick(ctx);
+          stillOn(ctx);
+          await sleep(250);
+        }
         break;
       case 'until':
-        while (!test(block, ctx)) {
+        while (!(await check(block, ctx))) {
           tick(ctx);
           stillOn(ctx);
           await runBlocks(block.do || [], ctx);
@@ -493,7 +714,7 @@ async function runBlocks(blocks, ctx) {
         // A message with up to 5 buttons under it; clicking one runs "when a button is clicked".
         const labels = (block.options || []).map((o) => fill(o, ctx).trim().slice(0, 80)).filter(Boolean).slice(0, 5);
         const channel = targetChannel(block, ctx);
-        const content = fill(block.text, ctx).trim();
+        const content = v.text.trim();
         if (!channel || !content || !labels.length || ctx.sends >= MAX_SENDS || !canSend(ctx.bot.id)) break;
         ctx.sends += 1;
         post.postMessage(channel, ctx.bot.user_id, content, { components: labels.map((label) => ({ label })) });
@@ -503,28 +724,28 @@ async function runBlocks(blocks, ctx) {
         // A message with a drop-down of up to 25 choices; picking one runs "when someone picks from a menu".
         const options = (block.options || []).map((o) => fill(o, ctx).trim().slice(0, 80)).filter(Boolean).slice(0, 25);
         const channel = targetChannel(block, ctx);
-        const content = fill(block.text, ctx).trim();
+        const content = v.text.trim();
         if (!channel || !content || !options.length || ctx.sends >= MAX_SENDS || !canSend(ctx.bot.id)) break;
         ctx.sends += 1;
-        post.postMessage(channel, ctx.bot.user_id, content, { components: [{ type: 'menu', placeholder: fill(block.name, ctx).slice(0, 80) || 'Pick one', options }] });
+        post.postMessage(channel, ctx.bot.user_id, content, { components: [{ type: 'menu', placeholder: v.name.slice(0, 80) || 'Pick one', options }] });
         break;
       }
       case 'http': {
         // GET a public web address (never this machine or the local network) and keep the reply in a variable.
         if ((ctx.http = (ctx.http || 0) + 1) > MAX_HTTP) break;
-        const url = fill(block.url, ctx).trim();
+        const url = v.url.trim();
         if (!/^https?:\/\//i.test(url)) break;
         const res = await previews.get(url, { maxBytes: 256 * 1024 });
         let value = res ? res.body.toString('utf8') : '';
         if (value && block.field) {
-          try { value = pick(JSON.parse(value), fill(block.field, ctx)); } catch { value = ''; }
+          try { value = pick(JSON.parse(value), v.field); } catch { value = ''; }
         }
         setVar(ctx.bot.id, block.name || 'response', value.slice(0, MAX_TEXT));
         break;
       }
       case 'math': {
-        const a = Number(fill(block.left, ctx)) || 0;
-        const b = Number(fill(block.right, ctx)) || 0;
+        const a = Number(v.left) || 0;
+        const b = Number(v.right) || 0;
         const result = {
           '+': a + b, '-': a - b, '*': a * b, '/': b ? a / b : 0, '%': b ? a % b : 0, min: Math.min(a, b), max: Math.max(a, b), round: Math.round(a),
         }[block.math || '+'];
@@ -532,24 +753,48 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'random_number': {
-        const lo = Math.min(block.min ?? 1, block.max ?? 10);
-        const hi = Math.max(block.min ?? 1, block.max ?? 10);
+        const lo = Math.min(Number(v.min) || 1, Number(v.max) || 10);
+        const hi = Math.max(Number(v.min) || 1, Number(v.max) || 10);
         setVar(ctx.bot.id, block.name, Math.floor(Math.random() * (hi - lo + 1)) + lo);
         break;
       }
       case 'list_add': {
-        const items = getList(ctx.bot.id, block.name);
-        items.push(fill(block.value, ctx).slice(0, 200));
-        setList(ctx.bot.id, block.name, items);
+        const items = getList(ctx.bot.id, v.name);
+        items.push(v.value.slice(0, 200));
+        setList(ctx.bot.id, v.name, items);
+        break;
+      }
+      case 'list_delete': {
+        // "delete item (n) of [list]"; "all" or nothing empties it.
+        const items = getList(ctx.bot.id, v.name);
+        const at = listIndex(v.index, items.length);
+        if (at < 0) break;
+        items.splice(at, 1);
+        setList(ctx.bot.id, v.name, items);
+        break;
+      }
+      case 'list_insert': {
+        const items = getList(ctx.bot.id, v.name);
+        const at = Math.min(Math.max(Math.round(Number(v.index)) || 1, 1), items.length + 1) - 1;
+        items.splice(at, 0, v.value.slice(0, 200));
+        setList(ctx.bot.id, v.name, items);
+        break;
+      }
+      case 'list_replace': {
+        const items = getList(ctx.bot.id, v.name);
+        const at = listIndex(v.index, items.length);
+        if (at < 0) break;
+        items[at] = v.value.slice(0, 200);
+        setList(ctx.bot.id, v.name, items);
         break;
       }
       case 'list_remove': {
-        const value = fill(block.value, ctx).toLowerCase();
-        setList(ctx.bot.id, block.name, getList(ctx.bot.id, block.name).filter((item) => item.toLowerCase() !== value));
+        const value = v.value.toLowerCase();
+        setList(ctx.bot.id, v.name, getList(ctx.bot.id, v.name).filter((item) => item.toLowerCase() !== value));
         break;
       }
       case 'list_clear':
-        setList(ctx.bot.id, block.name, []);
+        setList(ctx.bot.id, v.name, []);
         break;
       case 'list_pick': {
         const items = getList(ctx.bot.id, block.name);
@@ -557,39 +802,31 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'text_case': {
-        const text = fill(block.value, ctx);
+        const text = v.value;
         const out = { upper: text.toUpperCase(), lower: text.toLowerCase(), length: String(text.length), reverse: [...text].reverse().join(''), trim: text.trim() }[block.textCase || 'upper'];
         setVar(ctx.bot.id, block.name, out);
         break;
       }
       // --- AI ---
+      case 'ai_connect':
+        ctx.ai = { endpoint: v.url.trim(), key: v.key.trim(), model: v.model.trim() };
+        break;
       case 'ai_reply': {
-        const answer = await askAi(ctx, { extra: [ctx.aiExtra, fill(block.text, ctx)].filter(Boolean).join('\n') });
+        const answer = await askAi(ctx);
         if (answer) say(ctx, ctx.channel, answer, ctx.message && messages.get(ctx.message.id) ? ctx.message.id : null);
         else if (ctx.aiError) say(ctx, ctx.channel, `⚠️ ${ctx.aiError}`, ctx.message?.id);
         break;
       }
       case 'ai_ask': {
-        const prompt = fill(block.text, ctx).trim();
-        const answer = prompt ? await askAi(ctx, { turns: [{ role: 'user', content: prompt }], useTools: block.mode !== 'plain', extra: ctx.aiExtra }) : '';
-        setVar(ctx.bot.id, block.name || 'answer', answer || '');
+        const prompt = v.text.trim();
+        setVar(ctx.bot.id, block.name || 'answer', prompt ? await askAi(ctx, { prompt }) : '');
         break;
       }
       case 'ai_tell':
-        (ctx.toolResult ||= []).push(fill(block.text, ctx));
+        (ctx.toolResult ||= []).push(v.text);
         break;
       case 'ai_instructions':
-        ctx.aiExtra = [ctx.aiExtra, fill(block.text, ctx)].filter(Boolean).join('\n');
-        break;
-      case 'ai_model':
-        ctx.aiModel = fill(block.value, ctx).trim().slice(0, 120);
-        break;
-      case 'ai_remember':
-        botAi.remember(ctx.bot.id, fill(block.text, ctx));
-        break;
-      case 'ai_forget':
-        if (block.what === 'memory') botAi.forgetMemory(ctx.bot.id);
-        else if (ctx.channel) botAi.forgetChat(ctx.bot.id, ctx.channel.id);
+        ctx.aiExtra = [ctx.aiExtra, v.text].filter(Boolean).join('\n');
         break;
       case 'unpin':
         if (ctx.message && messages.get(ctx.message.id)) {
@@ -612,7 +849,7 @@ async function runBlocks(blocks, ctx) {
       case 'purge': {
         const channel = targetChannel(block, ctx);
         if (!channel) break;
-        const rows = db.prepare('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?').all(channel.id, block.count || 10);
+        const rows = db.prepare('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?').all(channel.id, Math.min(Math.max(Math.round(Number(v.count)) || 10, 1), 100));
         for (const row of rows) {
           messages.remove(row);
           realtime.toChannel(channel, 'message:delete', { id: row.id, channelId: channel.id });
@@ -621,7 +858,7 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'create_channel': {
-        const name = channelName(fill(block.name, ctx).trim());
+        const name = channelName(v.name.trim());
         if (!name || channels.forServer(ctx.bot.server_id).length >= 200) break;
         const row = channels.create(ctx.bot.server_id, name, { kind: block.kind === 'voice' ? 'voice' : 'text' });
         realtime.toServer(ctx.bot.server_id, 'channel:create', channels.toChannel(row));
@@ -629,7 +866,7 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'delete_channel': {
-        const name = channelName(fill(block.name, ctx).trim());
+        const name = channelName(v.name.trim());
         const row = channels.forServer(ctx.bot.server_id).find((c) => c.name === name && c.kind !== 'category');
         if (!row) break;
         channels.remove(row.id);
@@ -640,7 +877,7 @@ async function runBlocks(blocks, ctx) {
       }
       case 'rename_channel': {
         const channel = targetChannel(block, ctx);
-        const name = channelName(fill(block.name, ctx).trim());
+        const name = channelName(v.name.trim());
         if (!channel || !name) break;
         channelChanged(channels.update(channel.id, { name }));
         log(ctx, 'channel.update', `#${channel.name}`, `renamed to #${name}`);
@@ -649,14 +886,14 @@ async function runBlocks(blocks, ctx) {
       case 'topic': {
         const channel = targetChannel(block, ctx);
         if (!channel) break;
-        channelChanged(channels.update(channel.id, { topic: fill(block.text, ctx).slice(0, 1024) }));
+        channelChanged(channels.update(channel.id, { topic: v.text.slice(0, 1024) }));
         log(ctx, 'channel.update', `#${channel.name}`, 'topic');
         break;
       }
       case 'slowmode': {
         const channel = targetChannel(block, ctx);
         if (!channel) break;
-        const seconds = block.slow || 0;
+        const seconds = Math.min(Math.max(Math.round(Number(v.slow)) || 0, 0), 21600);
         channelChanged(channels.update(channel.id, { slowmode: seconds }));
         log(ctx, 'channel.update', `#${channel.name}`, `slowmode ${seconds}s`);
         break;
@@ -672,7 +909,7 @@ async function runBlocks(blocks, ctx) {
       case 'ban': {
         const user = targetUser(block, ctx);
         if (!canTouch(ctx, user)) break;
-        const reason = fill(block.reason, ctx).slice(0, 500);
+        const reason = v.reason.slice(0, 500);
         if (block.type === 'ban') servers.ban(ctx.bot.server_id, user.id, reason);
         kickUser(ctx, user);
         log(ctx, block.type === 'ban' ? 'member.ban' : 'member.kick', `@${user.username}`, reason);
@@ -681,9 +918,10 @@ async function runBlocks(blocks, ctx) {
       case 'timeout': {
         const user = targetUser(block, ctx);
         if (!canTouch(ctx, user)) break;
-        servers.setMemberTimeout(ctx.bot.server_id, user.id, Date.now() + (block.minutes || 10) * 60_000);
+        const minutes = Math.min(Math.max(Math.round(Number(v.minutes)) || 10, 1), 10080);
+        servers.setMemberTimeout(ctx.bot.server_id, user.id, Date.now() + minutes * 60_000);
         memberChanged(ctx, user.id);
-        log(ctx, 'member.timeout', `@${user.username}`, [`for ${block.minutes || 10}m`, fill(block.reason, ctx)].filter(Boolean).join(' · '));
+        log(ctx, 'member.timeout', `@${user.username}`, [`for ${minutes}m`, v.reason].filter(Boolean).join(' · '));
         break;
       }
       case 'untimeout': {
@@ -698,7 +936,7 @@ async function runBlocks(blocks, ctx) {
       case 'take_role':
       case 'toggle_role': {
         const user = targetUser(block, ctx);
-        const role = findRole(ctx, fill(block.role, ctx));
+        const role = findRole(ctx, v.role);
         if (!role || !canTouch(ctx, user)) break;
         const has = servers.memberRoleIds(ctx.bot.server_id, user.id).includes(role.id);
         const on = block.type === 'give_role' || (block.type === 'toggle_role' && !has);
@@ -709,7 +947,7 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'create_role': {
-        const name = fill(block.role, ctx).trim().slice(0, 40);
+        const name = v.role.trim().slice(0, 40);
         if (!name || findRole(ctx, name) || servers.roles(ctx.bot.server_id).length >= 100) break;
         servers.createRole(ctx.bot.server_id, { name, color: block.color || null });
         rolesChanged(ctx);
@@ -717,7 +955,7 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'delete_role': {
-        const role = findRole(ctx, fill(block.role, ctx));
+        const role = findRole(ctx, v.role);
         if (!role) break;
         const holders = servers.memberIds(ctx.bot.server_id).filter((id) => servers.memberRoleIds(ctx.bot.server_id, id).includes(role.id));
         servers.removeRole(ctx.bot.server_id, role.id);
@@ -727,8 +965,8 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'rename_role': {
-        const role = findRole(ctx, fill(block.role, ctx));
-        const name = fill(block.name, ctx).trim().slice(0, 40);
+        const role = findRole(ctx, v.role);
+        const name = v.name.trim().slice(0, 40);
         if (!role || !name) break;
         servers.updateRole(ctx.bot.server_id, role.id, { name });
         rolesChanged(ctx);
@@ -736,7 +974,7 @@ async function runBlocks(blocks, ctx) {
         break;
       }
       case 'color_role': {
-        const role = findRole(ctx, fill(block.role, ctx));
+        const role = findRole(ctx, v.role);
         if (!role) break;
         servers.updateRole(ctx.bot.server_id, role.id, { color: block.color || null });
         rolesChanged(ctx);
@@ -768,18 +1006,14 @@ async function run(bot, blocks, ctx) {
   }
 }
 
-// Someone talked to the bot (a mention, a reply, a DM, or a channel where it answers everything): run its
-// "when someone talks to me" scripts, or, with none, let its AI answer.
+// Someone talked to the bot (an @mention, a reply to it, or a DM): run its "when someone talks to me" scripts.
 function maybeAnswer(bot, channel, message, commanded) {
-  if (commanded) return;
-  const settings = botAi.settingsOf(bot);
-  const why = botAi.shouldAnswer(bot, settings, channel, message);
-  if (!why) return;
-  const prompt = botAi.promptOf(bot, message);
-  const ctx = { channel, message, user: message.author, args: prompt.split(/\s+/).filter(Boolean), prompt, why };
+  if (commanded || !botAi.talksTo(bot, channel, message)) return;
   const scripts = JSON.parse(bot.program).filter((s) => s.trigger?.type === 'ai_message');
-  if (scripts.length) for (const script of scripts) run(bot, script.blocks, ctx);
-  else run(bot, [{ type: 'ai_reply', text: '' }], ctx);
+  if (!scripts.length) return;
+  const prompt = botAi.promptOf(bot, message);
+  const ctx = { channel, message, user: message.author, args: prompt.split(/\s+/).filter(Boolean), prompt };
+  for (const script of scripts) run(bot, script.blocks, ctx);
 }
 
 function enabledBots(serverId) {
@@ -900,14 +1134,4 @@ function clickButton(channel, message, user, label) {
   return ran;
 }
 
-// The builder's test chat: talk to the AI without posting anything (tools still really run).
-async function testChat(bot, { turns, channel, user }) {
-  const trace = [];
-  const ctx = { bot, channel, user, message: null, aiDepth: 0 };
-  const reply = await botAi.converse(bot, {
-    channel, turns, trace, runTool: (script, params) => runTool(bot, script, params, ctx),
-  });
-  return { reply, trace };
-}
-
-module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu, testChat };
+module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu };

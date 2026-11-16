@@ -727,6 +727,35 @@ async function run() {
   }
   ok('bot profiles: name, status, bio, banner, default and uploaded pictures; only for bot managers');
 
+  // --- Scratch-style blocks: reporters in inputs, if/else, repeat, variables and lists ---
+  {
+    const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Counter' });
+    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+      enabled: true,
+      program: [{ trigger: { type: 'command', name: 'count' }, blocks: [
+        { type: 'set', name: 'n', value: '0' },
+        { type: 'list_clear', name: 'seen' },
+        { type: 'repeat', times: { r: 'word', a: '1' }, do: [
+          { type: 'change', name: 'n', value: 2 },
+          { type: 'list_add', name: 'seen', value: { r: 'var', name: 'n' } },
+        ] },
+        { type: 'list_delete', name: 'seen', index: 'last' },
+        { type: 'if_else', cond: { r: 'and', a: { r: 'gt', a: { r: 'var', name: 'n' }, b: '5' }, b: { r: 'list_contains', name: 'seen', a: '4' } },
+          do: [{ type: 'reply', text: { r: 'join', a: { r: 'join', a: { r: 'mul', a: { r: 'var', name: 'n' }, b: '10' }, b: ' ' }, b: { r: 'join', a: { r: 'list', name: 'seen' }, b: { r: 'join', a: ' ', b: { r: 'case', fn: 'upper', a: { r: 'letter', a: '1', b: { r: 'user_name' } } } } } } }],
+          else: [{ type: 'reply', text: 'small' }] },
+      ] }],
+    });
+    let wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '/count 3' });
+    assert.equal((await wait).content, '60 2 4 B');
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '/count 1' });
+    assert.equal((await wait).content, 'small');
+    await alice.expect(400, 'PATCH', `/api/servers/${server.id}/bots/${bot.id}`, { program: [{ trigger: { type: 'command', name: 'x' }, blocks: [{ type: 'reply', text: { r: 'nope' } }] }] });
+    await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
+  }
+  ok('Scratch-style blocks: reporters in inputs, if/else with and, repeat, variables, lists, join, letter, case');
+
   // --- AI bots: a pretend OpenAI-style and Anthropic-style service on this machine ---
   if (!ON_CLOUDFLARE) await aiBots(alice, bob, server, general, bSock);
 
@@ -998,37 +1027,32 @@ function fakeAi() {
 
 async function aiBots(alice, bob, server, general, bSock) {
   const ai = await fakeAi();
+  const base = `/api/servers/${server.id}/bots`;
   try {
-    const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Brainy' });
-    assert.equal(bot.ai.enabled, false);
-    assert.equal(bot.ai.hasKey, false);
-    await bob.expect(403, 'PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { enabled: true });
-    const saved = await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, {
-      enabled: true, baseUrl: `${ai.base}/v1`, apiKey: 'sk-test-123', model: 'fake-1', modelName: 'Fakey', system: 'Be a pirate.', temperature: 0.3,
-    });
-    assert.equal(saved.ai.hasKey, true);
-    assert.equal(saved.ai.apiKey, undefined, 'the key never comes back');
-    assert.ok(!JSON.stringify(await alice.call('GET', `/api/servers/${server.id}/bots`)).includes('sk-test-123'), 'the key is not listed');
-    const models = await alice.call('GET', `/api/servers/${server.id}/bots/${bot.id}/ai/models`);
-    assert.deepEqual(models.map((m) => m.id), ['fake-1', 'fake-2']);
-
-    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+    const bot = await alice.call('POST', base, { name: 'Brainy' });
+    const connect = { type: 'ai_connect', url: `${ai.base}/v1`, key: 'sk-test-123', model: 'fake-1' };
+    await alice.call('PATCH', `${base}/${bot.id}`, {
       enabled: true,
       program: [
+        { trigger: { type: 'ai_message' }, blocks: [
+          connect,
+          { type: 'ai_instructions', text: 'Be a pirate.' },
+          { type: 'if_else', cond: { r: 'contains', a: { r: 'said' }, b: 'secret' }, do: [{ type: 'reply', text: 'no secrets' }], else: [{ type: 'ai_reply' }] },
+        ] },
         { trigger: { type: 'tool', name: 'Roll Dice', description: 'Roll a dice', options: ['sides (number): how many sides', 'note?: optional'] }, blocks: [
-          { type: 'set', name: 'rolled', value: '{param.sides}' },
-          { type: 'ai_tell', text: 'rolled a {var.rolled} for {user}' },
+          { type: 'set', name: 'rolled', value: { r: 'tool_input', name: 'sides' } },
+          { type: 'ai_tell', text: { r: 'join', a: 'rolled a ', b: { r: 'join', a: { r: 'var', name: 'rolled' }, b: { r: 'join', a: ' for ', b: { r: 'user_name' } } } } },
         ] },
         { trigger: { type: 'command', name: 'haiku' }, blocks: [
-          { type: 'ai_ask', text: 'haiku about {args}', mode: 'plain', name: 'poem' },
-          { type: 'reply', text: '{var.poem} ({ai.model})' },
+          connect,
+          { type: 'reply', text: { r: 'ai_answer', a: { r: 'join', a: 'haiku about ', b: { r: 'words' } } } },
         ] },
       ],
     });
-    const program = (await alice.call('GET', `/api/servers/${server.id}/bots`)).find((b) => b.id === bot.id).program;
-    assert.equal(program[0].trigger.name, 'roll_dice', 'tool names are tidied for the AI');
+    const program = (await alice.call('GET', base)).find((b) => b.id === bot.id).program;
+    assert.equal(program[1].trigger.name, 'roll_dice', 'tool names are tidied for the AI');
 
-    // @mention: the AI answers in the channel, as a reply, with the instructions and key sent along.
+    // @mention: the AI answers as a reply, with the key and instructions sent along.
     let wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
     await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `hey @${bot.user.username} how are you` });
     let answer = await wait;
@@ -1037,51 +1061,27 @@ async function aiBots(alice, bob, server, general, bSock) {
     const first = ai.seen.at(-1);
     assert.equal(first.headers.authorization, 'Bearer sk-test-123');
     assert.match(first.body.messages[0].content, /Be a pirate\./);
-    assert.equal(first.body.temperature, 0.3);
     assert.ok(first.body.tools.some((t) => t.function.name === 'roll_dice' && t.function.parameters.required.includes('sides') && !t.function.parameters.required.includes('note')));
 
     // A tool call runs the blocks under the tool hat and sends what they "tell the AI" back.
     wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
     await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} roll for me` });
     answer = await wait;
-    assert.match(answer.content, /^Tool said: rolled a 6 for Bob/);
+    assert.match(answer.content, /^Tool said: rolled a 6 for Bobby/);
 
-    // Replying to the bot also wakes it; messages that don't involve it don't.
+    // Replies to the bot wake it too; an if block can answer without the AI; unrelated messages are ignored.
     wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
-    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'and again', replyToId: answer.id });
-    assert.match((await wait).content, /Echo: .*and again/);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'tell me a secret', replyToId: answer.id });
+    assert.equal((await wait).content, 'no secrets');
     const calls = ai.seen.length;
     await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'just chatting' });
     await new Promise((r) => setTimeout(r, 300));
     assert.equal(ai.seen.length, calls, 'unrelated messages are ignored');
 
-    // A block that asks the AI and keeps the answer.
+    // The "AI answer to" reporter inside a reply.
     wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
     await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '/haiku the sea' });
-    assert.equal((await wait).content, 'Echo: haiku about the sea (Fakey)');
-
-    // Built-in memory: the "remember" tool saves a fact, and it's in later instructions.
-    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
-    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} remember I like tea` });
-    await wait;
-    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
-    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} hi` });
-    await wait;
-    assert.match(ai.seen.at(-1).body.messages[0].content, /Bob likes tea/);
-
-    // "When someone talks to me" scripts replace the automatic answer.
-    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
-      program: [{ trigger: { type: 'ai_message' }, blocks: [
-        { type: 'if', left: '{prompt}', op: 'contains', right: 'secret', do: [{ type: 'reply', text: 'no secrets' }], else: [{ type: 'ai_instructions', text: 'Answer in French.' }, { type: 'ai_reply', text: '' }] },
-      ] }],
-    });
-    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
-    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} tell me a secret` });
-    assert.equal((await wait).content, 'no secrets');
-    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
-    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} bonjour` });
-    await wait;
-    assert.match(ai.seen.at(-1).body.messages[0].content, /Answer in French\./);
+    assert.equal((await wait).content, 'Echo: haiku about the sea');
 
     // DMs with the bot.
     const dm = await bob.call('POST', '/api/dms', { userId: bot.user.id });
@@ -1089,32 +1089,32 @@ async function aiBots(alice, bob, server, general, bSock) {
     await bob.call('POST', `/api/channels/${dm.id}/messages`, { content: 'hello in private' });
     assert.match((await wait).content, /Echo: .*hello in private/);
 
-    // The builder's test chat, with the tool trace; then Anthropic's format.
-    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
-      program: [{ trigger: { type: 'tool', name: 'roll_dice', description: 'Roll', options: ['sides (number)'] }, blocks: [{ type: 'ai_tell', text: 'got {param.sides}' }] }],
+    // Anthropic's format, picked from the address.
+    await alice.call('PATCH', `${base}/${bot.id}`, {
+      program: [
+        { trigger: { type: 'ai_message' }, blocks: [{ type: 'ai_connect', url: `${ai.base}/anthropic/v1`, key: 'sk-ant', model: 'claude-test' }, { type: 'ai_reply' }] },
+        { trigger: { type: 'tool', name: 'roll_dice', description: 'Roll', options: ['sides (number)'] }, blocks: [{ type: 'ai_tell', text: { r: 'join', a: 'got ', b: { r: 'tool_input', name: 'sides' } } }] },
+      ],
     });
-    const test = await alice.call('POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'please roll' }] });
-    assert.equal(test.reply, 'Tool said: got 6');
-    assert.deepEqual(test.trace, [{ tool: 'roll_dice', args: { sides: 6 }, output: 'got 6' }]);
-    await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { provider: 'anthropic', baseUrl: `${ai.base}/anthropic/v1`, model: 'claude-test' });
-    const claude = await alice.call('POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'roll please' }] });
-    assert.equal(claude.reply, 'Tool said: got 20');
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} roll please` });
+    assert.equal((await wait).content, 'Tool said: got 20');
     const sent = ai.seen.at(-1);
-    assert.equal(sent.headers['x-api-key'], 'sk-test-123');
-    assert.match(sent.body.system, /Be a pirate\./);
+    assert.equal(sent.headers['x-api-key'], 'sk-ant');
     assert.equal(sent.body.tools[0].input_schema.properties.sides.type, 'number');
 
-    // Errors from the service come back readable.
-    await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { provider: 'openai', baseUrl: `${ai.base}/v1`, model: 'broken' });
-    const failed = await alice.expect(400, 'POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'hi' }] });
-    assert.match(JSON.stringify(failed), /Incorrect API key/);
-    const cleared = await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { apiKey: null });
-    assert.equal(cleared.ai.hasKey, false);
-    await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
+    // Errors come back readable, as the bot's reply.
+    await alice.call('PATCH', `${base}/${bot.id}`, {
+      program: [{ trigger: { type: 'ai_message' }, blocks: [{ type: 'ai_connect', url: `${ai.base}/v1`, key: 'x', model: 'broken' }, { type: 'ai_reply' }] }],
+    });
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} hi` });
+    assert.match((await wait).content, /Incorrect API key/);
+    await alice.call('DELETE', `${base}/${bot.id}`);
   } finally {
     ai.server.close();
   }
-  ok('AI bots: settings and hidden key, model list, mentions, replies, DMs, tools from blocks, ask-the-AI, memory, talk scripts, test chat, Anthropic format, readable errors');
+  ok('AI bots from blocks: use AI, talk-to-me, replies, DMs, tools with inputs, AI answer reporter, Anthropic format, readable errors');
 }
 
 // The server under test: Node, or the Worker in Wrangler's local runtime (with its own throwaway storage).
