@@ -22,7 +22,6 @@ import { showWhiteboard, closeWhiteboard } from './views/whiteboard.js';
 import { showCalendar, closeCalendar } from './views/calendar.js';
 import { showMusic, closeMusic } from './views/music.js';
 import { showWiki, closeWiki } from './views/wiki.js';
-import { showVideo, closeVideo } from './views/video.js';
 import './views/ring.js';
 
 const root = document.getElementById('app');
@@ -43,7 +42,7 @@ const APPS = {
   calendar: { show: showCalendar, close: closeCalendar },
   music: { show: showMusic, close: closeMusic },
   wiki: { show: showWiki, close: closeWiki },
-  video: { show: showVideo, close: closeVideo },
+  video: { show: showMusic, close: closeMusic }, // the same shared player, with a video browser
 };
 
 function closeApps(except = null) {
@@ -54,7 +53,7 @@ function closeApps(except = null) {
 async function showMain(main) {
   const { route } = state;
   const server = route.name === 'server' && state.servers.get(route.serverId);
-  const musicChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'music');
+  const musicChannel = server && server.channels.find((c) => c.id === route.channelId && (c.kind === 'music' || c.kind === 'video'));
   if (musicHost) {
     musicHost.classList.toggle('collapsed', !musicChannel);
     contentEl?.classList.toggle('is-hidden', Boolean(musicChannel));

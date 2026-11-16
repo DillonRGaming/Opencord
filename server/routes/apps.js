@@ -23,6 +23,13 @@ function appChannel(id, userId, kind) {
   return channel;
 }
 
+// Music and video channels share one player: a queue that plays in sync for everyone in the channel.
+function playerChannel(id, userId) {
+  const channel = access.visibleChannel(id, userId);
+  if (channel.kind !== 'music' && channel.kind !== 'video') fail(400, 'That is not a music or video channel.');
+  return channel;
+}
+
 // Adding things: not while timed out, and only admins in an admins-only channel.
 function canAdd(channel, userId) {
   if (servers.roleOf(channel.server_id, userId) !== 'member') return;
@@ -197,39 +204,44 @@ function sweepMusicListeners() {
 }
 
 router.get('/:id/music', (req, res) => {
-  res.json(musicState(appChannel(req.params.id, req.user.id, 'music').id));
+  res.json(musicState(playerChannel(req.params.id, req.user.id).id));
 });
 
 router.post('/:id/music/listening', (req, res) => {
-  const channel = appChannel(req.params.id, req.user.id, 'music');
+  const channel = playerChannel(req.params.id, req.user.id);
   markListening(channel.id, req.user.id, req.body.listening !== false);
   res.json({ ok: true });
 });
 
-// Add a YouTube link, or a link to an audio file someone uploaded here.
+// Add a YouTube link, or a link to a file someone uploaded here (audio in a music channel, video in a video
+// channel). `playNow` plays it straight away instead of queueing it; `title` is used for YouTube links when the
+// page already knows it (from a search), which saves looking it up.
 router.post('/:id/music', async (req, res, next) => {
   try {
-    const channel = appChannel(req.params.id, req.user.id, 'music');
+    const channel = playerChannel(req.params.id, req.user.id);
     canAdd(channel, req.user.id);
     const url = text(req.body.url, 'Link', { min: 1, max: 500 });
-    if (db.prepare('SELECT COUNT(*) AS n FROM music_queue WHERE channel_id = ?').get(channel.id).n >= 500) fail(400, 'The playlist is full. Remove some songs first.');
+    if (db.prepare('SELECT COUNT(*) AS n FROM music_queue WHERE channel_id = ?').get(channel.id).n >= 500) fail(400, 'The queue is full. Remove some first.');
+    const fileKind = channel.kind === 'video' ? 'video' : 'audio';
     let item = null;
-    const video = (() => { try { return previews.youtubeId(url); } catch { return null; } })();
+    const video = (() => { try { return previews.youtubeId(url); } catch { return null; } })() || (/^[\w-]{11}$/.test(url) ? url : null);
     if (video && /^[\w-]{6,20}$/.test(video)) {
-      const info = await previews.preview(`https://www.youtube.com/watch?v=${video}`).catch(() => null);
-      item = { kind: 'youtube', source: video, title: info?.title || 'YouTube video' };
+      const known = typeof req.body.title === 'string' && req.body.title.trim() ? req.body.title.trim() : null;
+      const info = known ? null : await previews.preview(`https://www.youtube.com/watch?v=${video}`).catch(() => null);
+      item = { kind: 'youtube', source: video, title: known || info?.title || 'YouTube video' };
     } else {
       const m = /^(?:https?:\/\/[^/]+)?(\/media\/attachments\/([\w-]+)\/[^?#]*)$/.exec(url);
       const file = m && db.prepare(`SELECT attachments.*, messages.channel_id FROM attachments JOIN messages ON messages.id = attachments.message_id
         WHERE attachments.id = ?`).get(m[2]);
-      if (!file || file.kind !== 'audio') fail(400, 'Paste a YouTube link, or the link of an audio file sent in this server.');
+      if (!file || file.kind !== fileKind) fail(400, `Paste a YouTube link, or the link of ${fileKind === 'video' ? 'a video' : 'an audio file'} sent in this server.`);
       access.visibleChannel(file.channel_id, req.user.id);
-      item = { kind: 'audio', source: m[1], title: file.name.replace(/\.[a-z0-9]+$/i, '') };
+      item = { kind: fileKind, source: m[1], title: file.name.replace(/\.[a-z0-9]+$/i, '') };
     }
     const id = newId();
     db.prepare('INSERT INTO music_queue (id, channel_id, added_by, kind, source, title, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(id, channel.id, req.user.id, item.kind, item.source, item.title.slice(0, 200), Date.now());
-    if (!musicState(channel.id).playing) setPlaying(channel.id, id);
+    const rate = db.prepare('SELECT rate FROM music_state WHERE channel_id = ?').get(channel.id)?.rate || 1;
+    if (req.body.playNow || !musicState(channel.id).playing) setPlaying(channel.id, id, Date.now(), null, rate);
     musicChanged(channel);
     res.status(201).json(musicState(channel.id));
   } catch (err) {
@@ -240,7 +252,7 @@ router.post('/:id/music', async (req, res, next) => {
 // play, pause, skip, previous, seek (position in seconds), rate (0.25–2), ended (sent by players when a track
 // finishes), or jump (play itemId from the start).
 router.post('/:id/music/control', (req, res) => {
-  const channel = appChannel(req.params.id, req.user.id, 'music');
+  const channel = playerChannel(req.params.id, req.user.id);
   const { action, itemId } = req.body;
   const state = musicState(channel.id);
   const p = state.playing;
@@ -283,7 +295,7 @@ router.post('/:id/music/control', (req, res) => {
 });
 
 router.delete('/:id/music/:itemId', (req, res) => {
-  const channel = appChannel(req.params.id, req.user.id, 'music');
+  const channel = playerChannel(req.params.id, req.user.id);
   const row = db.prepare('SELECT * FROM music_queue WHERE id = ? AND channel_id = ?').get(req.params.itemId, channel.id);
   if (!row) fail(404, 'Not in the queue.');
   if (row.added_by !== req.user.id && !isMod(channel, req.user.id)) fail(403, 'Only whoever added it (or an admin) can take it out.');

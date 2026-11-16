@@ -1,6 +1,7 @@
-// A music channel: a shared queue of YouTube videos and uploaded audio files. Everyone hears the same thing
-// at the same point: the server only stores what's playing and when it started (or was paused), and each
-// listener's player seeks to match. Browsers don't let sound start by itself, so you press "Listen" first.
+// A music or video channel: a shared queue of YouTube videos and uploaded files. Everyone hears (and sees) the
+// same thing at the same point: the server only stores what's playing and when it started (or was paused), and
+// each player steers itself to match. Browsers don't let sound start by itself, so you press Listen / Watch first.
+// A video channel shows the video big and adds the browser (views/video.js) below the queue.
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
@@ -9,6 +10,7 @@ import { showNav } from '../router.js';
 import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
 import { remote, openPopover, closeFunPicker } from '../fun.js';
+import { mountVideoBrowser, closeVideoBrowser } from './video.js';
 
 let view = null; // { root, channel, serverId, music, offset, listening, player, playerFor, progress, timer }
 
@@ -32,12 +34,17 @@ function teardownMusic() {
   window.removeEventListener('message', onPlayerMessage);
   document.removeEventListener('visibilitychange', onVisibility);
   closeFunPicker();
+  closeVideoBrowser();
   view.audioCtx?.close?.().catch(() => {});
   view.player?.remove();
   view.root.replaceChildren();
   view = null;
   updateMusicDock();
 }
+
+const isVideo = () => view?.channel.kind === 'video';
+// The learned seek lead is per kind of player: YouTube, or a file (<audio>/<video>).
+const leadKey = (item) => (item.kind === 'youtube' ? 'youtube' : 'audio');
 
 const current = () => view?.music?.playing && view.music.queue.find((q) => q.id === view.music.playing.itemId);
 
@@ -289,7 +296,9 @@ function buildPlayer(item) {
     });
     return frame;
   }
-  const audio = h('audio', { class: 'music-audio', src: item.source, preload: 'auto' });
+  const audio = item.kind === 'video'
+    ? h('video', { class: 'music-file-video', src: item.source, preload: 'auto', playsInline: true })
+    : h('audio', { class: 'music-audio', src: item.source, preload: 'auto' });
   audio.addEventListener('loadedmetadata', () => { view.progress.duration = audio.duration; sync(true); });
   audio.addEventListener('ended', ended);
   return audio;
@@ -394,8 +403,8 @@ function settleSeek(item, pos, want) {
   const s = view.sync;
   const err = pos - want; // negative: landed behind
   const leads = s.leads;
-  const ideal = Math.max(0, Math.min(3, leads[item.kind] - err));
-  leads[item.kind] = leads[item.kind] * 0.5 + ideal * 0.5;
+  const ideal = Math.max(0, Math.min(3, leads[leadKey(item)] - err));
+  leads[leadKey(item)] = leads[leadKey(item)] * 0.5 + ideal * 0.5;
   try { localStorage.setItem('oc:musicLead', JSON.stringify(leads)); } catch { /* fine */ }
   s.failedSeeks = Math.abs(err) > HARD ? s.failedSeeks + 1 : 0;
   s.seek = null;
@@ -453,7 +462,7 @@ function sync(force = false) {
     endedFor = null;
     slot.replaceChildren(view.player);
     updateSlot();
-    if (item.kind === 'audio') sendPlayPause(item, !view.music.playing.pausedAt);
+    if (item.kind !== 'youtube') sendPlayPause(item, !view.music.playing.pausedAt);
     return;
   }
   const s = view.sync;
@@ -522,7 +531,7 @@ function sync(force = false) {
     s.drift = null;
     s.status = s.blocked ? 'blocked' : 'syncing';
     // A player that's been silent a long while: a jump usually gets it talking again.
-    if (pos == null && (force || changed || now - s.lastSeek > 10000) && now - s.builtAt > 3000) seekPlayer(item, want + s.leads[item.kind], true);
+    if (pos == null && (force || changed || now - s.lastSeek > 10000) && now - s.builtAt > 3000) seekPlayer(item, want + s.leads[leadKey(item)], true);
     return;
   }
 
@@ -534,7 +543,7 @@ function sync(force = false) {
   const far = Math.abs(drift);
   const struggling = s.failedSeeks >= 3;
   const hard = struggling ? 3 : HARD; // jumps keep missing on this device: lean on nudging instead
-  const lead = s.leads[item.kind];
+  const lead = s.leads[leadKey(item)];
   const canNudge = !youtube || s.fineRate !== false;
   s.status = struggling && far > 0.5 ? 'struggling' : far <= (canNudge ? IN_SYNC : 0.1) ? 'synced' : 'syncing';
   if ((force || changed) && far > 0.25 && now - s.lastSeek > 500) seekPlayer(item, want + lead, true);
@@ -573,7 +582,7 @@ function resyncNow() {
   const item = current();
   const s = view.sync;
   if (item && s) {
-    if (item.kind === 'audio') sendPlayPause(item, !view.music.playing.pausedAt);
+    if (item.kind !== 'youtube') sendPlayPause(item, !view.music.playing.pausedAt);
     else if (s.blocked && !view.showVideo) toggleVideo(); // YouTube may need a tap on the video itself
     s.failedSeeks = 0;
     s.cmdTries = 0;
@@ -594,7 +603,8 @@ function shortTitle(title) {
 function nowPlaying() {
   const item = current();
   if (!item) {
-    return h('section', { class: 'music-now empty' }, emptyList('music', 'Nothing playing', view.music?.queue?.length ? 'Pick a song from the playlist below.' : 'Paste a YouTube link below to start.'));
+    return h('section', { class: 'music-now empty' }, isVideo() ? emptyList('video', 'Nothing playing')
+      : emptyList('music', 'Nothing playing', view.music?.queue?.length ? 'Pick a song from the playlist below.' : 'Paste a YouTube link below to start.'));
   }
   const paused = Boolean(view.music.playing.pausedAt);
   const adder = state.users.get(item.addedBy);
@@ -606,9 +616,11 @@ function nowPlaying() {
     const duration = view.progress?.duration;
     if (Number.isFinite(duration)) control('seek', { position: ((event.clientX - box.left) / box.width) * duration });
   });
-  const art = item.kind === 'youtube'
+  const video = isVideo();
+  // A video channel that's showing the video doesn't need the thumbnail too.
+  const art = video && view.listening ? null : item.kind === 'youtube'
     ? h('img', { class: 'music-art', src: `/media/preview-image?url=${encodeURIComponent(`https://i.ytimg.com/vi/${item.source}/hqdefault.jpg`)}`, alt: '' })
-    : h('span', { class: 'music-art audio' }, icon('music', 28));
+    : h('span', { class: 'music-art audio' }, icon(item.kind === 'video' ? 'video' : 'music', 28));
   const youtube = item.kind === 'youtube';
   return h('section', { class: 'music-now' },
     h('div', { class: 'music-info' }, art,
@@ -620,11 +632,11 @@ function nowPlaying() {
     h('div', { class: 'music-controls' },
       h('div', { class: 'music-side' },
         view.listening
-          ? iconButton('headphones', 'Stop listening', () => { view.listening = false; stopListenHeartbeat(); sendListening(false); view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'on')
-          : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { ensureAudioContext(); view.listening = true; startListenHeartbeat(); render(); sync(true); } }, icon('headphones', 16), 'Listen'),
+          ? iconButton(video ? 'video' : 'headphones', video ? 'Stop watching' : 'Stop listening', stopListening, 'on')
+          : h('button', { type: 'button', class: 'button accent small music-listen', onclick: startListening }, icon(video ? 'play' : 'headphones', 16), video ? 'Watch' : 'Listen'),
         view.listening && tapToPlay(),
-        view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : ''),
-        iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : '')),
+        view.listening && youtube && !video && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : ''),
+        !video && iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : '')),
       h('div', { class: 'music-transport' },
         skip10(-10),
         iconButton('skipBack', 'Previous (or restart)', () => control('previous')),
@@ -633,7 +645,8 @@ function nowPlaying() {
         skip10(10)),
       h('div', { class: 'music-side end' },
         speedButton(),
-        volumeButton())));
+        volumeButton(),
+        video && view.listening && iconButton('monitor', 'Full screen', () => view.slot.requestFullscreen?.().catch(() => {})))));
 }
 
 function toggleVideo() {
@@ -793,7 +806,7 @@ function queueList() {
     const played = at !== -1 && i < at;
     const thumb = item.kind === 'youtube'
       ? h('img', { class: 'music-item-art', src: remote(`https://i.ytimg.com/vi/${item.source}/default.jpg`), alt: '', loading: 'lazy' })
-      : h('span', { class: 'music-item-art audio' }, icon('music', 16));
+      : h('span', { class: 'music-item-art audio' }, icon(item.kind === 'video' ? 'video' : 'music', 16));
     return h('div', { class: `music-item${now ? ' now' : ''}${played ? ' played' : ''}` },
       h('button', {
         type: 'button', class: 'music-item-play', title: now ? 'Playing now' : 'Play this', 'aria-label': `Play ${item.title}`,
@@ -804,6 +817,12 @@ function queueList() {
       h('span', { class: 'music-item-text' }, h('strong', { title: item.title }, shortTitle(item.title)), h('span', {}, adder?.displayName || ''))),
       mayRemove(item) && iconButton('x', `Remove ${item.title}`, () => attempt(() => api.del(`/api/channels/${view.channel.id}/music/${item.id}`)), 'music-item-remove'));
   };
+  // A video channel adds through the browser below (search, or paste a link there).
+  if (isVideo()) {
+    return queue.length > 0 && h('section', { class: 'music-queue' },
+      h('div', { class: 'music-queue-head' }, h('h3', {}, 'Queue'), left > 0 && h('span', { class: 'muted' }, `${left} up next`)),
+      h('div', { class: 'music-list' }, queue.map(row)));
+  }
   return h('section', { class: 'music-queue' },
     h('div', { class: 'music-queue-head' }, h('h3', {}, 'Playlist'),
       queue.length > 0 && h('span', { class: 'muted' }, at === -1 ? `${queue.length} song${queue.length === 1 ? '' : 's'}` : left ? `${left} up next` : 'Last song')),
@@ -823,14 +842,16 @@ function render() {
     view.head = h('div');
     view.slot = h('div', { class: 'music-player-slot' });
     view.content = h('div');
-    view.body = h('div', { class: 'page-scroll music-scroll' }, view.slot, view.content);
+    // A video channel's browser keeps its own state (search, results), so redraws here never touch it.
+    view.browse = h('div', { class: 'music-browse' });
+    view.body = h('div', { class: `page-scroll music-scroll${isVideo() ? ' video-channel' : ''}` }, view.slot, view.content, view.browse);
     view.shell = true;
     view.root.replaceChildren(view.head, view.body);
   }
   updateSlot();
   view.head.replaceChildren(h('header', { class: 'main-header' },
     iconButton('back', 'Back', () => showNav(), 'back-button'),
-    h('div', { class: 'main-title' }, icon('music', 18), h('span', {}, channel.name)),
+    h('div', { class: 'main-title' }, icon(isVideo() ? 'video' : 'music', 18), h('span', {}, channel.name)),
     channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' })));
   const scroll = view.body.scrollTop;
   // The lyrics box only redraws when the song changes, so it doesn't jump back to the top.
@@ -841,7 +862,13 @@ function render() {
     view.lyricsFor = item?.id;
     view.activeLine = null;
   }
-  view.content.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
+  view.content.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList() || ''));
+  if (isVideo()) {
+    mountVideoBrowser(view.browse, {
+      channel, serverId: view.serverId, canAdd: () => canPostIn(view.serverId, view.channel),
+      play: (item) => addVideo(item, true), queue: (item) => addVideo(item, false),
+    });
+  }
   view.body.scrollTop = scroll;
   updateTapToPlay();
 }
@@ -850,9 +877,33 @@ function render() {
 // sound keeps playing.
 function updateSlot() {
   if (!view?.slot) return;
-  const youtube = view.listening && current()?.kind === 'youtube';
-  view.slot.hidden = !youtube;
-  view.slot.classList.toggle('collapsed', !view.showVideo);
+  const visual = view.listening && current() && current().kind !== 'audio';
+  view.slot.hidden = !visual;
+  view.slot.classList.toggle('collapsed', !isVideo() && !view.showVideo);
+}
+
+// A video from the browser: played for everyone now (and this device starts watching), or added to the queue.
+async function addVideo(item, playNow) {
+  const v = view;
+  const body = item.kind === 'youtube'
+    ? { url: `https://www.youtube.com/watch?v=${item.source}`, title: item.title }
+    : { url: item.source };
+  const done = await attempt(() => api.post(`/api/channels/${v.channel.id}/music`, { ...body, playNow }));
+  if (!done || view !== v) return false;
+  if (playNow) {
+    if (!v.listening) startListening();
+    v.body.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+  return true;
+}
+
+function startListening() {
+  if (!view) return;
+  ensureAudioContext();
+  view.listening = true;
+  startListenHeartbeat();
+  render();
+  sync(true);
 }
 
 // The little player above the user panel: thumbnail, title and a stop button. The real player stays in the page
@@ -874,14 +925,14 @@ export function updateMusicDock() {
   dock.hidden = false;
   const art = item.kind === 'youtube'
     ? h('img', { class: 'music-dock-thumb', src: `/media/preview-image?url=${encodeURIComponent(`https://i.ytimg.com/vi/${item.source}/hqdefault.jpg`)}`, alt: '', loading: 'lazy' })
-    : h('span', { class: 'music-dock-thumb audio' }, icon('music', 20));
+    : h('span', { class: 'music-dock-thumb audio' }, icon(item.kind === 'video' ? 'video' : 'music', 20));
   dock.replaceChildren(
     art,
     h('div', { class: 'music-dock-text' },
       h('strong', { class: 'music-dock-title', title: item.title }, shortTitle(item.title)),
       h('span', { class: 'music-dock-sub' }, paused ? 'Paused' : 'Playing')),
     iconButton(paused ? 'play' : 'pause', paused ? 'Play' : 'Pause', () => control(paused ? 'play' : 'pause')),
-    iconButton('headphones', 'Stop listening', stopListening, 'on'));
+    iconButton(isVideo() ? 'video' : 'headphones', isVideo() ? 'Stop watching' : 'Stop listening', stopListening, 'on'));
 }
 
 function stopListening() {

@@ -498,6 +498,20 @@ async function run() {
   await bob.expect(403, 'DELETE', `/api/channels/${radio.id}/music/${music.queue[1].id}`);
   await alice.call('DELETE', `/api/channels/${radio.id}/music/${music.queue[1].id}`);
   assert.equal((await bob.call('GET', `/api/channels/${radio.id}/music`)).queue.length, 1);
+  // Video channels use the same shared player: YouTube links and uploaded videos queue and play in sync.
+  const tv = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'tv', kind: 'video' });
+  music = await bob.call('POST', `/api/channels/${tv.id}/music`, { url: 'https://www.youtube.com/watch?v=jNQXAC9IVRw', title: 'Me at the zoo' });
+  assert.equal(music.queue[0].title, 'Me at the zoo');
+  assert.equal(music.playing.itemId, music.queue[0].id);
+  const clip = await bob.upload('clip.mp4', 'video/mp4', Buffer.from('fake-mp4-bytes'));
+  const tvClip = await bob.call('POST', `/api/channels/${tv.id}/videos`, { attachmentId: clip.id });
+  music = await bob.call('POST', `/api/channels/${tv.id}/music`, { url: tvClip.source });
+  assert.equal(music.queue[1].kind, 'video');
+  assert.equal(music.playing.itemId, music.queue[0].id, 'queued, not played');
+  music = await alice.call('POST', `/api/channels/${tv.id}/music`, { url: tvClip.source, playNow: true });
+  assert.equal(music.playing.itemId, music.queue[2].id, 'play now starts it for everyone');
+  await bob.expect(400, 'POST', `/api/channels/${tv.id}/music`, { url: songMsg.attachments[0].url }); // audio isn't a video
+  await bob.expect(400, 'POST', `/api/channels/${radio.id}/music`, { url: tvClip.source }); // nor a video a song
 
   const wiki = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'guide', kind: 'wiki' });
   wait = nextEvent(aSock, 'wiki:update', (p) => p.channelId === wiki.id);
