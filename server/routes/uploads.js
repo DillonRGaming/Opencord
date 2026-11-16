@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const config = require('../config');
 const storage = require('../lib/storage');
 const { newId } = require('../lib/ids');
@@ -9,7 +10,19 @@ const router = express.Router();
 const inFlight = new Set(); // upload ids with a chunk being written right now
 const MIME = /^[\w.+-]+\/[\w.+-]+$/;
 
-// Uploads have no size limit; the disk is the limit. Keep 2 GB free.
+// The upload limits (sizes in lib/limits.js): one file, one person's total, and everyone's total.
+function checkUploadLimits(userId, size) {
+  limits.within('fileBytes', 0, size, `Files can be up to ${formatBytes(limits.size('fileBytes'))}.`);
+  const mine = attachments.bytesBy(userId);
+  limits.within('userUploadBytes', mine, size,
+    `You have used ${formatBytes(mine)} of your ${formatBytes(limits.size('userUploadBytes'))} upload space. Delete some old files first.`);
+  limits.within('totalUploadBytes', attachments.totalBytes(), size, 'Opencord is out of upload space right now.');
+  limits.within('pendingUploads', attachments.pendingCount(userId), 1, 'Finish or cancel your other uploads first.');
+}
+
+const formatBytes = (n) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : `${Math.round(n / 1024 ** 2)} MB`);
+
+// The disk itself must keep 2 GB free too (while Opencord runs on a computer).
 async function requireSpace(bytes) {
   const free = await storage.freeBytes();
   if (free - attachments.pendingBytes() - bytes < config.minFreeBytes) {
@@ -39,6 +52,8 @@ router.post('/', async (req, res) => {
   if (!Number.isSafeInteger(size) || size < 0) fail(400, 'File size is missing.');
   const type = String(req.body.type || '').toLowerCase();
   const mime = MIME.test(type) && type.length <= 100 ? type : 'application/octet-stream';
+  checkUploadLimits(req.user.id, size);
+  limits.take('uploadsStarted', req.user.id);
   await requireSpace(size);
 
   const upload = { id: newId(), user_id: req.user.id, name, mime, size };

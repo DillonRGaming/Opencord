@@ -5,7 +5,7 @@ const crypto = require('node:crypto');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, execFileSync } = require('node:child_process');
 const { io } = require('socket.io-client');
 
 const PORT = 3190;
@@ -770,6 +770,59 @@ async function run() {
   await bob.expect(401, 'GET', '/api/users/@me');
   ok('logout disconnects sockets and shows offline');
 
+  // --- app dashboard (owner/admin only) ---
+  await alice.expect(404, 'GET', '/api/admin/overview');
+  execFileSync(process.execPath, ['scripts/set-role.js', 'alice', 'owner'], {
+    cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR: dataDir }, stdio: 'ignore',
+  });
+  assert.equal((await alice.call('GET', '/api/users/@me')).appRole, 'owner');
+  const overview = await alice.call('GET', '/api/admin/overview');
+  assert.ok(overview.totals.people >= 2 && overview.totals.messages > 0);
+  assert.ok(overview.active.today >= 1 && overview.days.requests.at(-1).n > 0);
+  assert.equal(overview.days.messages.length, 30);
+  const people = await alice.call('GET', '/api/admin/people');
+  assert.equal(people.find((p) => p.username === 'alice').appRole, 'owner');
+  assert.equal((await alice.call('PUT', `/api/admin/people/${bob.me.id}/role`, { role: 'admin' })).appRole, 'admin');
+  await alice.expect(400, 'PUT', `/api/admin/people/${bob.me.id}/role`, { role: 'owner' });
+  await alice.expect(400, 'PUT', `/api/admin/people/${alice.me.id}/role`, { role: null });
+  await alice.call('PUT', `/api/admin/people/${bob.me.id}/role`, { role: null });
+  assert.ok(Array.isArray(await alice.call('GET', '/api/admin/servers')));
+  ok('app dashboard: hidden from others, owner sees stats and manages admins');
+
+  // --- abuse protection ---
+  await new Client().expect(400, 'POST', '/api/auth/register', { username: 'admin', password: 'password123' });
+  await new Client().expect(400, 'POST', '/api/auth/register', { username: 'opencord_team', password: 'password123' });
+  await alice.expect(413, 'POST', '/api/uploads', { name: 'huge.bin', size: 51 * 1024 * 1024, type: 'application/octet-stream' });
+  const abuseServer = await alice.call('POST', '/api/servers', { name: 'Abuse test' });
+  const reactTo = await alice.call('POST', `/api/channels/${abuseServer.channels[0].id}/messages`, { content: 'react to me' });
+  for (let i = 0; i < 20; i++) await alice.call('PUT', `/api/messages/${reactTo.id}/reactions/${encodeURIComponent(`r${i}`)}`);
+  await alice.expect(400, 'PUT', `/api/messages/${reactTo.id}/reactions/one-too-many`);
+  await alice.call('PUT', `/api/messages/${reactTo.id}/reactions/r0`); // an existing one is fine
+  // Suspending logs someone out at once and keeps them out.
+  const mallory = await register('mallory');
+  await alice.call('PUT', `/api/admin/people/${mallory.me.id}/suspension`, { suspended: true });
+  await mallory.expect(401, 'GET', '/api/users/@me');
+  await new Client().expect(403, 'POST', '/api/auth/login', { username: 'mallory', password: 'password123' });
+  await alice.expect(400, 'PUT', `/api/admin/people/${alice.me.id}/suspension`, { suspended: true });
+  await alice.call('PUT', `/api/admin/people/${mallory.me.id}/suspension`, { suspended: false });
+  await new Client().call('POST', '/api/auth/login', { username: 'mallory', password: 'password123' });
+  // Sign-up modes: closed, and invite-only (needs a working invite).
+  await alice.call('PUT', '/api/admin/registration', { mode: 'closed' });
+  await new Client().expect(403, 'POST', '/api/auth/register', { username: 'latecomer', password: 'password123' });
+  await alice.call('PUT', '/api/admin/registration', { mode: 'invite' });
+  await new Client().expect(403, 'POST', '/api/auth/register', { username: 'latecomer', password: 'password123' });
+  await new Client().expect(404, 'POST', '/api/auth/register', { username: 'latecomer', password: 'password123', inviteCode: 'nope1234' });
+  const signupServer = abuseServer;
+  const signupInvite = await alice.call('POST', `/api/servers/${signupServer.id}/invites`, {});
+  const invited = new Client();
+  invited.me = await invited.call('POST', '/api/auth/register', { username: 'latecomer', password: 'password123', inviteCode: signupInvite.code });
+  assert.ok((await invited.call('GET', '/api/bootstrap')).servers.some((s) => s.id === signupServer.id));
+  await alice.call('PUT', '/api/admin/registration', { mode: 'open' });
+  const report = await alice.call('GET', '/api/admin/overview');
+  assert.ok(report.limits.sizes.find((l) => l.kind === 'reactionsPerMessage').hitsToday >= 1);
+  assert.ok(report.limits.sizes.find((l) => l.kind === 'fileBytes').hitsToday >= 1);
+  ok('abuse protection: reserved names, upload and reaction limits, suspension, sign-up modes');
+
   // --- pages and headers ---
   const page1 = await new Client().request('GET', '/channels/@me');
   assert.match(page1.headers.get('content-type'), /html/);
@@ -783,7 +836,7 @@ async function run() {
 async function main() {
   const server = spawn(process.execPath, ['server/index.js'], {
     cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, REGISTRATION: 'open' },
+    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, REGISTRATION: 'open', LIMITS_SCALE: '1000' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   await new Promise((resolve) => server.stdout.once('data', resolve));

@@ -56,6 +56,8 @@ export function showAuth(root, invite, { add = false } = {}) {
         try {
           // A new account's display name starts as its username; it can be changed in settings.
           const body = { username: username.control.value.trim(), password: password.control.value, add };
+          // With an invite, sign-up works even when this Opencord only lets invited people in.
+          if (!login && invite) body.inviteCode = invite.code;
           await api.post(login ? '/api/auth/login' : '/api/auth/register', body);
           await finish();
         } catch (err) {

@@ -14,6 +14,7 @@ import { openProfile } from './profile.js';
 import { openSettings } from './settings.js';
 import { openNotifications } from './notifications.js';
 import { openNewGroup } from './groups.js';
+import { canSeeDashboard } from './dashboard.js';
 
 // The server whose action list (under its name) is folded open, if any.
 let actionsFor = null;
@@ -61,6 +62,8 @@ function homeList() {
       navItem({ onclick: () => openNotifications() },
         icon('bell', 18), h('span', { class: 'nav-label' }, 'Notifications'),
         state.unreadNotifications > 0 && h('span', { class: 'badge' }, state.unreadNotifications > 99 ? '99+' : state.unreadNotifications)),
+      canSeeDashboard() && navItem({ active: route.name === 'dashboard', onclick: () => navigate(paths.dashboard()) },
+        icon('gauge', 18), h('span', { class: 'nav-label' }, 'Dashboard')),
       h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Direct messages'),
         iconButton('plus', 'New group', () => openNewGroup())),
       dms.map((dm) => {

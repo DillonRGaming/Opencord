@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const storage = require('../lib/storage');
 const access = require('../lib/access');
 const { fail, text } = require('../lib/http');
@@ -96,6 +97,7 @@ router.post('/:id/posts', (req, res) => {
   const content = text(req.body.content ?? '', 'Message', { max: 1000 });
   const attachmentIds = Array.isArray(req.body.attachmentIds) ? req.body.attachmentIds.filter((id) => typeof id === 'string') : [];
   if (!content && !attachmentIds.length) fail(400, 'Write something in the post.');
+  limits.take('messages', req.user.id);
   if (servers.roleOf(parent.server_id, req.user.id) === 'member') {
     if (servers.timeoutUntil(parent.server_id, req.user.id)) fail(403, 'You are timed out.');
     if (!channels.canPost(req.user.id, parent)) fail(403, 'You can’t start posts here.');
@@ -225,6 +227,7 @@ router.post('/:id/messages', (req, res) => {
 // Timeouts, new-member waits, channel permissions, slowmode and DM rules: everything that stops someone posting.
 function checkCanPost(channel, user) {
   const req = { user };
+  if (!user.is_bot) limits.take('messages', user.id);
   const role = channel.type === 'text' ? servers.roleOf(channel.server_id, req.user.id) : null;
   if (role === 'member') {
     const until = servers.timeoutUntil(channel.server_id, req.user.id);

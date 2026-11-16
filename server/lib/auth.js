@@ -3,6 +3,7 @@ const { promisify } = require('node:util');
 const config = require('../config');
 const sessions = require('../models/sessions');
 const { fail } = require('./http');
+const stats = require('./stats');
 
 const scrypt = promisify(crypto.scrypt);
 const COOKIE = 'oc_session';
@@ -128,6 +129,7 @@ function requireAuth(req, res, next) {
   if (!session) fail(401, 'You are not logged in.');
   req.user = session.user;
   req.sessionHash = session.sessionHash;
+  if (!session.user.is_bot) stats.recordActivity(session.user.id);
   next();
 }
 

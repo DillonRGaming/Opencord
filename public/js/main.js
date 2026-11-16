@@ -23,6 +23,7 @@ import { showCalendar, closeCalendar } from './views/calendar.js';
 import { showMusic, closeMusic } from './views/music.js';
 import { showWiki, closeWiki } from './views/wiki.js';
 import { showVideo, closeVideo } from './views/video.js';
+import { showDashboard, canSeeDashboard } from './views/dashboard.js';
 import './views/ring.js';
 
 const root = document.getElementById('app');
@@ -102,6 +103,10 @@ async function showMain(main) {
 
   closeChat();
   closeApps();
+  if (route.name === 'dashboard') {
+    if (!canSeeDashboard()) return navigate(paths.home(), { replace: true, panel: 'nav' });
+    return showDashboard(main);
+  }
   return showFriends(main);
 }
 

@@ -1,21 +1,15 @@
 const express = require('express');
 const auth = require('../lib/auth');
 const { fail } = require('../lib/http');
-const rateLimit = require('../lib/rateLimit');
+const limits = require('../lib/limits');
 
 const api = express.Router();
-const SLOW_DOWN = 'You are doing that too fast. Wait a moment and try again.';
 const isChunk = (req) => req.method === 'PUT' && /^\/api\/uploads\/[^/?]+/.test(req.originalUrl);
 
-// High limits: normal use never gets near them, they only stop floods and scripts.
-const perIp = rateLimit({ limit: 1200, windowMs: 60 * 1000, message: SLOW_DOWN });
-const writesPerUser = rateLimit({
-  limit: 300, windowMs: 60 * 1000, message: SLOW_DOWN,
-  key: (req) => (['GET', 'HEAD'].includes(req.method) || isChunk(req) ? null : req.user.id),
-});
-const chunksPerUser = rateLimit({
-  limit: 600, windowMs: 60 * 1000, message: SLOW_DOWN, key: (req) => (isChunk(req) ? req.user.id : null),
-});
+// High limits: normal use never gets near them, they only stop floods and scripts (numbers in lib/limits.js).
+const perIp = limits.middleware('apiPerIp', (req) => req.ip);
+const writesPerUser = limits.middleware('writesPerUser', (req) => (['GET', 'HEAD'].includes(req.method) || isChunk(req) ? null : req.user.id));
+const chunksPerUser = limits.middleware('chunksPerUser', (req) => (isChunk(req) ? req.user.id : null));
 
 api.use(perIp);
 api.use(auth.sameOrigin);
@@ -38,6 +32,7 @@ api.use('/dms', require('./dms'));
 api.use('/servers', require('./servers').router);
 api.use('/servers', require('./webhooks').manage);
 api.use('/channels', require('./channels'));
+api.use('/admin', require('./admin'));
 api.use('/channels', require('./apps'));
 api.use('/messages', require('./messages'));
 api.use('/uploads', chunksPerUser, require('./uploads'));

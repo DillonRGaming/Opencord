@@ -10,6 +10,7 @@ const sessions = require('./models/sessions');
 const attachments = require('./models/attachments');
 const routes = require('./routes');
 const realtime = require('./realtime');
+const stats = require('./lib/stats');
 
 // https: for images, fonts and styles is only there so a user's own custom CSS can pull in backgrounds and fonts.
 const CSP = [
@@ -34,6 +35,7 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use(['/api', '/media'], stats.countRequest);
 app.use('/api', routes.api);
 app.use('/media', routes.media);
 // Scripts and styles are served under /v/<build>/…, where <build> changes whenever any file in public/
@@ -99,6 +101,7 @@ server.listen(config.port, config.host, () => {
 function shutdown() {
   console.log('Shutting down…');
   realtime.close().finally(() => {
+    stats.flush();
     db.close();
     process.exit(0);
   });

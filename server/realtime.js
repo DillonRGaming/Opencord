@@ -3,6 +3,7 @@ const auth = require('./lib/auth');
 const users = require('./models/users');
 const servers = require('./models/servers');
 const channels = require('./models/channels');
+const stats = require('./lib/stats');
 
 let io;
 const socketCounts = new Map(); // userId → open sockets; online while ≥ 1
@@ -12,7 +13,8 @@ const serverRoom = (id) => `server:${id}`;
 const sessionRoom = (hash) => `session:${hash}`;
 
 function init(httpServer) {
-  io = new Server(httpServer);
+  // Live messages are small (typing, voice signalling, whiteboard strokes): 256 KB is plenty.
+  io = new Server(httpServer, { maxHttpBufferSize: 256 * 1024 });
 
   io.use((socket, next) => {
     const session = auth.authenticate(socket.request.headers.cookie);
@@ -24,10 +26,26 @@ function init(httpServer) {
 
   io.on('connection', (socket) => {
     const { userId, sessionHash } = socket.data;
+    stats.recordActivity(userId);
     socket.join([userRoom(userId), sessionRoom(sessionHash), ...servers.idsForUser(userId).map(serverRoom)]);
     addSocket(userId, 1);
 
+    // Each connection gets 100 events per 10 seconds; past that they're ignored, and far past it the
+    // connection is dropped, so a script can't flood everyone's typing dots or the voice relay.
+    let budget = { used: 0, resetAt: Date.now() + 10_000 };
+    socket.use((packet, next) => {
+      const now = Date.now();
+      if (now > budget.resetAt) budget = { used: 0, resetAt: now + 10_000 };
+      budget.used += 1;
+      if (budget.used > 400) return socket.disconnect(true);
+      if (budget.used > 100) return undefined;
+      return next();
+    });
+    let lastTyping = 0;
+
     socket.on('typing', (channelId) => {
+      if (Date.now() - lastTyping < 2000) return;
+      lastTyping = Date.now();
       const channel = typeof channelId === 'string' && channels.get(channelId);
       if (channel && channels.canAccess(userId, channel)) toChannel(channel, 'typing', { channelId, userId });
     });
@@ -256,6 +274,11 @@ function addSocket(userId, change) {
   announcePresence(userId);
 }
 
+// How many people have the app open right now.
+function onlineCount() {
+  return socketCounts.size;
+}
+
 function isOnline(userId) {
   return statusOf(userId) !== 'offline';
 }
@@ -309,6 +332,6 @@ function close() {
 module.exports = {
   statusOf, announcePresence,
   botJoinVoice, botLeaveVoice,
-  init, close, isOnline, toUser, toUsers, toServer, toChannel, toAudience,
+  init, close, isOnline, onlineCount, toUser, toUsers, toServer, toChannel, toAudience,
   joinServer, leaveServer, closeServer, disconnectSessions,
 };

@@ -8,7 +8,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "tunnel": "node scripts/tunnel.js",
-    "test": "node test/e2e.js"
+    "set-role": "node scripts/set-role.js",
+    "test": "node test/syntax.js && node test/limits.js && node test/e2e.js"
   },
   "license": "UNLICENSED",
   "engines": {

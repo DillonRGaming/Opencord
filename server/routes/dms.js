@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const { fail, text } = require('../lib/http');
 const users = require('../models/users');
 const relationships = require('../models/relationships');
@@ -54,6 +55,7 @@ router.post('/group', (req, res) => {
   if (others.length < 2) fail(400, 'Pick at least 2 people for a group. For one person, open a DM.');
   if (others.length + 1 > GROUP_MAX) fail(400, `Groups can have up to ${GROUP_MAX} people.`);
   others.forEach((id) => canReach(me, id));
+  limits.take('groupsCreated', me);
   const name = text(req.body.name ?? '', 'Group name', { max: 100 });
   const group = channels.createGroup(me, others, name);
   announce(group);

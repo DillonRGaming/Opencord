@@ -102,6 +102,10 @@ function bans(serverId) {
 
 // --- invites ---
 
+function channelCount(serverId) {
+  return db.prepare('SELECT COUNT(*) n FROM channels WHERE server_id = ?').get(serverId).n;
+}
+
 function invites(serverId) {
   return db.prepare(`
     SELECT invites.*, users.id AS uid FROM invites JOIN users ON users.id = invites.creator_id
@@ -307,7 +311,7 @@ module.exports = {
   PERMISSIONS, permissionsOf, can,
   toServer, get, create, forUser, idsForUser, update, remove,
   isMember, addMember, removeMember, members, member, shareServer,
-  createInvite, getInvite, countInviteUse, toInvite, invites, inviteDead, removeInvite,
+  channelCount, createInvite, getInvite, countInviteUse, toInvite, invites, inviteDead, removeInvite,
   isBanned, ban, unban, bans, roleOf, setRole, setMemberTimeout, timeoutUntil, memberIds,
   roles, getRole, toRole, createRole, updateRole, removeRole, orderRoles, memberRoleIds, setMemberRole,
 };

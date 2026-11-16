@@ -90,6 +90,22 @@ function removePending(id) {
 }
 
 // Bytes that in-progress uploads still expect to write, so disk space isn't promised twice.
+// Bytes someone has uploaded (sent or not) plus what they're still uploading.
+function bytesBy(userId) {
+  return db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM attachments WHERE uploader_id = ?').get(userId).n
+    + db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM pending_uploads WHERE user_id = ?').get(userId).n;
+}
+
+// Bytes of every upload, finished or still arriving.
+function totalBytes() {
+  return db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM attachments').get().n
+    + db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM pending_uploads').get().n;
+}
+
+function pendingCount(userId) {
+  return db.prepare('SELECT COUNT(*) AS n FROM pending_uploads WHERE user_id = ?').get(userId).n;
+}
+
 function pendingBytes() {
   return db.prepare('SELECT COALESCE(SUM(size - received), 0) AS n FROM pending_uploads').get().n;
 }
@@ -101,5 +117,5 @@ function removePendingBefore(time) {
 module.exports = {
   toAttachment, get, create, attach, mapByMessageIds,
   pathsForMessage, pathsForChannel, pathsForServer, removeUnsentBefore,
-  createPending, getPending, setReceived, removePending, pendingBytes, removePendingBefore,
+  createPending, getPending, setReceived, removePending, pendingBytes, removePendingBefore, bytesBy, totalBytes, pendingCount,
 };

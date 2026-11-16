@@ -47,7 +47,10 @@ function settingFrom(row, key, fallback) {
 }
 
 function toMe(row) {
-  return { ...toUser(row), settings: JSON.parse(row.settings), createdAt: row.created_at, presence: row.presence || 'online' };
+  return {
+    ...toUser(row), settings: JSON.parse(row.settings), createdAt: row.created_at, presence: row.presence || 'online',
+    appRole: row.app_role || null,
+  };
 }
 
 function create({ username, displayName, passwordHash }) {
@@ -83,6 +86,9 @@ const COLUMNS = {
   avatar: 'avatar',
   passwordHash: 'password_hash',
   presence: 'presence',
+  appRole: 'app_role',
+  suspendedAt: 'suspended_at',
+  suspendedReason: 'suspended_reason',
 };
 
 function update(id, fields) {

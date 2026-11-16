@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const { fail, text } = require('../lib/http');
 const users = require('../models/users');
 const relationships = require('../models/relationships');
@@ -25,6 +26,7 @@ router.post('/', (req, res) => {
   const other = users.getByUsername(text(req.body.username, 'Username').toLowerCase());
   if (!other) fail(404, 'Nobody has that username.');
   if (other.id === me) fail(400, "You can't add yourself.");
+  if (relationships.get(me, other.id)?.status !== 'incoming') limits.take('friendRequests', me);
 
   const mine = relationships.get(me, other.id);
   if (mine?.status === 'friend') fail(409, 'You are already friends.');

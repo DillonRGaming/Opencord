@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const config = require('../config');
 const storage = require('../lib/storage');
 const access = require('../lib/access');
@@ -46,7 +47,13 @@ function canActOn(server, actorId, targetId) {
 }
 
 router.post('/', (req, res) => {
-  const server = servers.create(req.user.id, serverName(req.body.name));
+  const name = serverName(req.body.name);
+  const mine = servers.forUser(req.user.id);
+  limits.within('serversJoined', mine.length, 1, `You can be in up to ${limits.size('serversJoined')} servers. Leave one first.`);
+  limits.within('serversOwned', mine.filter((s) => s.owner_id === req.user.id).length, 1,
+    `You can own up to ${limits.size('serversOwned')} servers. Delete or hand one over first.`);
+  limits.take('serversCreated', req.user.id);
+  const server = servers.create(req.user.id, name);
   const json = servers.toServer(server);
   realtime.joinServer(req.user.id, server.id);
   realtime.toUser(req.user.id, 'server:create', json);
@@ -372,6 +379,7 @@ router.post('/:id/invites', (req, res) => {
   if (server.invites_admin_only && !servers.can(server.id, req.user.id, 'createInvites')) fail(403, 'You need permission to make invites in this server.');
   const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
   if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');
+  limits.within('invitesPerServer', servers.invites(server.id).length, 1, `A server can have up to ${limits.size('invitesPerServer')} invites. Delete some old ones first.`);
   const expiresIn = req.body.expiresIn ?? 0;
   if (!INVITE_EXPIRY.includes(expiresIn)) fail(400, 'That expiry is not one of the choices.');
   const code = servers.createInvite(server.id, req.user.id, { maxUses, expiresAt: expiresIn ? Date.now() + expiresIn * 1000 : null });
@@ -397,6 +405,7 @@ router.post('/:id/channels', (req, res) => {
   const server = access.permServer(req.params.id, req.user.id, 'manageChannels');
   const kind = req.body.kind ?? 'text';
   if (!KINDS.includes(kind)) fail(400, 'Unknown channel kind.');
+  limits.within('channelsPerServer', servers.channelCount(server.id), 1, `A server can have up to ${limits.size('channelsPerServer')} channels.`);
   const name = kind === 'category' ? categoryName(req.body.name) : channelName(req.body.name);
   let parentId = null;
   if (req.body.parentId && kind !== 'category') {

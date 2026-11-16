@@ -695,3 +695,57 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 
 /* Unread counts for your other accounts */
 .menu-badge { position: static; margin-left: auto; box-shadow: none; }
+
+/* Dashboard (app owner and admins) */
+.dash-page { display: grid; gap: 1rem; max-width: 1100px; padding: 1.5rem 1.75rem 3rem; }
+.dash-loading { color: var(--text-muted); }
+.dash-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0.75rem; }
+.dash-tile { display: grid; gap: 0.2rem; padding: 0.9rem 1rem; border-radius: var(--radius); background: var(--bg-raised); }
+.dash-tile-label { font-size: 0.78rem; font-weight: 600; color: var(--text-muted); }
+.dash-tile-value { font-size: 1.6rem; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.dash-tile-sub { font-size: 0.75rem; color: var(--text-faint); }
+.dash-since { margin: -0.25rem 0 0.25rem; }
+.dash-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+.dash-card { display: grid; gap: 0.85rem; align-content: start; min-width: 0; padding: 1rem 1.1rem 1.1rem; border-radius: var(--radius); background: var(--bg-raised); }
+.dash-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 0.75rem; flex-wrap: wrap; }
+.dash-card-head h2 { font-size: 0.95rem; font-weight: 600; }
+.dash-note { font-size: 0.8rem; color: var(--text-faint); }
+.dash-muted { font-size: 0.82rem; color: var(--text-muted); }
+.dash-meter { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.dash-meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.dash-facts { display: flex; flex-wrap: wrap; gap: 0.35rem 1.2rem; font-size: 0.85rem; color: var(--text-muted); }
+.dash-facts strong { color: var(--text); font-weight: 600; }
+
+.dash-chart { position: relative; display: grid; gap: 0.3rem; }
+.dash-chart-svg { display: block; width: 100%; height: auto; overflow: visible; }
+.dash-y { position: absolute; top: -2px; left: 0; font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; pointer-events: none; }
+.dash-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }
+.dash-axis { stroke: color-mix(in srgb, var(--text) 16%, transparent); stroke-width: 1; }
+.dash-bar { fill: var(--accent); }
+.dash-hit { fill: transparent; }
+.dash-hit.on { fill: color-mix(in srgb, var(--text) 6%, transparent); }
+.dash-x { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-faint); }
+.dash-tip {
+  position: absolute; top: -0.4rem; transform: translate(-50%, -100%); z-index: 2; pointer-events: none; white-space: nowrap;
+  padding: 0.3rem 0.55rem; border-radius: var(--radius-small); background: var(--bg-panel); color: var(--text-muted);
+  font-size: 0.78rem; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--border);
+}
+.dash-tip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+.dash-table-wrap { overflow-x: auto; margin: 0 -0.25rem; }
+.dash-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.dash-table th { padding: 0 0.6rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: var(--text-faint); white-space: nowrap; }
+.dash-table td { padding: 0.55rem 0.6rem; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+.dash-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.dash-person { display: grid; gap: 0.1rem; }
+.dash-person > span:first-child { display: flex; align-items: center; gap: 0.4rem; font-weight: 500; }
+.dash-role { padding: 0.05rem 0.4rem; border-radius: 999px; font-size: 0.68rem; font-weight: 600; color: var(--accent-text); background: var(--accent); }
+.dash-role.admin { color: var(--text); background: color-mix(in srgb, var(--text) 14%, transparent); }
+@media (max-width: 799px) { .dash-page { padding: 1rem 1rem 2.5rem; } }
+
+.dash-hot td { color: var(--text); background: color-mix(in srgb, var(--danger) 9%, transparent); }
+.dash-hot td:first-child { box-shadow: inset 3px 0 0 var(--danger); }
+.dash-role.suspended { color: var(--bg-panel); background: var(--danger); }
+.dash-actions { display: flex; justify-content: flex-end; gap: 0.4rem; }
+.dash-list { display: grid; gap: 0.55rem; margin: 0; padding-left: 1.1rem; font-size: 0.85rem; color: var(--text-muted); }
+.dash-list strong { color: var(--text); font-weight: 600; }

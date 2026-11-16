@@ -203,6 +203,10 @@ function react(messageId, userId, emoji) {
   db.prepare('INSERT OR IGNORE INTO reactions (message_id, user_id, emoji, created_at) VALUES (?, ?, ?, ?)').run(messageId, userId, emoji, Date.now());
 }
 
+function reactionEmojis(messageId) {
+  return db.prepare('SELECT DISTINCT emoji FROM reactions WHERE message_id = ?').all(messageId).map((r) => r.emoji);
+}
+
 function unreact(messageId, userId, emoji) {
   db.prepare('DELETE FROM reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(messageId, userId, emoji);
 }
@@ -229,7 +233,7 @@ function setComponents(id, components) {
   return get(id);
 }
 
-module.exports = {
+module.exports = { reactionEmojis,
   setComponents, copiesOf, threadMessages,
   serializeAll,
   createPoll, getPoll, vote, setEmbeds, newest,

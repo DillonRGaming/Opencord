@@ -1,4 +1,5 @@
 const express = require('express');
+const limits = require('../lib/limits');
 const storage = require('../lib/storage');
 const access = require('../lib/access');
 const { fail, text } = require('../lib/http');
@@ -65,6 +66,10 @@ function reactionRoute(add) {
   return (req, res) => {
     const { message, channel } = visibleMessage(req.params.id, req.user.id);
     const emoji = text(req.params.emoji, 'Reaction', { min: 1, max: 80 });
+    if (add && !messages.reactionEmojis(message.id).includes(emoji)) {
+      limits.within('reactionsPerMessage', messages.reactionEmojis(message.id).length, 1,
+        `A message can have up to ${limits.size('reactionsPerMessage')} different reactions.`);
+    }
     if (add) messages.react(message.id, req.user.id, emoji);
     else messages.unreact(message.id, req.user.id, emoji);
     if (add) emit('reaction', { channel, message: messages.serialize(message), user: users.toUser(users.get(req.user.id)), emoji });

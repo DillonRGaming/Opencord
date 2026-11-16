@@ -31,7 +31,8 @@ router.get('/attachments/:id/:name', (req, res) => {
   } else {
     res.type(attachment.mime);
   }
-  res.set('Cache-Control', CACHE);
+  // Even if a file were somehow opened as a page, it can't run anything.
+  res.set({ 'Cache-Control': CACHE, 'Content-Security-Policy': "default-src 'none'; media-src 'self'; img-src 'self'; sandbox" });
   res.sendFile(attachment.path, { root: config.uploadsDir, cacheControl: false });
 });
 
