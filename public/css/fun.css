@@ -220,20 +220,23 @@
 .music-skip10 { font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .music-speed:hover { background: var(--hover); color: var(--text); }
 .music-speed.on { color: var(--accent-ink); background: var(--active); }
-.music-timing { display: inline-flex; align-items: center; gap: 1px; height: 2rem; padding-left: 6px; border-radius: 999px; color: var(--text-muted); }
-.music-timing > .icon { flex: none; opacity: 0.8; }
-.music-timing button { height: 100%; padding: 0 7px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; color: inherit; font-variant-numeric: tabular-nums; touch-action: manipulation; user-select: none; }
+.music-tap { display: inline-flex; align-items: center; gap: 6px; height: 2rem; padding: 0 12px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; color: var(--accent-text); background: var(--accent); white-space: nowrap; }
+.music-tap[hidden] { display: none; }
+/* The speed and volume panels. */
+.emoji-picker.music-pop { display: flex; flex-direction: column; gap: 10px; width: 260px; height: auto; padding: 14px; }
+.music-pop-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.music-pop-label { font-size: 0.85rem; font-weight: 600; }
+.music-pop-speeds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.music-pop-speeds button { height: 32px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: var(--text-muted); background: var(--bg-input); font-variant-numeric: tabular-nums; }
+.music-pop-speeds button:hover { color: var(--text); background: var(--hover); }
+.music-pop-speeds button[aria-pressed="true"] { color: var(--accent-text); background: var(--accent); }
+.music-timing { display: inline-flex; align-items: center; height: 32px; border-radius: 8px; background: var(--bg-input); color: var(--text-muted); }
+.music-timing button { height: 100%; padding: 0 8px; border-radius: 8px; font-size: 0.82rem; font-weight: 600; color: inherit; font-variant-numeric: tabular-nums; touch-action: manipulation; user-select: none; }
 .music-timing button:hover { background: var(--hover); color: var(--text); }
-.music-timing-step { min-width: 1.6rem; font-size: 1rem; }
-.music-timing-value { min-width: 3.4rem; }
-.music-sync { display: inline-flex; align-items: center; gap: 6px; height: 2rem; padding: 0 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.music-sync:hover { background: var(--hover); color: var(--text); }
-.music-sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
-.music-sync[data-status="synced"] i { background: var(--ok); }
-.music-sync[data-status="syncing"] i { background: var(--text-muted); animation: rec-pulse 0.8s infinite alternate; }
-.music-sync[data-status="blocked"], .music-sync[data-status="struggling"] { color: var(--danger); }
-.music-sync[data-status="blocked"] i, .music-sync[data-status="struggling"] i { background: var(--danger); }
-.music-volume-wrap { display: flex; align-items: center; gap: 6px; padding: 0 6px; color: var(--text-muted); }
+.music-timing-step { min-width: 2rem; font-size: 1rem; }
+.music-timing-value { min-width: 3.6rem; }
+.emoji-picker.music-pop-volume { width: 200px; padding: 16px 14px; }
+.music-pop-volume .music-volume { width: 100%; }
 .music-volume { width: 80px; height: 4px; appearance: none; border-radius: 4px; background: linear-gradient(to right, var(--text-muted) var(--fill, 80%), var(--active) var(--fill, 80%)); cursor: pointer; }
 .music-volume::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; border-radius: 50%; background: var(--text); }
 .music-volume::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--text); }

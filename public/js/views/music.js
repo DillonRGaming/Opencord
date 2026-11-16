@@ -8,7 +8,7 @@ import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
-import { remote } from '../fun.js';
+import { remote, openPopover, closeFunPicker } from '../fun.js';
 
 let view = null; // { root, channel, serverId, music, offset, listening, player, playerFor, progress, timer }
 
@@ -31,6 +31,7 @@ function teardownMusic() {
   clearInterval(view.clockTimer);
   window.removeEventListener('message', onPlayerMessage);
   document.removeEventListener('visibilitychange', onVisibility);
+  closeFunPicker();
   view.audioCtx?.close?.().catch(() => {});
   view.player?.remove();
   view.root.replaceChildren();
@@ -92,7 +93,7 @@ function setDelay(d) {
   if (!view) return;
   view.delay = Math.max(DELAY_MIN, Math.min(DELAY_MAX, Math.round(d * 1000) / 1000));
   try { localStorage.setItem('oc:musicDelay', String(view.delay)); } catch { /* fine */ }
-  const value = view.root.querySelector('.music-timing-value');
+  const value = document.querySelector('.music-pop .music-timing-value'); // the timing lives in the speed panel
   if (value) value.textContent = fmtDelay(view.delay);
   // The sync engine picks the new target up on its next look and nudges the player there smoothly.
 }
@@ -113,8 +114,7 @@ function timingControl() {
     // Keyboard presses arrive as clicks with no pointer behind them.
     onclick: (event) => { if (event.detail === 0) setDelay(view.delay + sign * DELAY_STEP); },
   }, sign > 0 ? '+' : '−');
-  return h('div', { class: 'music-timing', title: 'Sound timing for this device. If it sounds behind the others, press + until the echo is gone; if ahead, press −.' },
-    icon('clock', 15),
+  return h('div', { class: 'music-timing' },
     stepper(-1, 'Play this device a little later'),
     h('button', { type: 'button', class: 'music-timing-value', 'aria-label': 'Sound timing (click to reset)', onclick: () => setDelay(0) }, fmtDelay(view.delay)),
     stepper(1, 'Play this device a little earlier'));
@@ -555,24 +555,14 @@ function sync(force = false) {
   applyRate(item);
 }
 
-// The little badge by the Listen button: says honestly whether this device is in step.
-const SYNC_LABELS = {
-  synced: 'In sync', syncing: 'Syncing…', blocked: 'Tap to play', struggling: 'Can’t keep up',
-};
-
-function syncBadge() {
-  return h('button', { type: 'button', class: 'music-sync', onclick: resyncNow }, h('i'), h('span', {}, ''));
+// Syncing happens quietly. The one thing that needs the listener: a browser that won't let the music start.
+function tapToPlay() {
+  return h('button', { type: 'button', class: 'music-tap', hidden: true, onclick: resyncNow }, icon('play', 14), 'Tap to play');
 }
 
-function updateSyncBadge() {
-  const badge = view?.root.querySelector('.music-sync');
-  if (!badge) return;
-  const s = view.sync;
-  const status = s?.blocked ? 'blocked' : s?.status || 'syncing';
-  badge.dataset.status = status;
-  badge.lastChild.textContent = SYNC_LABELS[status];
-  const ms = s?.drift == null ? null : Math.round(s.drift * 1000);
-  badge.title = `${status === 'blocked' ? 'Your browser stopped the music from starting. Tap to start it.' : ms == null ? 'Finding where the song is…' : `${Math.abs(ms)} ms ${ms > 0 ? 'ahead' : 'behind'}`}${status === 'blocked' ? '' : ' · tap to sync again'}`;
+function updateTapToPlay() {
+  const tap = view?.root.querySelector('.music-tap');
+  if (tap) tap.hidden = !view.sync?.blocked;
 }
 
 // A tap counts as permission to play, and starts the checks over.
@@ -632,7 +622,7 @@ function nowPlaying() {
         view.listening
           ? iconButton('headphones', 'Stop listening', () => { view.listening = false; stopListenHeartbeat(); sendListening(false); view.player?.remove(); view.player = null; view.playerFor = null; render(); }, 'on')
           : h('button', { type: 'button', class: 'button accent small music-listen', onclick: () => { ensureAudioContext(); view.listening = true; startListenHeartbeat(); render(); sync(true); } }, icon('headphones', 16), 'Listen'),
-        view.listening && syncBadge(),
+        view.listening && tapToPlay(),
         view.listening && youtube && iconButton('video', view.showVideo ? 'Hide video' : 'Show video', toggleVideo, view.showVideo ? 'on' : ''),
         iconButton('lyrics', view.lyricsOpen ? 'Hide lyrics' : 'Lyrics', toggleLyrics, view.lyricsOpen ? 'on' : '')),
       h('div', { class: 'music-transport' },
@@ -642,9 +632,8 @@ function nowPlaying() {
         iconButton('skip', 'Skip', () => control('skip')),
         skip10(10)),
       h('div', { class: 'music-side end' },
-        view.listening && timingControl(),
-        speedPicker(),
-        volumeSlider())));
+        speedButton(),
+        volumeButton())));
 }
 
 function toggleVideo() {
@@ -655,28 +644,47 @@ function toggleVideo() {
 
 const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
-// The speed is shared: everyone listening hears the same speed. Clicking steps through the speeds.
-function speedPicker() {
-  const next = SPEEDS[(SPEEDS.indexOf(rate()) + 1) % SPEEDS.length] ?? 1;
-  return h('button', {
-    type: 'button', class: `music-speed${rate() !== 1 ? ' on' : ''}`, title: `Speed for everyone (click for ${next}×)`, 'aria-label': `Speed ${rate()}×`,
-    onclick: () => control('rate', { rate: next }),
+// Speed and volume open small panels instead of crowding the bar.
+
+// Speed (shared: everyone hears the same speed), and this device's sound timing.
+function speedButton() {
+  const el = h('button', {
+    type: 'button', class: `music-speed${rate() !== 1 ? ' on' : ''}`, 'aria-label': `Speed ${rate()}×`, 'aria-haspopup': 'dialog',
+    onclick: () => {
+      const speeds = h('div', { class: 'music-pop-speeds' }, SPEEDS.map((v) => h('button', {
+        type: 'button', 'aria-pressed': String(v === rate()),
+        onclick: (event) => {
+          for (const b of speeds.children) b.setAttribute('aria-pressed', String(b === event.currentTarget));
+          control('rate', { rate: v });
+        },
+      }, `${v}×`)));
+      openPopover(el, 'music-pop', 'Speed and timing', [
+        h('span', { class: 'music-pop-label' }, 'Speed'),
+        speeds,
+        view.listening && h('div', { class: 'music-pop-row' }, h('span', { class: 'music-pop-label' }, 'Timing'), timingControl()),
+      ]);
+    },
   }, `${rate()}×`);
+  return el;
 }
 
 // Volume only changes your own player.
-function volumeSlider() {
-  const slider = h('input', {
-    type: 'range', min: 0, max: 1, step: 0.01, value: view.volume, class: 'music-volume', 'aria-label': 'Volume', title: 'Volume (just for you)',
-    oninput: () => {
-      view.volume = Number(slider.value);
-      try { localStorage.setItem('oc:musicVolume', String(view.volume)); } catch { /* fine */ }
-      slider.style.setProperty('--fill', `${view.volume * 100}%`);
-      applyVolume();
-    },
+function volumeButton() {
+  const el = iconButton('volume', 'Volume', () => {
+    const slider = h('input', {
+      type: 'range', min: 0, max: 1, step: 0.01, value: view.volume, class: 'music-volume', 'aria-label': 'Volume',
+      oninput: () => {
+        view.volume = Number(slider.value);
+        try { localStorage.setItem('oc:musicVolume', String(view.volume)); } catch { /* fine */ }
+        slider.style.setProperty('--fill', `${view.volume * 100}%`);
+        applyVolume();
+      },
+    });
+    slider.style.setProperty('--fill', `${view.volume * 100}%`);
+    if (openPopover(el, 'music-pop music-pop-volume', 'Volume', [slider])) slider.focus();
   });
-  slider.style.setProperty('--fill', `${view.volume * 100}%`);
-  return h('label', { class: 'music-volume-wrap', title: 'Volume (just for you)' }, icon('volume', 16), slider);
+  el.setAttribute('aria-haspopup', 'dialog');
+  return el;
 }
 
 // --- lyrics (from lrclib.net, through the server) ---
@@ -835,7 +843,7 @@ function render() {
   }
   view.content.replaceChildren(h('div', { class: 'music-page' }, nowPlaying(), view.lyricsBox || '', queueList()));
   view.body.scrollTop = scroll;
-  updateSyncBadge();
+  updateTapToPlay();
 }
 
 // The video sits above the card when shown. Hidden, it stays in the page (tiny and invisible) so the
@@ -898,7 +906,7 @@ function tick() {
   }
   if (view.listening) {
     sync();
-    updateSyncBadge();
+    updateTapToPlay();
     // An audio file reports its own end; for YouTube, also end when the time runs out (in case the embed can't say).
     if (Number.isFinite(view.progress?.duration) && !view.music?.playing?.pausedAt && position() > view.progress.duration + 3) ended();
   }

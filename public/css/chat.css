@@ -591,13 +591,6 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
   .music-controls .icon-button { width: 32px; height: 32px; }
   .music-controls .button.small { min-height: 32px; padding: 0 7px; gap: 5px; font-size: 0.78rem; }
   .music-speed { min-width: 36px; height: 30px; padding: 0 6px; }
-  .music-sync { height: 30px; padding: 0 9px; }
-  .music-sync span { display: none; }
-  .music-timing { height: 30px; }
-  .music-timing button { padding: 0 5px; }
-  .music-timing-value { min-width: 2.9rem; }
-  .music-volume-wrap { gap: 4px; padding: 0 4px; }
-  .music-volume { width: 50px; }
 }
 
 /* --- wiki channels --- */

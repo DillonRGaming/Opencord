@@ -19,6 +19,11 @@ export function closeFunPicker() {
 }
 
 // A pop-up sitting above (or below) the anchor, kept on screen. Toggles when the same anchor is pressed again.
+// Also used for the music player's speed and volume panels.
+export function openPopover(anchor, className, label, children) {
+  return popover(anchor, className, label, children);
+}
+
 function popover(anchor, className, label, children) {
   if (open?.anchor === anchor) { closeFunPicker(); return null; }
   closeFunPicker();
