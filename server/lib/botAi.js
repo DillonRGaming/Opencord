@@ -175,10 +175,7 @@ async function postAdapting(url, headers, body) {
       return await postJson(url, headers, body);
     } catch (err) {
       const detail = String(err.detail || '').toLowerCase();
-      if (attempt >= 3 || ![400, 404].includes(err.status)) throw err;
-      // OpenRouter answers 404 "No endpoints found that support tool use" for models without tools.
-      if (detail.includes('tool') && body.tools) { delete body.tools; continue; }
-      if (err.status !== 400) throw err;
+      if (attempt >= 3 || err.status !== 400) throw err;
       if (detail.includes('max_tokens') && 'max_tokens' in body) { body.max_completion_tokens = body.max_tokens; delete body.max_tokens; }
       else if (detail.includes('max_completion_tokens') && 'max_completion_tokens' in body) { body.max_tokens = body.max_completion_tokens; delete body.max_completion_tokens; }
       else throw err;
@@ -188,46 +185,68 @@ async function postAdapting(url, headers, body) {
 
 const isAnthropic = (endpoint) => /(^|\.)anthropic\.com/i.test(new URL(endpoint).hostname) || /\/anthropic\//.test(endpoint);
 
-// One reply from the model, as { text, calls: [{ id, name, args }] }; `state` carries the provider's own
-// message list between rounds.
-async function openaiRound(ai, state, tools) {
-  const body = { model: ai.model, messages: state.messages };
+// One plain-text reply from the model. Tools are text too (see below), so any chat model works.
+async function ask(ai, system, messages) {
+  if (isAnthropic(ai.endpoint)) {
+    const data = await postAdapting(`${ai.endpoint}/messages`, { ...(ai.key ? { 'x-api-key': ai.key } : {}), 'anthropic-version': '2023-06-01' },
+      { model: ai.model, max_tokens: MAX_TOKENS, system, messages });
+    return (Array.isArray(data.content) ? data.content : []).filter((b) => b.type === 'text').map((b) => b.text).join('');
+  }
+  const body = { model: ai.model, messages: [{ role: 'system', content: system }, ...messages] };
   body[/api\.openai\.com/.test(ai.endpoint) ? 'max_completion_tokens' : 'max_tokens'] = MAX_TOKENS;
-  if (tools.length) body.tools = tools.map((t) => ({ type: 'function', function: { name: t.name, description: t.description, parameters: t.schema } }));
   const data = await postAdapting(`${ai.endpoint}/chat/completions`, ai.key ? { Authorization: `Bearer ${ai.key}` } : {}, body);
   const message = data.choices?.[0]?.message;
   if (!message) throw new AiError('The AI service sent no answer.');
-  state.messages.push({ role: 'assistant', content: message.content ?? '', ...(message.tool_calls?.length ? { tool_calls: message.tool_calls } : {}) });
-  const content = Array.isArray(message.content) ? message.content.map((p) => p.text || '').join('') : message.content || '';
-  return {
-    text: content,
-    calls: (message.tool_calls || []).map((call) => {
-      let args = {};
-      try { args = JSON.parse(call.function?.arguments || '{}') || {}; } catch { /* bad JSON from the model */ }
-      return { id: call.id, name: call.function?.name, args };
-    }),
-  };
+  return Array.isArray(message.content) ? message.content.map((p) => p.text || '').join('') : message.content || '';
 }
 
-async function anthropicRound(ai, state, tools) {
-  const body = { model: ai.model, max_tokens: MAX_TOKENS, system: state.system, messages: state.messages };
-  if (tools.length) body.tools = tools.map((t) => ({ name: t.name, description: t.description, input_schema: t.schema }));
-  const data = await postAdapting(`${ai.endpoint}/messages`, { ...(ai.key ? { 'x-api-key': ai.key } : {}), 'anthropic-version': '2023-06-01' }, body);
-  const content = Array.isArray(data.content) ? data.content : [];
-  state.messages.push({ role: 'assistant', content });
-  return {
-    text: content.filter((b) => b.type === 'text').map((b) => b.text).join(''),
-    calls: content.filter((b) => b.type === 'tool_use').map((b) => ({ id: b.id, name: b.name, args: b.input || {} })),
-  };
+// --- text tools ---
+// The model asks for a tool by writing <tool name="create_channel">{"name": "games"}</tool> in its reply.
+// The bot runs each one, sends the results back as a message, and the model then answers (or uses more).
+
+const TOOL_TAG = /<tool\s+name\s*=\s*["']?([\w-]+)["']?\s*>([\s\S]*?)<\/tool>/gi;
+
+function toolPrompt(tools) {
+  if (!tools.length) return '';
+  const lines = tools.map((t) => {
+    const params = Object.entries(t.schema.properties || {}).map(([name, p]) => {
+      const optional = (t.schema.required || []).includes(name) ? '' : ', optional';
+      const choices = p.enum ? `: ${p.enum.join(' | ')}` : '';
+      return `"${name}" (${p.type}${optional}${choices})${p.description ? ` ${p.description}` : ''}`;
+    });
+    return `- ${t.name}: ${t.description}${params.length ? `\n  inputs: ${params.join('; ')}` : ''}`;
+  });
+  return ['## Tools',
+    'You can use these tools. To use one, write it on its own line exactly like this, with its inputs as JSON:',
+    '<tool name="tool_name">{"input": "value"}</tool>',
+    'You can use several at once. Then stop writing: the results come back in the next message, and you answer the person after that. Never write the results yourself, and only use a tool when it helps with what the person asked.',
+    ...lines].join('\n');
 }
+
+function readTools(text) {
+  const calls = [];
+  for (const m of text.matchAll(TOOL_TAG)) {
+    let args = {};
+    let bad = null;
+    const raw = m[2].trim();
+    if (raw) {
+      try { args = JSON.parse(raw); } catch { bad = raw; }
+    }
+    calls.push({ name: m[1], args: args && typeof args === 'object' ? args : {}, bad });
+  }
+  return calls;
+}
+
+const stripTools = (text) => text.replace(TOOL_TAG, '').replace(/\n{3,}/g, '\n\n').trim();
 
 const busy = new Map(); // botId → answers being written
 
-// Runs a whole turn: the model may call tools (their blocks run) until it gives an answer.
+// Runs a whole turn: the model may use tools (their blocks or server actions run) until it gives an answer.
 //   ai         { endpoint, key, model } from the "use AI" block
 //   channel    where it's talking; message: the message it's answering (serialized), if any
-//   prompt     a single question instead of the channel's history ("ask the AI")
+//   prompt     a single question instead of the channel's history ("AI answer to")
 //   instructions  from "add AI instructions" blocks
+//   adminTools server actions this person may ask for (each with run(args))
 //   runTool    (script, params) → Promise<string>, from the block runner
 // Resolves the answer text. Throws AiError with a readable message.
 async function converse(bot, { ai, channel = null, message = null, prompt = null, instructions = '', user = null, botIsAdmin = false, adminTools = [], runTool }) {
@@ -240,36 +259,37 @@ async function converse(bot, { ai, channel = null, message = null, prompt = null
   try {
     const own = toolsOf(JSON.parse(bot.program || '[]'));
     const tools = [...own, ...adminTools.filter((t) => !own.some((o) => o.name === t.name))];
-    const system = systemPrompt(bot, { channel, user, instructions, botIsAdmin, adminTools });
-    const turns = tidyTurns(prompt != null ? [{ role: 'user', content: prompt }] : historyFor(bot, channel, message));
-    const anthropic = isAnthropic(endpoint);
-    const state = anthropic ? { system, messages: turns } : { messages: [{ role: 'system', content: system }, ...turns] };
+    const system = [systemPrompt(bot, { channel, user, instructions, botIsAdmin, adminTools }), toolPrompt(tools)].filter(Boolean).join('\n\n');
+    const messages = tidyTurns(prompt != null ? [{ role: 'user', content: prompt }] : historyFor(bot, channel, message));
     let toolRuns = 0;
-    let text = '';
+    let answer = '';
     for (let round = 0; round < MAX_ROUNDS; round++) {
       if (!allowCall(bot.id)) throw new AiError('The bot has asked its AI too often this minute. Try again shortly.');
-      const reply = anthropic ? await anthropicRound(ai, state, tools) : await openaiRound(ai, state, tools);
-      text = reply.text || text;
-      if (!reply.calls.length) break;
+      const text = await ask(ai, system, messages);
+      const calls = readTools(text);
+      answer = stripTools(text) || answer;
+      if (!calls.length) break;
       const results = [];
-      for (const call of reply.calls) {
+      for (const call of calls) {
         const tool = tools.find((t) => t.name === call.name);
         let output;
         if (!tool) output = `There is no tool called "${call.name}".`;
-        else if (++toolRuns > MAX_TOOL_CALLS) output = 'Too many tool calls for one answer; answer with what you have.';
+        else if (call.bad) output = `The inputs weren't valid JSON: ${call.bad.slice(0, 200)}`;
+        else if (++toolRuns > MAX_TOOL_CALLS) output = 'Too many tools for one answer; answer with what you have.';
         else {
           try {
-            output = tool.run ? await tool.run(call.args || {}) : await runTool(tool.script, call.args || {});
+            output = tool.run ? await tool.run(call.args) : await runTool(tool.script, call.args);
           } catch (err) {
             output = `The tool failed: ${err.message}`;
           }
         }
-        results.push({ id: call.id, output: String(output || 'Done.').slice(0, 8000) });
+        results.push(`${call.name}: ${String(output || 'Done.').slice(0, 4000)}`);
       }
-      if (anthropic) state.messages.push({ role: 'user', content: results.map((r) => ({ type: 'tool_result', tool_use_id: r.id, content: r.output })) });
-      else for (const r of results) state.messages.push({ role: 'tool', tool_call_id: r.id, content: r.output });
+      messages.push({ role: 'assistant', content: text });
+      messages.push({ role: 'user', content: `Tool results (from the system, not the person):\n${results.join('\n')}\n\nNow answer the person.` });
+      answer = '';
     }
-    return text.trim().slice(0, MAX_REPLY);
+    return (answer || 'Done.').slice(0, MAX_REPLY);
   } finally {
     busy.set(bot.id, busy.get(bot.id) - 1);
   }

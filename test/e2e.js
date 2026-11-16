@@ -1003,26 +1003,17 @@ function fakeAi() {
       const body = raw ? JSON.parse(raw) : {};
       seen.push({ url: req.url, headers: req.headers, body });
       if (body.model === 'broken') return send(401, { error: { message: 'Incorrect API key provided' } });
+      // Tools are plain text: the model writes <tool name="…">{…}</tool>, the bot answers "Tool results…".
       const anthropic = req.url.startsWith('/anthropic/');
+      const system = anthropic ? body.system : body.messages[0].content;
       const last = body.messages.at(-1);
-      const lastText = (typeof last.content === 'string' ? last.content : last.content.map((b) => b.text || b.content || '').join('')).split('\n').at(-1);
-      const toolNames = (body.tools || []).map((t) => t.name || t.function?.name);
-      if (anthropic) {
-        if (last.content?.[0]?.type === 'tool_result') return send(200, { content: [{ type: 'text', text: `Tool said: ${last.content[0].content}` }], stop_reason: 'end_turn' });
-        if (/roll/i.test(lastText) && toolNames.includes('roll_dice')) return send(200, { content: [{ type: 'tool_use', id: 'tu1', name: 'roll_dice', input: { sides: 20 } }], stop_reason: 'tool_use' });
-        return send(200, { content: [{ type: 'text', text: `Claude echo: ${lastText}` }], stop_reason: 'end_turn' });
-      }
-      if (last.role === 'tool') return send(200, { choices: [{ message: { role: 'assistant', content: `Tool said: ${last.content}` } }] });
-      if (/roll/i.test(lastText) && toolNames.includes('roll_dice')) {
-        return send(200, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'roll_dice', arguments: '{"sides":6}' } }] } }] });
-      }
-      if (/make a channel/i.test(lastText) && toolNames.includes('create_channel')) {
-        return send(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c3', type: 'function', function: { name: 'create_channel', arguments: '{"name":"AI Made"}' } }] } }] });
-      }
-      if (/remember/i.test(lastText) && toolNames.includes('remember') && !body.messages.some((m) => m.role === 'tool')) {
-        return send(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'remember', arguments: '{"fact":"Bob likes tea"}' } }] } }] });
-      }
-      return send(200, { choices: [{ message: { role: 'assistant', content: `Echo: ${lastText}` } }] });
+      const lastText = String(last.content).split('\n').at(-1);
+      const say = (text) => send(200, anthropic ? { content: [{ type: 'text', text }], stop_reason: 'end_turn' } : { choices: [{ message: { role: 'assistant', content: text } }] });
+      const has = (tool) => system.includes(`- ${tool}:`);
+      if (String(last.content).startsWith('Tool results')) return say(`Tool said: ${String(last.content).split('\n')[1].replace(/^[\w-]+: /, '')}`);
+      if (/roll/i.test(lastText) && has('roll_dice')) return say(`Sure!\n<tool name="roll_dice">{"sides": ${anthropic ? 20 : 6}}</tool>`);
+      if (/make a channel/i.test(lastText) && has('create_channel')) return say('<tool name="create_channel">{"name": "AI Made"}</tool>');
+      return say(`${anthropic ? 'Claude echo' : 'Echo'}: ${lastText}`);
     });
   });
   return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, seen, base: `http://127.0.0.1:${server.address().port}` })));
@@ -1064,7 +1055,8 @@ async function aiBots(alice, bob, server, general, bSock) {
     const first = ai.seen.at(-1);
     assert.equal(first.headers.authorization, 'Bearer sk-test-123');
     assert.match(first.body.messages[0].content, /Be a pirate\./);
-    assert.ok(first.body.tools.some((t) => t.function.name === 'roll_dice' && t.function.parameters.required.includes('sides') && !t.function.parameters.required.includes('note')));
+    assert.ok(!first.body.tools, 'tools are text, not the API\'s function calling');
+    assert.match(first.body.messages[0].content, /- roll_dice: Roll a dice\n  inputs: "sides" \(number\) how many sides; "note" \(string, optional\) optional/);
 
     // A tool call runs the blocks under the tool hat and sends what they "tell the AI" back.
     wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
@@ -1099,14 +1091,14 @@ async function aiBots(alice, bob, server, general, bSock) {
     let req = ai.seen.at(-1);
     assert.match(req.body.messages[0].content, /Opencord/);
     assert.match(req.body.messages[0].content, /You are not an admin of this server/);
-    assert.ok(!(req.body.tools || []).some((t) => t.function.name === 'create_channel'), 'no server tools while the bot is not an admin');
+    assert.ok(!req.body.messages[0].content.includes('- create_channel:'), 'no server tools while the bot is not an admin');
     await alice.call('PATCH', `${base}/${bot.id}`, { admin: true });
     wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
     await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
     await wait2;
     req = ai.seen.at(-1);
     assert.match(req.body.messages[0].content, /doesn't have permission/);
-    assert.ok(!(req.body.tools || []).some((t) => t.function.name === 'create_channel'), 'no server tools for a member without permission');
+    assert.ok(!req.body.messages[0].content.includes('- create_channel:'), 'no server tools for a member without permission');
     wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
     await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
     assert.match((await wait2).content, /Tool said: Created the text channel #ai-made\./);
@@ -1128,7 +1120,7 @@ async function aiBots(alice, bob, server, general, bSock) {
     assert.equal((await wait).content, 'Tool said: got 20');
     const sent = ai.seen.at(-1);
     assert.equal(sent.headers['x-api-key'], 'sk-ant');
-    assert.equal(sent.body.tools[0].input_schema.properties.sides.type, 'number');
+    assert.match(sent.body.system, /"sides" \(number\)/);
 
     // Errors come back readable, as the bot's reply.
     await alice.call('PATCH', `${base}/${bot.id}`, {
