@@ -12,6 +12,7 @@ import { voice } from '../voice.js';
 import { openLightbox } from './lightbox.js';
 import { pollView } from './poll.js';
 import { gameView } from './game.js';
+import { RICH_TYPES, richView } from './rich.js';
 import { isVoiceMessage, voiceMessageView } from '../voiceMessage.js';
 import { remote } from '../fun.js';
 import { LANGUAGES, languageName, targetLanguage, translate, autoTranslateOn, worthTranslating } from '../translate.js';
@@ -288,7 +289,7 @@ function toolbar(message, row, mine, handlers, openTray) {
 
 // Buttons a bot put under its message. Clicking one sets off the bot's "when a button is clicked" scripts.
 function buttonsView(message) {
-  return h('div', { class: 'bot-buttons' }, message.components.map((b, i) => (b.type === 'menu' ? menuView(message, b, i) : h('button', {
+  return h('div', { class: 'bot-buttons' }, message.components.map((b, i) => (RICH_TYPES.includes(b.type) ? null : b.type === 'menu' ? menuView(message, b, i) : h('button', {
     type: 'button', class: `button small bot-button ${{ danger: 'danger', primary: 'accent' }[b.style] || 'ghost'}`,
     onclick: (event) => {
       const el = event.currentTarget;
@@ -408,7 +409,8 @@ export function messageRow(message, previous, mine, handlers) {
       location && locationView(location),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView)),
       message.embeds?.length > 0 && !STICKER_LINK.test(message.content.trim()) && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
-      message.components?.length > 0 && !['call', 'location'].includes(message.components[0].type) && buttonsView(message),
+      message.components?.some((c) => RICH_TYPES.includes(c.type)) && h('div', { class: 'rich' }, message.components.filter((c) => RICH_TYPES.includes(c.type)).map(richView)),
+      message.components?.some((c) => !RICH_TYPES.includes(c.type)) && !['call', 'location'].includes(message.components[0].type) && buttonsView(message),
       reactionSlot,
       message.thread && handlers.onThread && threadSummary(message, handlers.onThread)),
     toolbar(message, row, mine, handlers, (event) => openTray(event)),

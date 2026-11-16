@@ -696,3 +696,62 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 /* Unread counts for your other accounts */
 .menu-badge { position: static; margin-left: auto; box-shadow: none; }
 
+
+/* Charts (bot messages and the person stats page) */
+.chart { position: relative; display: grid; gap: 0.3rem; min-width: 0; }
+.chart-plot { position: relative; height: 120px; }
+.chart-svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.chart-max { position: absolute; top: -4px; left: 0; z-index: 1; font-size: 0.7rem; color: var(--text-faint); font-variant-numeric: tabular-nums; pointer-events: none; }
+.chart-grid { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
+.chart-axis { stroke: color-mix(in srgb, var(--text) 16%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart-bar { fill: var(--accent); }
+.chart-hit { fill: transparent; }
+.chart-hit.on { fill: color-mix(in srgb, var(--text) 7%, transparent); }
+.chart-x { display: flex; justify-content: space-between; font-size: 0.7rem; color: var(--text-faint); }
+.chart-tip {
+  position: absolute; top: -0.4rem; transform: translate(-50%, -100%); z-index: 3; pointer-events: none; white-space: nowrap;
+  padding: 0.3rem 0.55rem; border-radius: var(--radius-small); background: var(--bg-panel); color: var(--text-muted);
+  font-size: 0.78rem; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25), inset 0 0 0 1px var(--border);
+}
+.chart-tip strong { color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Rich parts in bot messages (tiles, tables, charts, meters) and the person stats page */
+.rich { display: grid; gap: 0.75rem; margin-top: 0.4rem; max-width: 760px; }
+.rc-sub { display: block; font-size: 0.75rem; color: var(--text-faint); font-weight: 400; }
+.rc-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 0.5rem; }
+.rc-tile { display: grid; gap: 0.15rem; align-content: start; padding: 0.7rem 0.85rem; border-radius: var(--radius); background: var(--bg-raised); }
+.rc-tile-label { font-size: 0.75rem; font-weight: 600; color: var(--text-muted); }
+.rc-tile-value { font-size: 1.35rem; font-weight: 650; line-height: 1.2; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.rc-table-wrap { overflow-x: auto; border-radius: var(--radius); background: var(--bg-raised); padding: 0.35rem 0.5rem; }
+.rc-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.rc-table th { padding: 0.45rem 0.6rem; text-align: left; font-size: 0.72rem; font-weight: 600; color: var(--text-faint); white-space: nowrap; }
+.rc-table td { padding: 0.45rem 0.6rem; border-top: 1px solid var(--border); white-space: nowrap; vertical-align: middle; }
+.rc-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+.rc-table .tone-good { color: var(--success, #8fc98a); }
+.rc-table .tone-bad { color: var(--danger); }
+.rc-table .tone-muted { color: var(--text-faint); }
+.rc-person-cell { padding: 0.3rem 0.4rem !important; }
+.rc-person { display: flex; align-items: center; gap: 0.55rem; padding: 0.25rem 0.4rem; border-radius: var(--radius-small); text-align: left; }
+.rc-person:hover { background: var(--hover); }
+.rc-person-text { display: grid; }
+.rc-person-name { font-weight: 600; }
+.rc-chart { padding: 0.8rem 0.9rem 0.7rem; border-radius: var(--radius); background: var(--bg-raised); }
+.rc-chart-title { margin-bottom: 0.7rem; font-size: 0.85rem; font-weight: 600; }
+.rc-meter { display: grid; gap: 0.4rem; padding: 0.75rem 0.9rem; border-radius: var(--radius); background: var(--bg-raised); }
+.rc-meter-head { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.85rem; font-weight: 600; }
+.rc-meter-head .rc-sub { display: inline; }
+.rc-meter-bar { height: 8px; border-radius: 999px; background: color-mix(in srgb, var(--text) 10%, transparent); overflow: hidden; }
+.rc-meter-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+
+.ps { display: grid; gap: 1rem; max-width: 980px; }
+.ps-loading { color: var(--text-muted); padding: 1rem; }
+.ps-head { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; }
+.ps-names { display: grid; gap: 0.2rem; flex: 1; min-width: 0; }
+.ps-name { display: flex; align-items: center; gap: 0.5rem; font-size: 1.4rem; font-weight: 650; flex-wrap: wrap; }
+.ps-badge { padding: 0.1rem 0.45rem; border-radius: 999px; font-size: 0.7rem; font-weight: 600; color: var(--accent-text); background: var(--accent); }
+.ps-status { font-size: 0.85rem; color: var(--text-muted); }
+.ps-actions { display: flex; gap: 0.5rem; }
+.ps-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; }
+.ps-section { display: grid; gap: 0.7rem; align-content: start; min-width: 0; padding: 0.9rem 1rem 0.8rem; border-radius: var(--radius); background: var(--bg-raised); }
+.ps-section .rc-table td { border-top-color: var(--border); }
+.ps-title { font-size: 0.9rem; font-weight: 600; }

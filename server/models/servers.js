@@ -8,7 +8,7 @@ function toServer(row) {
   return {
     id: row.id,
     name: row.name,
-    icon: row.icon ? `/media/icons/${row.icon}` : null,
+    icon: row.icon ? require('./users').avatarUrl(row.icon).replace('/media/avatars/', '/media/icons/') : null,
     description: row.description,
     bannerColor: row.banner_color,
     banner: row.banner ? `/media/icons/${row.banner}` : null,

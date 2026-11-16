@@ -115,7 +115,7 @@ router.post('/:id/buttons/:index', (req, res) => {
   const { message, channel } = visibleMessage(req.params.id, req.user.id);
   const buttons = message.components ? JSON.parse(message.components) : [];
   const button = buttons[Number(req.params.index)];
-  if (!button || button.type === 'menu') fail(404, 'That button is gone.');
+  if (!button || button.type) fail(404, 'That button is gone.'); // tables, charts and menus aren't buttons
   if (Date.now() - (clicks.get(req.user.id) || 0) < 1000) fail(429, 'Slow down a little.');
   clicks.set(req.user.id, Date.now());
   if (hq.click(message, req.user, button.label)) return res.json({ ok: true });

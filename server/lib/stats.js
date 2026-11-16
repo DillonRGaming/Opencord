@@ -152,4 +152,81 @@ function serverList() {
 
 limits.setHitListener(countLimitHit);
 
-module.exports = { recordActivity, countRequest, flush, overview, people, serverList };
+// Everything about one person, for the owner. `tzMinutes` is the viewer's offset from UTC (JS getTimezoneOffset()),
+// so days and hours come out in the viewer's own time.
+function person(userId, tzMinutes = 0) {
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (!u) return null;
+  const DAYS = 30;
+  const shift = -tzMinutes * 60000; // UTC ms → local ms
+  const now = Date.now();
+  const localDay = (ms) => new Date(ms + shift).toISOString().slice(0, 10);
+  const since = now - DAYS * DAY_MS;
+  const one = (sql, ...args) => db.prepare(sql).get(...args).n;
+
+  // Messages per local day and per local hour of the day.
+  const stamps = db.prepare('SELECT created_at t FROM messages WHERE author_id = ? AND created_at >= ?').all(userId, since).map((r) => r.t);
+  const days = Array.from({ length: DAYS }, (_, i) => localDay(now - (DAYS - 1 - i) * DAY_MS));
+  const dayIndex = new Map(days.map((d, i) => [d, i]));
+  const messagesPerDay = days.map((day) => ({ day, n: 0 }));
+  const messagesByHour = Array(24).fill(0);
+  for (const t of stamps) {
+    const i = dayIndex.get(localDay(t));
+    if (i !== undefined) messagesPerDay[i].n += 1;
+    messagesByHour[new Date(t + shift).getUTCHours()] += 1;
+  }
+
+  // Online minutes per local day and per local hour, from the online stretches (split at hour edges).
+  const spans = db.prepare(`SELECT started_at s, COALESCE(ended_at, ?) e FROM online_spans
+    WHERE user_id = ? AND COALESCE(ended_at, ?) >= ? ORDER BY started_at`).all(now, userId, now, since);
+  const onlinePerDay = days.map((day) => ({ day, n: 0 }));
+  const onlineByHour = Array(24).fill(0);
+  let onlineMs = 0;
+  for (const { s: start, e: end } of spans) {
+    for (let t = Math.max(start, since); t < end;) {
+      const hourEnd = (Math.floor((t + shift) / 3600000) + 1) * 3600000 - shift;
+      const until = Math.min(end, hourEnd);
+      const minutes = (until - t) / 60000;
+      onlineMs += until - t;
+      onlineByHour[new Date(t + shift).getUTCHours()] += minutes;
+      const i = dayIndex.get(localDay(t));
+      if (i !== undefined) onlinePerDay[i].n += minutes;
+      t = until;
+    }
+  }
+  const round = (x) => Math.round(x);
+
+  return {
+    id: u.id,
+    joinedAt: u.created_at,
+    lastSeen: u.last_seen,
+    appRole: u.app_role,
+    suspendedAt: u.suspended_at,
+    presence: u.presence,
+    counts: {
+      messages: one('SELECT COUNT(*) n FROM messages WHERE author_id = ?', userId),
+      messagesInServers: one('SELECT COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id WHERE m.author_id = ? AND c.server_id IS NOT NULL', userId),
+      messagesInDms: one("SELECT COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id WHERE m.author_id = ? AND c.type = 'dm'", userId),
+      messagesThisMonth: stamps.length,
+      reactions: one('SELECT COUNT(*) n FROM reactions WHERE user_id = ?', userId),
+      uploads: one('SELECT COUNT(*) n FROM attachments WHERE uploader_id = ?', userId),
+      uploadBytes: one('SELECT COALESCE(SUM(size), 0) n FROM attachments WHERE uploader_id = ?', userId),
+      servers: one('SELECT COUNT(*) n FROM server_members WHERE user_id = ?', userId),
+      serversOwned: one('SELECT COUNT(*) n FROM servers WHERE owner_id = ?', userId),
+      friends: one("SELECT COUNT(*) n FROM relationships WHERE user_id = ? AND status = 'friend'", userId),
+      dms: one('SELECT COUNT(*) n FROM dm_members WHERE user_id = ?', userId),
+      sessions: one('SELECT COUNT(*) n FROM sessions WHERE user_id = ? AND expires_at > ?', userId, now),
+      activeDays: one('SELECT COUNT(*) n FROM daily_activity WHERE user_id = ? AND day >= ?', userId, dayOf(since)),
+      onlineMinutes: round(onlineMs / 60000),
+    },
+    messagesPerDay,
+    messagesByHour,
+    onlinePerDay: onlinePerDay.map((d) => ({ ...d, n: round(d.n) })),
+    onlineByHour: onlineByHour.map(round),
+    recentSessions: spans.slice(-12).reverse().map(({ s: start, e: end }) => ({ start, end: end === now ? null : end })),
+    topPlaces: db.prepare(`SELECT COALESCE(s.name, 'Direct messages') name, COUNT(*) n FROM messages m JOIN channels c ON c.id = m.channel_id
+      LEFT JOIN servers s ON s.id = c.server_id WHERE m.author_id = ? GROUP BY COALESCE(s.id, 'dm') ORDER BY n DESC LIMIT 6`).all(userId),
+  };
+}
+
+module.exports = { person, recordActivity, countRequest, flush, overview, people, serverList };

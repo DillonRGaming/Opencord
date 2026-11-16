@@ -47,6 +47,14 @@ router.get('/people', (req, res) => {
   res.json(stats.people());
 });
 
+// Everything about one person: counts, messages and online time per day and per hour. ?tz= is the viewer's offset.
+router.get('/people/:id', (req, res) => {
+  const tz = Number(req.query.tz);
+  const data = stats.person(req.params.id, Number.isFinite(tz) && Math.abs(tz) <= 14 * 60 ? tz : 0);
+  if (!data) fail(404, 'No such person.');
+  res.json({ ...data, user: users.toUser(users.get(req.params.id)), online: realtime.isOnline(req.params.id) });
+});
+
 router.get('/servers', (req, res) => {
   res.json(stats.serverList());
 });

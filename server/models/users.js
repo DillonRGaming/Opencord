@@ -120,5 +120,5 @@ function touchLastSeen(id) {
 }
 
 module.exports = {
-  DEFAULT_AVATARS, BANNER_PATTERNS, isDefaultAvatar, defaultAvatar,
+  DEFAULT_AVATARS, BANNER_PATTERNS, isDefaultAvatar, avatarUrl, defaultAvatar,
   settingOf, touchLastSeen, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

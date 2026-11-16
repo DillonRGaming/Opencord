@@ -289,10 +289,25 @@ function setIdle(socket, idle, { quiet = false } = {}) {
   if (!quiet) announcePresence(userId);
 }
 
+// Online stretches for the owner's charts: one starts when someone's first tab connects, ends with the last.
+function markOnline(userId, online) {
+  const db = require('./db');
+  const now = Date.now();
+  if (online) {
+    db.prepare('UPDATE online_spans SET ended_at = ? WHERE user_id = ? AND ended_at IS NULL').run(now, userId);
+    db.prepare('INSERT INTO online_spans (user_id, started_at) VALUES (?, ?)').run(userId, now);
+  } else {
+    db.prepare('UPDATE online_spans SET ended_at = ? WHERE user_id = ? AND ended_at IS NULL').run(now, userId);
+  }
+}
+
 function addSocket(userId, change) {
-  const count = (socketCounts.get(userId) || 0) + change;
+  const before = socketCounts.get(userId) || 0;
+  const count = before + change;
+  if (before === 0 && count > 0) markOnline(userId, true);
   if (count > 0) socketCounts.set(userId, count);
   else {
+    if (before > 0) markOnline(userId, false);
     socketCounts.delete(userId);
     // Invisible people never looked online, so going offline mustn't give them away either.
     if (change < 0 && chosenPresence(userId) !== 'invisible') {
