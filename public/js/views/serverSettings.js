@@ -28,7 +28,7 @@ function dangerCard(...rows) {
 }
 
 // Owner only. Every section reads the server fresh from the store, so live updates show up on redraw.
-export function openServerSettings(server) {
+export function openServerSettings(server, start = null) {
   const id = server.id;
   const current = () => state.servers.get(id) || server;
 
@@ -382,7 +382,7 @@ export function openServerSettings(server) {
   // Each section shows only for people with the permission it needs.
   const allow = (perm, entry) => (can(id, perm) ? entry : null);
   const page = openSectionedPage({
-    title: 'Server settings',
+    title: 'Server settings', start, key: `server:${id}`,
     groups: [
       [server.name, [
         allow('manageServer', ['overview', 'Overview', overview, 'name icon description banner']),

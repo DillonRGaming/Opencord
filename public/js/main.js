@@ -14,7 +14,8 @@ import { showChat, closeChat } from './views/chat.js';
 import { showFriends } from './views/friends.js';
 import { openInvite } from './views/serverPages.js';
 import { mountSide } from './views/side.js';
-import { mountPages } from './views/page.js';
+import { mountPages, registerPage, restorePage } from './views/page.js';
+import { showBotWorkspace, leaveBotWorkspace } from './views/botWorkspace.js';
 import { showVoice, closeVoiceView } from './views/voiceView.js';
 import { startGestures } from './gestures.js';
 import { showPosts, closePosts, loadPost } from './views/posts.js';
@@ -59,6 +60,13 @@ async function showMain(main) {
     contentEl?.classList.toggle('is-hidden', Boolean(musicChannel));
     if (musicChannel) main = musicHost;
   }
+  if (route.name === 'bots') {
+    closeChat();
+    closeApps();
+    closeVoiceView();
+    return showBotWorkspace(main);
+  }
+  leaveBotWorkspace();
   const voiceChannel = server && server.channels.find((c) => c.id === route.channelId && c.kind === 'voice');
   if (voiceChannel) {
     closeChat();
@@ -154,7 +162,19 @@ function showApp() {
   }
   startGestures();
   connect();
+  restorePage();
 }
+
+// Pages that come back after a refresh (see ?page= in views/page.js). Each resolves true if it opened.
+registerPage('settings', async (section) => { (await import('./views/settings.js')).openSettings(section); return true; });
+registerPage('server', async (serverId, section) => {
+  const server = state.servers.get(serverId);
+  if (server) (await import('./views/serverSettings.js')).openServerSettings(server, section);
+  return Boolean(server);
+});
+// Older links to the bot pages go to the bot workspace.
+registerPage('bot', async (serverId, botId) => { navigate(paths.bots(serverId, botId), { replace: true }); return true; });
+registerPage('botsettings', async (serverId, botId) => { navigate(paths.bots(serverId, botId, 'profile'), { replace: true }); return true; });
 
 async function boot() {
   theme.applyCached();

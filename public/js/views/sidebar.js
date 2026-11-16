@@ -15,6 +15,7 @@ import { openSettings } from './settings.js';
 import { openNotifications } from './notifications.js';
 import { openNewGroup } from './groups.js';
 import { updateMusicDock } from './music.js';
+import { botWorkspaceSidebar, lastBotPath } from './botWorkspace.js';
 
 // The server whose action list (under its name) is folded open, if any.
 let actionsFor = null;
@@ -284,6 +285,7 @@ function userPanel() {
     call && iconButton(voice.muted ? 'micOff' : 'mic', voice.muted ? 'Unmute' : 'Mute', toggleMute, `call-control${voice.muted ? ' off' : ''}`),
     call && iconButton(voice.deafened ? 'headphonesOff' : 'headphones', voice.deafened ? 'Undeafen' : 'Deafen', toggleDeafen, `call-control${voice.deafened ? ' off' : ''}`),
     call && iconButton('phoneOff', 'Leave call', () => leaveVoice(), 'call-control leave-call'),
+    !call && state.me.settings?.developerMode && iconButton('bot', 'Bots', () => navigate(state.route.name === 'bots' ? paths.bots() : lastBotPath()), state.route.name === 'bots' ? 'on' : ''),
     !call && iconButton('settings', 'Settings', () => openSettings()));
 }
 
@@ -299,10 +301,16 @@ export function mountSidebar(el) {
   redraw = () => {
     const server = state.route.name === 'server' && state.servers.get(state.route.serverId);
     if (actionsFor && actionsFor !== server?.id) actionsFor = null;
-    list.replaceChildren(...(server ? serverList(server) : homeList()).flat().filter(Boolean));
+    if (state.route.name === 'bots') {
+      // The bot workspace keeps one element while a bot is open, so the palette keeps its place.
+      const el = botWorkspaceSidebar();
+      if (list.childNodes.length !== 1 || list.firstChild !== el) list.replaceChildren(el);
+    } else {
+      list.replaceChildren(...(server ? serverList(server) : homeList()).flat().filter(Boolean));
+    }
     foot.replaceChildren(userPanel());
     updateMusicDock();
   };
-  on('servers dms unread route relationships me users voice notifications', redraw);
+  on('servers dms unread route relationships me users voice notifications botws', redraw);
   redraw();
 }

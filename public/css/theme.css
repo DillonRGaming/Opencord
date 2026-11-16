@@ -435,13 +435,15 @@ button:disabled { cursor: default; opacity: 0.55; }
   font-weight: 500; font-size: 0.88rem; white-space: nowrap;
   transition: background 0.12s, color 0.12s;
 }
-.button.primary { background: var(--text); color: var(--bg-panel); }
-.button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--text) 86%, var(--bg-panel)); }
-.button.accent { background: var(--accent); color: var(--accent-text); }
+/* One look per job: primary (and accent, the same thing) is the main action, ghost is everything else,
+   danger is red from the start so it never surprises. */
+.button.primary, .button.accent { background: var(--accent); color: var(--accent-text); }
+.button.primary:hover:not(:disabled), .button.accent:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 86%, var(--text)); }
 .button.ghost { background: var(--bg-raised); }
 .button.ghost:hover:not(:disabled) { background: var(--active); }
-.button.danger { background: var(--bg-raised); }
-.button.danger:hover:not(:disabled) { color: var(--danger); }
+.button.danger { background: color-mix(in srgb, var(--danger) 12%, var(--bg-raised)); color: var(--danger); }
+.button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 22%, var(--bg-raised)); }
+.button:disabled { opacity: 0.55; cursor: not-allowed; }
 .button.danger.armed, .button.danger.armed:hover, .button.armed, .button.armed:hover { background: var(--danger); color: var(--bg-panel); }
 .button.small { min-height: 2.1rem; padding: 0.35rem 0.8rem; font-size: 0.84rem; }
 .button.wide { width: 100%; }

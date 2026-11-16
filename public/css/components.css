@@ -793,3 +793,50 @@ body.bb-dragging, body.bb-dragging * { cursor: grabbing !important; user-select:
 .bb-rep.bb-ghost { position: fixed; z-index: 200; pointer-events: none; }
 .bb-palette .bb-rep { max-width: 100%; }
 .bb-make-input { width: 12rem; padding: 0.35rem 0.7rem; }
+
+/* --- Bot builder: bin, search, panning --- */
+.bb { position: relative; }
+.bb-trash {
+  position: absolute; inset: 0; z-index: 6; display: grid; place-items: center;
+  background: color-mix(in srgb, var(--bg-panel) 80%, transparent); color: var(--text-muted); pointer-events: none;
+}
+.bb-trash[hidden] { display: none; }
+.bb-search-wrap { position: sticky; top: -12px; z-index: 2; margin: -12px -18px 0; padding: 12px 18px 8px; background: inherit; }
+.bb-search { width: 100%; box-sizing: border-box; padding: 0.45rem 0.8rem; }
+.bb-group[hidden], .bb-group > [hidden] { display: none; }
+.bb-canvas-wrap { cursor: grab; }
+.bb-canvas-wrap.panning { cursor: grabbing; }
+.bb-canvas .bb-row, .bb-canvas .bb-rep { cursor: grab; }
+
+/* --- Bot workspace (/bots): blocks in the left column, the canvas in the main one --- */
+@media (min-width: 800px) {
+  body.bots-mode .app { grid-template-columns: 56px clamp(360px, 30vw, 460px) minmax(0, 1fr); }
+}
+.bot-ws-side { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.bot-ws-head { flex: none; }
+.bot-ws-head .sidebar-header > .avatar { flex: none; }
+.bb-side { position: relative; flex: 1; min-height: 0; display: grid; grid-template-columns: 60px minmax(0, 1fr); margin: 4px -8px -8px; border-top: 1px solid var(--border); }
+.bb-side .bb-rail { border-right: 1px solid var(--border); background: none; }
+.bb-side .bb-palette { background: none; border-right: 0; padding: 12px 14px 48px; }
+.bb-side .bb-rail-item { font-size: 0.64rem; }
+.bb-side .bb-search-wrap { margin: -12px -14px 0; padding: 12px 14px 8px; background: var(--bg-panel); }
+.bot-ws { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.bot-ws > .bb-stage { flex: 1; }
+.bot-ws-header { gap: 10px; }
+.bot-ws-header .main-title { display: flex; align-items: center; gap: 8px; flex: none; }
+.bot-ws-tabs { flex: none; }
+.bot-ws-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 0.86rem; font-weight: 500; white-space: nowrap; }
+.bot-ws-item .avatar { flex: none; }
+.bot-ws-state { width: 8px; height: 8px; margin-left: auto; border-radius: 50%; background: var(--text-faint); flex: none; }
+.bot-ws-state.on { background: var(--ok); }
+.bot-ws-new { color: var(--text-muted); }
+.bot-ws-none { padding: 8px 10px; }
+.bot-ws-empty { flex: 1; display: grid; place-items: center; }
+.bot-ws.profile .page-content { max-width: 1100px; }
+.bot-profile { display: grid; gap: 1.5rem; }
+@media (max-width: 799px) {
+  .bot-ws-header { flex-wrap: wrap; height: auto; padding-block: 8px; }
+  .bot-ws-header .bb-status { display: none; }
+}
+/* Scratch's block font, everywhere blocks show (the palette, the canvas and dragged copies on the page). */
+:root { --sc-font: "Helvetica Neue", Helvetica, Arial, sans-serif; }

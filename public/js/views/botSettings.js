@@ -1,42 +1,27 @@
-// A bot's settings page: its profile (name, picture, status, bio, banner) like a person's, plus switching it
-// on or off, making it an admin, and a shortcut to its blocks.
+// A bot's profile (name, picture, status, bio, banner), shown in the bot workspace's Profile tab, plus
+// deleting the bot. Opening "bot settings" from elsewhere goes to that tab.
 import * as api from '../api.js';
 import { h } from '../dom.js';
-import { icon } from '../icons.js';
-import { attempt, button, settingRow, settingsCard, switchControl, toast } from '../ui.js';
-import { openPage } from './page.js';
+import { confirmButton, settingRow, toast } from '../ui.js';
+import { navigate, paths } from '../router.js';
 import { profileEditor } from './settingsProfile.js';
 
 export function openBotSettings(server, bot) {
+  navigate(paths.bots(server.id, bot.id, 'profile'));
+}
+
+// `onChange(bot)` hears about every saved change; `onDelete()` runs after the bot is deleted.
+export function botProfileView(server, bot, { onChange, onDelete }) {
   const base = `/api/servers/${server.id}/bots/${bot.id}`;
-  // Every change returns the whole bot; keep our copy current and hand back its user for the editor.
-  const heading = h('span', {}, bot.user.displayName);
-  const take = (updated) => { Object.assign(bot, updated); heading.textContent = bot.user.displayName; return bot.user; };
-
-  const openBuilder = async () => {
-    const { openBotBuilder } = await import('./botBuilder.js');
-    openBotBuilder(server, bot);
-  };
-
-  const botCard = settingsCard('Bot',
-    settingRow('Switched on', switchControl(Boolean(bot.enabled), (on) => attempt(async () => {
-      take(await api.patch(base, { enabled: on }));
-      toast(on ? `${bot.user.displayName} is on.` : `${bot.user.displayName} is off: no blocks or AI run.`, 'ok');
-    }), 'Switched on')),
-    settingRow('Admin (unlocks the Admin and Roles blocks)', switchControl(Boolean(bot.admin), (on) => attempt(async () => {
-      take(await api.patch(base, { admin: on }));
-      toast(on ? `${bot.user.displayName} is an admin now.` : `${bot.user.displayName} is no longer an admin.`, 'ok');
-    }), 'Admin')),
-    settingRow(`${bot.program.length} script${bot.program.length === 1 ? '' : 's'}`, button('Edit blocks', () => openBuilder(), 'ghost small')),
-    settingRow('Username', h('code', {}, `@${bot.user.username}`)));
+  const take = (updated) => { Object.assign(bot, updated); onChange?.(bot); return bot.user; };
 
   const editor = profileEditor({
     user: bot.user,
     extraAvatars: ['bot'],
-    labels: { about: 'About the bot', bioLabel: 'Bio', bio: 'What this bot does', status: 'Playing with blocks', save: 'Save bot profile' },
+    labels: { about: 'About the bot', bioLabel: 'Bio', bio: 'What this bot does', status: 'Playing with blocks', save: 'Save profile' },
     save: async (fields) => {
       const user = take(await api.patch(`${base}/profile`, fields));
-      toast('Bot profile saved.', 'ok');
+      toast('Profile saved.', 'ok');
       return user;
     },
     uploadAvatar: async (file) => take(await api.putFile(`${base}/avatar`, file)),
@@ -44,9 +29,11 @@ export function openBotSettings(server, bot) {
     removeAvatar: async () => take(await api.del(`${base}/avatar`)),
   });
 
-  return openPage({
-    title: 'Bot settings',
-    actions: h('span', { class: 'bot-settings-name' }, icon('bot', 18), heading),
-    content: h('div', { class: 'bot-settings' }, botCard, editor),
-  });
+  const danger = h('section', { class: 'settings-card danger' }, h('h2', { class: 'settings-card-title' }, 'Danger zone'),
+    settingRow(`Delete ${bot.user.displayName} and all its blocks`, confirmButton({
+      label: 'Delete bot', confirmLabel: 'Click again to delete',
+      onConfirm: async () => { await api.del(base); onDelete?.(); },
+    })));
+
+  return h('div', { class: 'bot-profile' }, editor, danger);
 }

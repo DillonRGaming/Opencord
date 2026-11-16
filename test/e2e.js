@@ -1016,6 +1016,9 @@ function fakeAi() {
       if (/roll/i.test(lastText) && toolNames.includes('roll_dice')) {
         return send(200, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'roll_dice', arguments: '{"sides":6}' } }] } }] });
       }
+      if (/make a channel/i.test(lastText) && toolNames.includes('create_channel')) {
+        return send(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c3', type: 'function', function: { name: 'create_channel', arguments: '{"name":"AI Made"}' } }] } }] });
+      }
       if (/remember/i.test(lastText) && toolNames.includes('remember') && !body.messages.some((m) => m.role === 'tool')) {
         return send(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'remember', arguments: '{"fact":"Bob likes tea"}' } }] } }] });
       }
@@ -1089,6 +1092,30 @@ async function aiBots(alice, bob, server, general, bSock) {
     await bob.call('POST', `/api/channels/${dm.id}/messages`, { content: 'hello in private' });
     assert.match((await wait).content, /Echo: .*hello in private/);
 
+    // The built-in guide is always there; server actions only when the bot AND the person are allowed.
+    let wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
+    await wait2;
+    let req = ai.seen.at(-1);
+    assert.match(req.body.messages[0].content, /Opencord/);
+    assert.match(req.body.messages[0].content, /You are not an admin of this server/);
+    assert.ok(!(req.body.tools || []).some((t) => t.function.name === 'create_channel'), 'no server tools while the bot is not an admin');
+    await alice.call('PATCH', `${base}/${bot.id}`, { admin: true });
+    wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
+    await wait2;
+    req = ai.seen.at(-1);
+    assert.match(req.body.messages[0].content, /doesn't have permission/);
+    assert.ok(!(req.body.tools || []).some((t) => t.function.name === 'create_channel'), 'no server tools for a member without permission');
+    wait2 = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await alice.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} make a channel` });
+    assert.match((await wait2).content, /Tool said: Created the text channel #ai-made\./);
+    assert.match(ai.seen.at(-1).body.messages[0].content, /may ask you to: create channel/);
+    const made = (await alice.call('GET', '/api/bootstrap')).servers.find((x) => x.id === server.id).channels.find((c) => c.name === 'ai-made');
+    assert.ok(made, 'the channel exists');
+    await alice.call('DELETE', `/api/channels/${made.id}`).catch(() => {});
+    await alice.call('PATCH', `${base}/${bot.id}`, { admin: false });
+
     // Anthropic's format, picked from the address.
     await alice.call('PATCH', `${base}/${bot.id}`, {
       program: [
@@ -1114,7 +1141,7 @@ async function aiBots(alice, bob, server, general, bSock) {
   } finally {
     ai.server.close();
   }
-  ok('AI bots from blocks: use AI, talk-to-me, replies, DMs, tools with inputs, AI answer reporter, Anthropic format, readable errors');
+  ok('AI bots from blocks: use AI, talk-to-me, replies, DMs, tools with inputs, AI answer reporter, guide prompt, server actions only for allowed people, Anthropic format, readable errors');
 }
 
 // The server under test: Node, or the Worker in Wrangler's local runtime (with its own throwaway storage).

@@ -583,6 +583,7 @@ async function askAi(ctx, { prompt = null } = {}) {
   try {
     const answer = await botAi.converse(row, {
       ai: ctx.ai, channel: ctx.channel, message: ctx.message, prompt, instructions: ctx.aiExtra || '',
+      user: ctx.user, botIsAdmin: isAdmin(ctx), adminTools: adminToolsFor(ctx),
       runTool: (script, params) => runTool(row, script, params, ctx),
     });
     ctx.answer = answer;
@@ -594,6 +595,164 @@ async function askAi(ctx, { prompt = null } = {}) {
   } finally {
     clearInterval(keepTyping);
   }
+}
+
+// --- server actions the AI can take ---
+// Offered only when the bot is an admin AND the person talking to it has that permission themselves, so the
+// AI can never do more for someone than they could do by hand. Each returns what happened, for the AI.
+
+const str = (x, max = 100) => String(x ?? '').trim().slice(0, max);
+function channelByName(ctx, name, kind = null) {
+  const wanted = channelName(str(name).replace(/^#/, ''));
+  return channels.forServer(ctx.bot.server_id).find((c) => c.name === wanted && (!kind || c.kind === kind) && c.kind !== 'category') || null;
+}
+function memberByName(ctx, name) {
+  const wanted = str(name, 40).replace(/^@/, '').toLowerCase();
+  const user = users.getByUsername(wanted);
+  return user && servers.isMember(ctx.bot.server_id, user.id) ? user : null;
+}
+const CH = { type: 'string', description: 'Channel name, without #. Leave out for the current channel.' };
+const WHO = { type: 'string', description: 'Their @username, without @.' };
+
+const ADMIN_TOOLS = [
+  {
+    name: 'create_channel', perm: 'manageChannels', description: 'Create a channel in this server.',
+    params: { name: { type: 'string' }, kind: { type: 'string', enum: ['text', 'voice'] } }, required: ['name'],
+    run(ctx, a) {
+      const name = channelName(str(a.name));
+      if (!name) return 'Give the channel a name.';
+      if (channelByName(ctx, name)) return `#${name} already exists.`;
+      const row = channels.create(ctx.bot.server_id, name, { kind: a.kind === 'voice' ? 'voice' : 'text' });
+      realtime.toServer(ctx.bot.server_id, 'channel:create', channels.toChannel(row));
+      log(ctx, 'channel.create', `#${name}`, `asked by @${ctx.user.username}`);
+      return `Created the ${row.kind} channel #${name}.`;
+    },
+  },
+  {
+    name: 'delete_channel', perm: 'manageChannels', description: 'Delete a channel and all its messages. Ask them to confirm first.',
+    params: { channel: { type: 'string' } }, required: ['channel'],
+    run(ctx, a) {
+      const row = channelByName(ctx, a.channel);
+      if (!row) return `There is no channel called #${str(a.channel)}.`;
+      channels.remove(row.id);
+      realtime.toServer(ctx.bot.server_id, 'channel:delete', { id: row.id, serverId: ctx.bot.server_id });
+      log(ctx, 'channel.delete', `#${row.name}`, `asked by @${ctx.user.username}`);
+      if (ctx.channel?.id === row.id) ctx.channel = null;
+      return `Deleted #${row.name}.`;
+    },
+  },
+  {
+    name: 'edit_channel', perm: 'manageChannels', description: 'Rename a channel, change its topic, slowmode, or lock it so only admins can post.',
+    params: { channel: CH, new_name: { type: 'string' }, topic: { type: 'string' }, slowmode_seconds: { type: 'integer' }, locked: { type: 'boolean' } }, required: [],
+    run(ctx, a) {
+      const row = a.channel ? channelByName(ctx, a.channel) : ctx.channel?.type === 'text' ? ctx.channel : null;
+      if (!row) return a.channel ? `There is no channel called #${str(a.channel)}.` : 'Say which channel.';
+      const fields = {};
+      const done = [];
+      if (a.new_name) { fields.name = channelName(str(a.new_name)); done.push(`renamed to #${fields.name}`); }
+      if (a.topic !== undefined) { fields.topic = str(a.topic, 1024); done.push('topic set'); }
+      if (a.slowmode_seconds !== undefined) { fields.slowmode = Math.min(Math.max(Math.round(Number(a.slowmode_seconds)) || 0, 0), 21600); done.push(`slowmode ${fields.slowmode}s`); }
+      if (a.locked !== undefined) { fields.readOnly = a.locked ? 1 : 0; done.push(a.locked ? 'locked' : 'unlocked'); }
+      if (!done.length) return 'Nothing to change.';
+      channelChanged(channels.update(row.id, fields));
+      log(ctx, 'channel.update', `#${row.name}`, `${done.join(', ')}, asked by @${ctx.user.username}`);
+      return `#${row.name}: ${done.join(', ')}.`;
+    },
+  },
+  {
+    name: 'clear_messages', perm: 'manageMessages', description: 'Delete the newest messages in a channel (up to 100).',
+    params: { channel: CH, count: { type: 'integer' } }, required: ['count'],
+    run(ctx, a) {
+      const row = a.channel ? channelByName(ctx, a.channel, 'text') : ctx.channel?.type === 'text' ? ctx.channel : null;
+      if (!row) return 'Say which channel.';
+      const rows = db.prepare('SELECT * FROM messages WHERE channel_id = ? ORDER BY id DESC LIMIT ?').all(row.id, Math.min(Math.max(Math.round(Number(a.count)) || 1, 1), 100));
+      for (const m of rows) {
+        messages.remove(m);
+        realtime.toChannel(row, 'message:delete', { id: m.id, channelId: row.id });
+      }
+      log(ctx, 'message.delete', `#${row.name}`, `cleared ${rows.length}, asked by @${ctx.user.username}`);
+      return `Deleted ${rows.length} messages in #${row.name}.`;
+    },
+  },
+  {
+    name: 'moderate_member', perm: 'moderateMembers', description: 'Kick, ban, time out, or end the time out of a member. Ask them to confirm a ban first.',
+    params: { username: WHO, action: { type: 'string', enum: ['kick', 'ban', 'timeout', 'end_timeout'] }, minutes: { type: 'integer', description: 'For a time out.' }, reason: { type: 'string' } },
+    required: ['username', 'action'],
+    run(ctx, a) {
+      const user = memberByName(ctx, a.username);
+      if (!user) return `@${str(a.username)} isn't in this server.`;
+      if (!canTouch(ctx, user)) return `@${user.username} is an admin or the owner, so I can't do that.`;
+      const reason = str(a.reason, 500);
+      if (a.action === 'timeout') {
+        const minutes = Math.min(Math.max(Math.round(Number(a.minutes)) || 10, 1), 10080);
+        servers.setMemberTimeout(ctx.bot.server_id, user.id, Date.now() + minutes * 60_000);
+        memberChanged(ctx, user.id);
+        log(ctx, 'member.timeout', `@${user.username}`, [`for ${minutes}m`, reason, `asked by @${ctx.user.username}`].filter(Boolean).join(' · '));
+        return `Timed out @${user.username} for ${minutes} minutes.`;
+      }
+      if (a.action === 'end_timeout') {
+        servers.setMemberTimeout(ctx.bot.server_id, user.id, null);
+        memberChanged(ctx, user.id);
+        log(ctx, 'member.timeout_remove', `@${user.username}`, `asked by @${ctx.user.username}`);
+        return `Ended @${user.username}'s time out.`;
+      }
+      if (a.action === 'ban') servers.ban(ctx.bot.server_id, user.id, reason);
+      kickUser(ctx, user);
+      log(ctx, a.action === 'ban' ? 'member.ban' : 'member.kick', `@${user.username}`, [reason, `asked by @${ctx.user.username}`].filter(Boolean).join(' · '));
+      return `${a.action === 'ban' ? 'Banned' : 'Kicked'} @${user.username}.`;
+    },
+  },
+  {
+    name: 'manage_role', perm: 'manageRoles', description: 'Give or take a role from a member, or create or delete a role. Roles with admin powers are off limits.',
+    params: { action: { type: 'string', enum: ['give', 'take', 'create', 'delete'] }, role: { type: 'string', description: 'The role name.' }, username: { ...WHO, description: 'For give and take.' }, color: { type: 'string', description: 'For create, like #ff8800.' } },
+    required: ['action', 'role'],
+    run(ctx, a) {
+      const name = str(a.role, 40);
+      if (a.action === 'create') {
+        if (!name || findRole(ctx, name)) return name ? `The role ${name} already exists.` : 'Give the role a name.';
+        servers.createRole(ctx.bot.server_id, { name, color: /^#[0-9a-f]{6}$/i.test(a.color || '') ? a.color : null });
+        rolesChanged(ctx);
+        log(ctx, 'role.create', name, `asked by @${ctx.user.username}`);
+        return `Created the role ${name}.`;
+      }
+      const role = findRole(ctx, name);
+      if (!role) return `There is no role called ${name} that I can manage.`;
+      if (a.action === 'delete') {
+        const holders = servers.memberIds(ctx.bot.server_id).filter((id) => servers.memberRoleIds(ctx.bot.server_id, id).includes(role.id));
+        servers.removeRole(ctx.bot.server_id, role.id);
+        rolesChanged(ctx);
+        for (const id of holders) memberChanged(ctx, id);
+        log(ctx, 'role.delete', role.name, `asked by @${ctx.user.username}`);
+        return `Deleted the role ${role.name}.`;
+      }
+      const user = memberByName(ctx, a.username);
+      if (!user) return `@${str(a.username)} isn't in this server.`;
+      const on = a.action === 'give';
+      servers.setMemberRole(ctx.bot.server_id, user.id, role.id, on);
+      memberChanged(ctx, user.id);
+      log(ctx, on ? 'role.give' : 'role.take', `@${user.username}`, `${role.name}, asked by @${ctx.user.username}`);
+      return `${on ? 'Gave' : 'Took'} ${role.name} ${on ? 'to' : 'from'} @${user.username}.`;
+    },
+  },
+  {
+    name: 'make_invite', perm: 'createInvites', description: 'Make an invite link to this server that lasts a day.',
+    params: {}, required: [],
+    run(ctx) {
+      const code = servers.createInvite(ctx.bot.server_id, ctx.bot.user_id, { maxUses: null, expiresAt: Date.now() + 86_400_000 });
+      log(ctx, 'invite.create', code, `asked by @${ctx.user.username}`);
+      return `Invite link: /invite/${code} (works for 24 hours).`;
+    },
+  },
+];
+
+// The server actions this person may have the AI do here, and what they're allowed in words for the prompt.
+function adminToolsFor(ctx) {
+  if (!ctx.user || !isAdmin(ctx) || !servers.isMember(ctx.bot.server_id, ctx.user.id)) return [];
+  return ADMIN_TOOLS.filter((t) => servers.can(ctx.bot.server_id, ctx.user.id, t.perm)).map((t) => ({
+    name: t.name, description: t.description,
+    schema: { type: 'object', properties: t.params, required: t.required },
+    run: (args) => t.run(ctx, args || {}),
+  }));
 }
 
 // The AI called one of the bot's tools: run the blocks under that "tool" hat. Whatever they "tell the AI" is

@@ -5,9 +5,21 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { attempt, button, toast } from '../ui.js';
-import { openPage } from './page.js';
+import { attempt, toast } from '../ui.js';
+import { navigate, paths } from '../router.js';
 import { colorField } from '../colorPicker.js';
+import { showMenu } from '../contextMenu.js';
+
+// Copied blocks survive switching bots (and reloads), like a clipboard.
+const CLIP_KEY = 'opencord.botClipboard';
+function readClip() {
+  try { return JSON.parse(localStorage.getItem(CLIP_KEY) || 'null'); } catch { return null; }
+}
+function writeClip(value) {
+  try { localStorage.setItem(CLIP_KEY, JSON.stringify(value)); } catch { /* storage off: copy still works this session */ }
+  memoryClip = value;
+}
+let memoryClip = null;
 
 // --- categories (Scratch's colours) ---
 
@@ -312,7 +324,15 @@ function namesIn(program, kind) {
 
 // --- the editor ---
 
+// The builder lives in the bot workspace (views/botWorkspace.js): this opens it there.
 export function openBotBuilder(server, bot) {
+  navigate(paths.bots(server.id, bot.id));
+}
+
+// Builds the editor for one bot. Returns its parts for the workspace to place: `side` (category dots and the
+// block palette, for the left column), `stage` (the canvas), `status` and `adminToggle` (for the header),
+// `mounted()` to call once they're on screen, and `flush()` to save before leaving.
+export function createBotBuilder(server, bot) {
   let program = clone(bot.program || []);
   for (const script of program) upgrade(script.blocks);
   let dirty = false;
@@ -329,12 +349,63 @@ export function openBotBuilder(server, bot) {
   const roleList = h('datalist', { id: `bb-roles-${bot.id}` }, (server.roles || []).filter((r) => !r.admin).map((r) => h('option', { value: r.name })));
   const canvas = h('div', { class: 'bb-canvas' }, roleList);
   const status = h('span', { class: 'bb-status' }, 'Saved');
-  const nameInput = h('input', { class: 'input bb-name', value: bot.user.displayName, maxLength: 32, oninput: () => markDirty() });
+
+  // --- undo, redo and saving on its own ---
+  const history = [JSON.stringify(program)];
+  let future = [];
+  let snapTimer = null;
+  let saveTimer = null;
+  let saving = null;
+
+  function snapshot() {
+    clearTimeout(snapTimer);
+    if (drag || carry) { snapTimer = setTimeout(snapshot, 400); return; }
+    const now = JSON.stringify(program);
+    if (history.at(-1) === now) return;
+    history.push(now);
+    if (history.length > 200) history.shift();
+    future = [];
+  }
 
   function markDirty() {
     dirty = true;
-    status.textContent = 'Unsaved changes';
+    status.textContent = 'Saving soon…';
     status.classList.add('dirty');
+    clearTimeout(snapTimer);
+    snapTimer = setTimeout(snapshot, 400);
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(autosave, 1200);
+  }
+
+  function restore(json) {
+    program = JSON.parse(json);
+    dirty = true;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(autosave, 1200);
+    status.textContent = 'Saving soon…';
+    draw();
+  }
+  function undo() {
+    snapshot();
+    if (history.length < 2) return;
+    future.push(history.pop());
+    restore(history.at(-1));
+  }
+  function redo() {
+    if (!future.length) return;
+    history.push(future.pop());
+    restore(history.at(-1));
+  }
+
+  async function autosave() {
+    if (drag || carry) { saveTimer = setTimeout(autosave, 800); return; }
+    if (!dirty) return;
+    try {
+      await save();
+    } catch (err) {
+      status.textContent = 'Not saved';
+      toast(`Couldn't save: ${err.message}`);
+    }
   }
 
   // --- paths: [scriptIndex, key, idx, key, idx, …, key] → the list of blocks at the end ---
@@ -346,6 +417,9 @@ export function openBotBuilder(server, bot) {
 
   // --- inputs ---
   const drops = new WeakMap(); // input element → { holder, key, kind }: where a dropped reporter goes
+  const blockEls = new WeakMap(); // block row → its path
+  const hatEls = new WeakMap(); // hat row → script index
+  const repEls = new WeakMap(); // reporter → { node, from }
   const fit = (el, text, min = 2) => { el.style.width = `${Math.max(min, [...String(text)].length) + 1}ch`; };
 
   // A name picker for variables and lists, with the current name kept even if nothing else uses it.
@@ -422,18 +496,35 @@ export function openBotBuilder(server, bot) {
       : part.hideWhen?.(holder) ? null : inputView(holder, part, live)));
   }
 
+  // Takes a reporter out of its input, leaving the input empty.
+  function pull(from) {
+    delete from.holder[from.key];
+    if (from.kind !== 'bool') from.holder[from.key] = '';
+  }
+
   // A reporter, in a block's input (`from` says which) or in the palette.
   function reporterView(node, live, from = null) {
     const def = REPORTERS[node.r];
     if (!def) return h('span', { class: 'bb-field fake' }, '?');
     const el = h('div', { class: `bb-rep ${shapeOf(node)}`, style: tones(def.category) }, parts(node, def, live));
     if (live && from) {
+      repEls.set(el, { node, from });
+      el.addEventListener('contextmenu', (event) => {
+        if (event.target.closest('.bb-rep') !== el) return;
+        event.preventDefault();
+        event.stopPropagation();
+        showMenu(event, [
+          { label: 'Duplicate', icon: 'copy', onClick: () => carryReporter(event, clone(node), { clickToDrop: true }) },
+          { label: 'Copy', onClick: () => copy({ reporter: node }) },
+          '-',
+          { label: 'Delete', icon: 'trash', danger: true, onClick: () => { pull(from); markDirty(); draw(); } },
+        ]);
+      });
       // Dragging it pulls it out of the input, like Scratch.
       el.addEventListener('pointerdown', (event) => {
         if (event.target.closest('.bb-rep') !== el) return;
         afterNudge(event, (e) => {
-          delete from.holder[from.key];
-          if (from.kind !== 'bool') from.holder[from.key] = '';
+          pull(from);
           markDirty();
           draw();
           carryReporter(e, node);
@@ -472,7 +563,11 @@ export function openBotBuilder(server, bot) {
     const def = BLOCKS[block.type];
     if (!def) return h('div', { class: 'bb-block' }, h('div', { class: 'bb-row' }, h('span', { class: 'bb-word' }, `unknown block ${block.type}`)));
     const locked = catById[def.category].admin && !admin;
-    const row = h('div', { class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMove(e, path)) }, parts(block, def, true));
+    const row = h('div', {
+      class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMove(e, path)),
+      oncontextmenu: (event) => blockMenu(event, path),
+    }, parts(block, def, true));
+    blockEls.set(row, path);
     const el = blockShell(def, block.type, row, locked ? ' locked' : '');
     if (locked) el.title = 'Turn on Admin for this block to run';
     for (const mouth of el.querySelectorAll(':scope > .bb-mouth')) mouth.append(stackView([...path, mouth.dataset.mouth]));
@@ -484,11 +579,110 @@ export function openBotBuilder(server, bot) {
     const el = h('div', { class: `bb-script${script.trigger ? '' : ' loose'}`, style: { left: `${script.x}px`, top: `${script.y}px` } });
     if (script.trigger) {
       const def = BLOCKS[script.trigger.type];
-      el.append(blockShell(def, script.trigger.type,
-        h('div', { class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMoveScript(e, index)) }, parts(script.trigger, def, true))));
+      const row = h('div', {
+        class: 'bb-row', onpointerdown: (event) => grab(event, (e) => startMoveScript(e, index)),
+        oncontextmenu: (event) => scriptMenu(event, index),
+      }, parts(script.trigger, def, true));
+      hatEls.set(row, index);
+      el.append(blockShell(def, script.trigger.type, row));
     }
     el.append(stackView([index, 'blocks']));
     return el;
+  }
+
+  // --- right-click menus, copy and paste ---
+  const inField = (event) => event.target.closest('input, select, textarea, .color-field');
+
+  function copy(value) {
+    writeClip(clone(value));
+    toast('Copied. Press Ctrl+V on the canvas to paste.', 'ok');
+  }
+
+  // Delete one block; the blocks under it move up (a C block goes with what's inside it, like Scratch).
+  function deleteBlock(path) {
+    listAt(path.slice(0, -1)).splice(path.at(-1), 1);
+    tidy();
+    markDirty();
+    draw();
+  }
+
+  function blockMenu(event, path) {
+    if (inField(event) || event.target.closest('.bb-rep')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const list = listAt(path.slice(0, -1));
+    const stack = list.slice(path.at(-1));
+    showMenu(event, [
+      { label: 'Duplicate', icon: 'copy', onClick: () => pickUp(event, { kind: 'move', type: stack[0].type, payload: clone(stack) }) },
+      { label: stack.length > 1 ? `Copy (${stack.length} blocks)` : 'Copy', onClick: () => copy({ blocks: stack }) },
+      '-',
+      { label: 'Delete block', icon: 'trash', danger: true, onClick: () => deleteBlock(path) },
+      stack.length > 1 && { label: `Delete this and the ${stack.length - 1} below`, danger: true, onClick: () => { list.splice(path.at(-1)); tidy(); markDirty(); draw(); } },
+    ]);
+  }
+
+  function scriptMenu(event, index) {
+    if (inField(event)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const script = program[index];
+    showMenu(event, [
+      { label: 'Duplicate', icon: 'copy', onClick: () => pickUp(event, { kind: 'script', type: script.trigger.type, payload: clone(script) }) },
+      { label: 'Copy script', onClick: () => copy({ script }) },
+      '-',
+      { label: 'Delete script', icon: 'trash', danger: true, onClick: () => { program.splice(index, 1); markDirty(); draw(); } },
+    ]);
+  }
+
+  function canvasMenu(event) {
+    if (event.target !== canvas && event.target !== wrap) return;
+    event.preventDefault();
+    lastPointer = { x: event.clientX, y: event.clientY };
+    const clip = readClip() || memoryClip;
+    const count = JSON.stringify(program).split('"type":').length - 1;
+    showMenu(event, [
+      { label: 'Undo', icon: 'undo', onClick: undo },
+      { label: 'Redo', onClick: redo },
+      clip && !clip.reporter && { label: 'Paste', onClick: () => paste() },
+      '-',
+      { label: 'Clean up blocks', icon: 'scroll', onClick: cleanUp },
+      count > 0 && { label: `Delete all ${count} blocks`, icon: 'trash', danger: true, confirm: true, onClick: () => { program = []; markDirty(); draw(); } },
+    ]);
+  }
+
+  // Ctrl+V: a script or stack lands where the mouse is; a value block goes into the input under the mouse.
+  let lastPointer = { x: 0, y: 0 };
+  function paste() {
+    const clip = readClip() || memoryClip;
+    if (!clip) return;
+    if (clip.reporter) {
+      const el = targetAt(lastPointer.x, lastPointer.y, clip.reporter);
+      if (!el) return toast('Point at an input, then paste the value block.');
+      const spot = drops.get(el);
+      spot.holder[spot.key] = clone(clip.reporter);
+    } else {
+      const box = canvas.getBoundingClientRect();
+      const inside = document.elementFromPoint(lastPointer.x, lastPointer.y);
+      const at = inside && wrap.contains(inside)
+        ? { x: Math.max(0, Math.round((lastPointer.x - box.left) / zoom)), y: Math.max(0, Math.round((lastPointer.y - box.top) / zoom)) }
+        : { x: 32, y: Math.max(0, ...[...canvas.querySelectorAll(':scope > .bb-script')].map((el) => el.offsetTop + el.offsetHeight)) + 40 };
+      if (clip.script) program.push({ ...clone(clip.script), x: at.x, y: at.y });
+      else if (clip.blocks?.length) program.push({ trigger: null, blocks: clone(clip.blocks), x: at.x, y: at.y });
+    }
+    markDirty();
+    draw();
+  }
+
+  // What's under the mouse, for Ctrl+C and Delete.
+  function hovered_() {
+    const el = document.elementFromPoint(lastPointer.x, lastPointer.y);
+    if (!el || !canvas.contains(el)) return null;
+    const rep = el.closest('.bb-rep');
+    if (rep && repEls.has(rep)) return { reporter: repEls.get(rep) };
+    const row = el.closest('.bb-row');
+    if (row && blockEls.has(row)) return { path: blockEls.get(row) };
+    if (row && hatEls.has(row)) return { script: hatEls.get(row) };
+    return null;
   }
 
   const HAT_HEIGHT = 70;
@@ -520,9 +714,15 @@ export function openBotBuilder(server, bot) {
     return el;
   }
 
+  // A duplicate follows the mouse until the next click, like Scratch.
+  function pickUp(event, info) {
+    begin({ clientX: event.clientX, clientY: event.clientY, preventDefault: () => {} }, { ...info, clickToDrop: true });
+  }
+
   function begin(event, info) {
     event.preventDefault();
-    drag = { ...info, ghost: ghostFor(info.type, info.payload[0] || info.payload), offX: 12, offY: 12 };
+    const shown = info.kind === 'script' ? info.payload.trigger : info.payload[0] || info.payload;
+    drag = { ...info, ghost: ghostFor(info.type, shown), offX: 12, offY: 12 };
     if (info.kind === 'move-script') {
       const box = event.currentTarget.getBoundingClientRect();
       drag.offX = event.clientX - box.left;
@@ -533,7 +733,8 @@ export function openBotBuilder(server, bot) {
     document.body.classList.add('bb-dragging');
     move(event);
     window.addEventListener('pointermove', move);
-    window.addEventListener('pointerup', end, { once: true });
+    if (info.clickToDrop) setTimeout(() => window.addEventListener('pointerdown', end, { once: true, capture: true }), 0);
+    else window.addEventListener('pointerup', end, { once: true });
   }
 
   // Nothing is picked up until the pointer has moved a few pixels, so clicking into a block is safe.
@@ -595,6 +796,7 @@ export function openBotBuilder(server, bot) {
     }
     drag.ghost.style.left = `${event.clientX - drag.offX}px`;
     drag.ghost.style.top = `${event.clientY - drag.offY}px`;
+    trash(event.clientX < wrap.getBoundingClientRect().left);
     hovered?.classList.remove('active');
     hovered = null;
     if (BLOCKS[drag.type].hat) return;
@@ -611,11 +813,16 @@ export function openBotBuilder(server, bot) {
   }
 
   function end(event) {
+    if (drag.clickToDrop) { event.preventDefault(); event.stopPropagation(); }
     window.removeEventListener('pointermove', move);
     document.body.classList.remove('bb-dragging');
+    trash(false);
     drag.ghost?.remove();
     const overPalette = event.clientX < wrap.getBoundingClientRect().left;
-    if (drag.kind === 'move-script') {
+    if (drag.kind === 'script') {
+      const at = !overPalette && dropPoint(event);
+      if (at) { program.push({ ...drag.payload, x: at.x, y: at.y }); markDirty(); }
+    } else if (drag.kind === 'move-script') {
       if (overPalette) { program.splice(drag.index, 1); markDirty(); }
     } else if (BLOCKS[drag.type].hat && drag.kind === 'new') {
       const at = !overPalette && dropPoint(event);
@@ -647,6 +854,7 @@ export function openBotBuilder(server, bot) {
     hovered = null;
     drag = null;
     draw();
+    snapshot();
   }
 
   // --- dragging reporters into inputs ---
@@ -661,7 +869,7 @@ export function openBotBuilder(server, bot) {
     return null;
   }
 
-  function carryReporter(event, node) {
+  function carryReporter(event, node, { clickToDrop = false } = {}) {
     const ghost = reporterView(clone(node), false);
     ghost.classList.add('bb-ghost');
     document.body.append(ghost);
@@ -671,12 +879,15 @@ export function openBotBuilder(server, bot) {
       ghost.style.left = `${e.clientX - 10}px`;
       ghost.style.top = `${e.clientY - 14}px`;
       carry.target?.classList.remove('bb-drop-on');
+      trash(e.clientX < wrap.getBoundingClientRect().left);
       carry.target = canvas.contains(document.elementFromPoint(e.clientX, e.clientY)) ? targetAt(e.clientX, e.clientY, node) : null;
       carry.target?.classList.add('bb-drop-on');
     };
-    const drop = () => {
+    const drop = (e) => {
+      if (clickToDrop) { e.preventDefault(); e.stopPropagation(); }
       window.removeEventListener('pointermove', follow);
       document.body.classList.remove('bb-dragging');
+      trash(false);
       ghost.remove();
       const spot = carry.target && drops.get(carry.target);
       if (spot) {
@@ -685,10 +896,12 @@ export function openBotBuilder(server, bot) {
       }
       carry = null;
       draw();
+      snapshot();
     };
     follow(event);
     window.addEventListener('pointermove', follow);
-    window.addEventListener('pointerup', drop, { once: true });
+    if (clickToDrop) setTimeout(() => window.addEventListener('pointerdown', drop, { once: true, capture: true }), 0);
+    else window.addEventListener('pointerup', drop, { once: true });
   }
 
   // --- canvas position, zoom and tidy-up ---
@@ -698,7 +911,7 @@ export function openBotBuilder(server, bot) {
     return { x: (event.clientX - box.left) / zoom, y: (event.clientY - box.top) / zoom };
   }
   function setZoom(value) {
-    zoom = Math.min(Math.max(Math.round(value * 100) / 100, 0.5), 1.5);
+    zoom = Math.min(Math.max(Math.round(value * 100) / 100, 0.4), 2);
     canvas.style.zoom = zoom;
   }
   function cleanUp() {
@@ -716,7 +929,35 @@ export function openBotBuilder(server, bot) {
     h('button', { type: 'button', title: 'Zoom out', onclick: () => setZoom(zoom - 0.1) }, icon('minus', 18)),
     h('button', { type: 'button', title: 'Reset zoom', onclick: () => setZoom(1) }, '='),
     h('button', { type: 'button', title: 'Clean up blocks', onclick: cleanUp }, icon('scroll', 17)));
-  const wrap = h('div', { class: 'bb-canvas-wrap' }, canvas);
+  const wrap = h('div', { class: 'bb-canvas-wrap', oncontextmenu: (e) => canvasMenu(e) }, canvas);
+  // Drag empty space to move around; Ctrl+scroll (or pinch) zooms.
+  wrap.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0 || (event.target !== canvas && event.target !== wrap)) return;
+    const start = { x: event.clientX, y: event.clientY, left: wrap.scrollLeft, top: wrap.scrollTop };
+    wrap.classList.add('panning');
+    const pan = (e) => {
+      wrap.scrollLeft = start.left - (e.clientX - start.x);
+      wrap.scrollTop = start.top - (e.clientY - start.y);
+    };
+    window.addEventListener('pointermove', pan);
+    window.addEventListener('pointerup', () => { window.removeEventListener('pointermove', pan); wrap.classList.remove('panning'); }, { once: true });
+  });
+  wrap.addEventListener('wheel', (event) => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    event.preventDefault();
+    setZoom(zoom * (event.deltaY < 0 ? 1.1 : 1 / 1.1));
+  }, { passive: false });
+  const track = (event) => {
+    if (!canvas.isConnected) return window.removeEventListener('pointermove', track);
+    lastPointer = { x: event.clientX, y: event.clientY };
+  };
+  window.addEventListener('pointermove', track, { passive: true });
+
+  // Dropping onto the palette deletes: it shows a bin while something is held over it.
+  const trashZone = h('div', { class: 'bb-trash', hidden: true }, icon('trash', 40));
+  function trash(on) {
+    trashZone.hidden = !on;
+  }
 
   // --- palette ---
   const rail = h('nav', { class: 'bb-rail', 'aria-label': 'Block categories' });
@@ -725,7 +966,10 @@ export function openBotBuilder(server, bot) {
 
   const drawRail = () => rail.replaceChildren(...shown().map((cat) => h('button', {
     type: 'button', class: 'bb-rail-item', dataset: { cat: cat.id },
-    onclick: () => palette.querySelector(`[data-cat="${cat.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' }),
+    onclick: () => {
+      if (search.value) { search.value = ''; filterPalette(); }
+      palette.querySelector(`[data-cat="${cat.id}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    },
   }, h('span', { class: 'bb-rail-dot', style: { background: cat.colors[0], borderColor: cat.colors[2] } }), cat.label)));
   const markRail = () => {
     const top = palette.getBoundingClientRect().top;
@@ -776,11 +1020,33 @@ export function openBotBuilder(server, bot) {
     return [...blocks, ...(REPORTER_ORDER[cat.id] || []).map((r) => paletteReporter(REPORTERS[r].make()))];
   }
 
+  // Search: shows only the blocks whose words match.
+  const search = h('input', {
+    class: 'input bb-search', type: 'search', placeholder: 'Search blocks', spellcheck: false,
+    oninput: () => filterPalette(),
+  });
+  function filterPalette() {
+    const words = search.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    for (const group of palette.querySelectorAll('.bb-group')) {
+      let any = false;
+      for (const item of group.children) {
+        if (item.classList.contains('bb-group-title')) continue;
+        const text = item.textContent.toLowerCase();
+        const show = !words.length || words.every((w) => text.includes(w));
+        item.hidden = !show;
+        any ||= show;
+      }
+      group.hidden = !any;
+    }
+    shapeAll(palette);
+  }
+
   function drawPalette() {
     const scroll = palette.scrollTop;
-    palette.replaceChildren(...shown().map((cat) => h('div', { class: 'bb-group', dataset: { cat: cat.id } },
+    palette.replaceChildren(h('div', { class: 'bb-search-wrap' }, search), ...shown().map((cat) => h('div', { class: 'bb-group', dataset: { cat: cat.id } },
       h('div', { class: 'bb-group-title' }, cat.label), groupItems(cat))));
     shapeAll(palette);
+    if (search.value) filterPalette();
     palette.scrollTop = scroll;
   }
   drawPalette();
@@ -810,38 +1076,65 @@ export function openBotBuilder(server, bot) {
 
   // --- saving ---
   async function save() {
-    const updated = await api.patch(`/api/servers/${server.id}/bots/${bot.id}`, { program, name: nameInput.value.trim() || bot.user.displayName });
-    program = clone(updated.program);
+    if (saving) return saving.then(() => (dirty ? save() : null));
+    clearTimeout(saveTimer);
+    const sent = JSON.stringify(program);
+    status.textContent = 'Saving…';
+    saving = api.patch(`/api/servers/${server.id}/bots/${bot.id}`, { program: JSON.parse(sent) })
+      .finally(() => { saving = null; });
+    const updated = await saving;
     bot.program = updated.program;
-    dirty = false;
-    status.textContent = 'Saved';
-    status.classList.remove('dirty');
-    draw();
+    if (JSON.stringify(program) === sent) {
+      dirty = false;
+      status.textContent = 'Saved';
+      status.classList.remove('dirty');
+    }
   }
 
-  const saveButton = button('Save', () => attempt(save), 'primary small');
-  const page = openPage({
-    title: 'Bot builder',
-    actions: h('div', { class: 'bb-actions' }, nameInput,
-      h('button', { type: 'button', class: 'bb-admin-toggle', title: 'Name, picture, bio, banner…', onclick: async () => {
-        if (dirty) await attempt(save);
-        const { openBotSettings } = await import('./botSettings.js');
-        openBotSettings(server, bot);
-      } }, icon('settings', 16), 'Settings'),
-      adminToggle, status, saveButton),
-    content: h('div', { class: 'bb' }, rail, palette, h('div', { class: 'bb-stage' }, wrap, controls)),
-    onClose: () => { if (dirty) toast('Your bot had unsaved changes.'); },
-  });
-  page.el?.classList.add('wide');
-  draw();
-
+  // Ctrl+S save, Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo, Ctrl+C / Ctrl+V / Ctrl+D copy, paste and
+  // duplicate what's under the mouse, Delete removes it. Typing in a box keeps its own keys.
   const keys = (event) => {
     if (!canvas.isConnected) return window.removeEventListener('keydown', keys);
-    if ((event.ctrlKey || event.metaKey) && event.key === 's') {
+    const mod = event.ctrlKey || event.metaKey;
+    const key = event.key.toLowerCase();
+    if (mod && key === 's') { event.preventDefault(); attempt(save); return; }
+    if (event.target.closest?.('input, textarea, select, [contenteditable]')) return;
+    if (mod && key === 'z') { event.preventDefault(); if (event.shiftKey) redo(); else undo(); return; }
+    if (mod && key === 'y') { event.preventDefault(); redo(); return; }
+    if (mod && key === 'v') { event.preventDefault(); paste(); return; }
+    const under = hovered_();
+    if (!under) return;
+    const stackAt = (path) => listAt(path.slice(0, -1)).slice(path.at(-1));
+    if (mod && key === 'c') {
       event.preventDefault();
-      attempt(save);
+      if (under.reporter) copy({ reporter: under.reporter.node });
+      else if (under.path) copy({ blocks: stackAt(under.path) });
+      else copy({ script: program[under.script] });
+    } else if (mod && key === 'd') {
+      event.preventDefault();
+      const at = { clientX: lastPointer.x, clientY: lastPointer.y };
+      if (under.reporter) carryReporter(at, clone(under.reporter.node), { clickToDrop: true });
+      else if (under.path) { const stack = stackAt(under.path); pickUp(at, { kind: 'move', type: stack[0].type, payload: clone(stack) }); }
+      else pickUp(at, { kind: 'script', type: program[under.script].trigger.type, payload: clone(program[under.script]) });
+    } else if (key === 'delete' || key === 'backspace') {
+      event.preventDefault();
+      if (under.reporter) { pull(under.reporter.from); markDirty(); draw(); }
+      else if (under.path) deleteBlock(under.path);
+      else { program.splice(under.script, 1); markDirty(); draw(); }
     }
   };
   window.addEventListener('keydown', keys);
-  return page;
+
+  return {
+    side: h('div', { class: 'bb-side' }, rail, palette, trashZone),
+    stage: h('div', { class: 'bb-stage' }, wrap, controls),
+    status,
+    adminToggle,
+    mounted() {
+      draw();
+      shapeAll(palette);
+      markRail();
+    },
+    flush: () => (dirty ? save() : Promise.resolve()),
+  };
 }

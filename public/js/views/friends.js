@@ -11,7 +11,9 @@ import { openProfile } from './profile.js';
 const TABS = [['online', 'Online'], ['all', 'All'], ['pending', 'Pending'], ['blocked', 'Blocked']];
 const SUBTITLE = { incoming: 'Wants to be your friend', outgoing: 'Request sent', blocked: 'Blocked' };
 
-let tab = 'online';
+// The tab you were on comes back after a reload.
+let tab = (() => { try { return localStorage.getItem('oc:friendsTab') || 'online'; } catch { return 'online'; } })();
+const pickTab = (id) => { tab = id; try { localStorage.setItem('oc:friendsTab', id); } catch { /* storage off */ } };
 let root = null;
 let addBox = null; // kept between renders so typing isn't lost when a friend comes online
 
@@ -118,7 +120,7 @@ function render() {
   // On a computer the tabs sit in the header; a phone has no room there, so they get a row of their own.
   const tabs = (extra) => h('div', { class: `tabs ${extra}`, role: 'tablist' }, TABS.map(([id, label]) => h('button', {
     type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
-    onclick: () => { tab = id; render(); },
+    onclick: () => { pickTab(id); render(); },
   }, label, id === 'pending' && pending > 0 && h('span', { class: 'badge' }, pending))));
   root.replaceChildren(
     h('header', { class: 'main-header' },

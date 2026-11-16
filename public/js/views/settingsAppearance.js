@@ -64,7 +64,7 @@ function choices(values, build) {
 const OTHER_DEFAULTS = {
   timestamps: 'hover', jumboEmoji: true, spoilers: 'click', linkPreviews: true, mediaSize: 'normal', underlineLinks: false,
   sendKey: 'enter', showTyping: true, translateAuto: false, bubbles: false, dmsFrom: 'servers', sendTyping: true, friendRequestsFrom: 'everyone',
-  readReceipts: false, showLastSeen: false,
+  readReceipts: false, showLastSeen: false, developerMode: false,
 };
 const settingsNow = () => ({ ...DEFAULTS, ...OTHER_DEFAULTS, ...state.me.settings });
 
@@ -168,6 +168,14 @@ export function accessibilityPage() {
       settingRow('Contrast', option('contrast', [['normal', 'Normal'], ['high', 'High']], current)),
       settingRow('Animations', option('motion', [['full', 'On'], ['reduced', 'Off']], current))),
   ];
+}
+
+// Developer mode adds the bot button next to Settings (bottom left), which opens the bot workspace.
+export function advancedPage() {
+  const current = settingsNow();
+  return [settingsCard('Developer',
+    settingRow('Developer mode', option('developerMode', [[false, 'Off'], [true, 'On']], current)),
+    h('p', { class: 'field-hint' }, 'Adds a bot button at the bottom left, next to Settings. It opens a workspace for building your bots with blocks.'))];
 }
 
 export function customCssPage() {

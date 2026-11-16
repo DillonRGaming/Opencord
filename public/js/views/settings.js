@@ -1,8 +1,8 @@
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
-import { openPage } from './page.js';
+import { openPage, setPageKey } from './page.js';
 import { profilePage } from './settingsProfile.js';
-import { appearancePage, chatPage, accessibilityPage, customCssPage, notificationsPage, privacyPage, translationPage } from './settingsAppearance.js';
+import { appearancePage, chatPage, accessibilityPage, advancedPage, customCssPage, notificationsPage, privacyPage, translationPage } from './settingsAppearance.js';
 import { accountPage } from './settingsAccount.js';
 
 // [heading, [[id, label, build, search words]]]
@@ -19,11 +19,13 @@ const GROUPS = [
     ['notifications', 'Notifications', notificationsPage, 'desktop sound alerts mentions dms ring calls quiet hours'],
     ['accessibility', 'Accessibility', accessibilityPage, 'contrast animations motion'],
     ['css', 'Custom CSS', customCssPage, 'style code wallpaper'],
+    ['advanced', 'Advanced', advancedPage, 'developer mode bots bot builder blocks'],
   ]],
 ];
 
 // A settings-style page: a searchable list of sections on the left, the open section on the right.
-export function openSectionedPage({ title, groups, start }) {
+// `key` puts it in the address as key:<section>, so a refresh comes back to the same section.
+export function openSectionedPage({ title, groups, start, key = null }) {
   const content = h('div', { class: 'settings-content' });
   const heading = h('h2', { class: 'settings-page-title' });
   const items = [];
@@ -33,6 +35,7 @@ export function openSectionedPage({ title, groups, start }) {
     active = item;
     for (const other of items) other.el.setAttribute('aria-current', String(other === item));
     heading.textContent = item.label;
+    if (key) setPageKey(`${key}:${item.id}`);
     content.replaceChildren(...[item.build()].flat());
     content.closest('.settings-main')?.scrollTo(0, 0);
   };
@@ -69,11 +72,11 @@ export function openSectionedPage({ title, groups, start }) {
   if (items.length <= 4) nav.querySelector('.settings-search').remove();
   const layout = h('div', { class: 'settings-layout' }, nav, h('div', { class: 'settings-main' }, heading, content));
   layout.addEventListener('redraw', () => show(active));
-  const page = openPage({ title, content: layout });
+  const page = openPage({ title, content: layout, key });
   show(items.find((item) => item.id === start) || items[0]);
   return page;
 }
 
 export function openSettings(start = 'account') {
-  return openSectionedPage({ title: 'Settings', groups: GROUPS, start });
+  return openSectionedPage({ title: 'Settings', groups: GROUPS, start, key: 'settings' });
 }

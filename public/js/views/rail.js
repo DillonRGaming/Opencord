@@ -3,7 +3,7 @@ import { serverMenu } from '../menus.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, isUnread, hasUnread, relationsWith, sortedDms, dmName } from '../store.js';
-import { navigate, paths } from '../router.js';
+import { navigate, lastHomePath, paths } from '../router.js';
 import { avatar, button, field, form, serverIcon, settingRow, settingsCard } from '../ui.js';
 import { changeSettings } from '../actions.js';
 import { colorField } from '../colorPicker.js';
@@ -12,7 +12,14 @@ import { groupFace } from './sidebar.js';
 import { openAddServer } from './serverPages.js';
 
 // Remembers which channel was open in each server, so clicking its icon goes back there.
-const lastChannel = new Map();
+// The channel you were last in on each server, kept across reloads.
+const LAST_CHANNELS = 'oc:lastChannels';
+const lastChannel = new Map((() => {
+  try { return Object.entries(JSON.parse(localStorage.getItem(LAST_CHANNELS) || '{}')); } catch { return []; }
+})());
+function saveLastChannels() {
+  try { localStorage.setItem(LAST_CHANNELS, JSON.stringify(Object.fromEntries([...lastChannel].slice(-200)))); } catch { /* storage off */ }
+}
 
 const pingText = (n) => (n > 99 ? '99+' : String(n));
 
@@ -232,7 +239,11 @@ export function mountRail(el) {
 
   function render() {
     const { route } = state;
-    if (route.name === 'server' && route.channelId) lastChannel.set(route.serverId, route.channelId);
+    if (route.name === 'server' && route.channelId && lastChannel.get(route.serverId) !== route.channelId) {
+      lastChannel.delete(route.serverId);
+      lastChannel.set(route.serverId, route.channelId);
+      saveLastChannels();
+    }
     const homeUnread = [...state.dms.values()].some(isUnread) || relationsWith('incoming').length > 0;
     // DMs with unread messages also sit in the rail under Home, with a red count, like pings.
     const pinged = state.me.settings?.dmPings === false ? [] : sortedDms().filter((dm) => state.dmPings.get(dm.id) && state.route.channelId !== dm.id).slice(0, 5);
@@ -240,7 +251,7 @@ export function mountRail(el) {
     el.replaceChildren(
       item({
         active: route.name !== 'server', unread: homeUnread, label: 'Friends and direct messages',
-        onclick: () => navigate(paths.home(), { panel: 'nav' }),
+        onclick: () => navigate(lastHomePath(), { panel: 'nav' }),
         pings: relationsWith('incoming').length,
       }, h('span', { class: 'rail-button' }, icon('logo', 30))),
       ...pinged.map((dm) => item({
