@@ -4,6 +4,7 @@ const platform = require('./platform');
 const storage = require('./lib/storage');
 const sessions = require('./models/sessions');
 const attachments = require('./models/attachments');
+const hq = require('./lib/hq');
 
 // Deletes expired sessions and uploads that were never finished or never sent.
 function cleanup() {
@@ -15,6 +16,7 @@ function cleanup() {
 
 function startJobs() {
   cleanup();
+  hq.start();
   platform.get('every')(config.cleanupIntervalMs, cleanup);
 }
 

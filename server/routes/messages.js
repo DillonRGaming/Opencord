@@ -1,5 +1,6 @@
 const express = require('express');
 const limits = require('../lib/limits');
+const hq = require('../lib/hq');
 const storage = require('../lib/storage');
 const access = require('../lib/access');
 const { fail, text } = require('../lib/http');
@@ -117,6 +118,7 @@ router.post('/:id/buttons/:index', (req, res) => {
   if (!button || button.type === 'menu') fail(404, 'That button is gone.');
   if (Date.now() - (clicks.get(req.user.id) || 0) < 1000) fail(429, 'Slow down a little.');
   clicks.set(req.user.id, Date.now());
+  if (hq.click(message, req.user, button.label)) return res.json({ ok: true });
   const ran = bots.clickButton(channel, message, req.user, button.label);
   res.json({ ok: ran });
 });

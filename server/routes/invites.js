@@ -7,6 +7,7 @@ const audit = require('../models/audit');
 const users = require('../models/users');
 const post = require('../lib/post');
 const limits = require('../lib/limits');
+const hq = require('../lib/hq');
 const { withPresence } = require('./servers');
 
 const router = express.Router();
@@ -27,6 +28,7 @@ router.get('/:code', (req, res) => {
 function joinWithInvite(code, user) {
   const { invite, server } = findInvite(code);
   const userId = user.id;
+  if (hq.isHq(server.id)) fail(404, 'That invite is invalid, used up or has expired.');
   if (servers.isBanned(server.id, userId)) fail(403, 'You are banned from this server.');
   if (!servers.isMember(server.id, userId)) {
     limits.within('serversJoined', servers.forUser(userId).length, 1, `You can be in up to ${limits.size('serversJoined')} servers. Leave one first.`);

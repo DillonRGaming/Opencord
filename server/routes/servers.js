@@ -1,5 +1,6 @@
 const express = require('express');
 const limits = require('../lib/limits');
+const hq = require('../lib/hq');
 const config = require('../config');
 const storage = require('../lib/storage');
 const access = require('../lib/access');
@@ -98,6 +99,7 @@ router.post('/:id/owner', (req, res) => {
   const server = access.ownedServer(req.params.id, req.user.id);
   const userId = text(req.body.userId, 'userId');
   if (userId === req.user.id) fail(400, 'You already own this server.');
+  if (hq.isHq(server.id)) fail(403, 'Opencord HQ always belongs to the Opencord owner.');
   if (!servers.isMember(server.id, userId)) fail(404, 'That user is not in this server.');
   servers.setRole(server.id, req.user.id, 'admin');
   const json = announce(servers.update(server.id, { ownerId: userId }));
@@ -376,6 +378,7 @@ const INVITE_EXPIRY = [0, 3600, 86400, 7 * 86400, 30 * 86400]; // seconds, 0 = n
 
 router.post('/:id/invites', (req, res) => {
   const server = access.memberServer(req.params.id, req.user.id);
+  if (hq.isHq(server.id)) fail(403, 'Opencord HQ is private: nobody else can join it.');
   if (server.invites_admin_only && !servers.can(server.id, req.user.id, 'createInvites')) fail(403, 'You need permission to make invites in this server.');
   const maxUses = req.body.maxUses == null || req.body.maxUses === 0 ? null : req.body.maxUses;
   if (maxUses !== null && (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 10000)) fail(400, 'Max uses must be between 1 and 10000.');

@@ -847,6 +847,34 @@ async function run() {
   assert.ok(report.limits.sizes.find((l) => l.kind === 'fileBytes').hitsToday >= 1);
   ok('abuse protection: reserved names, upload and reaction limits, suspension, sign-up modes');
 
+  // --- Opencord HQ: the dashboard as a private server ---
+  const { serverId: hqId } = await alice.call('POST', '/api/admin/hq');
+  const hqServer = (await alice.call('GET', '/api/bootstrap')).servers.find((x) => x.id === hqId);
+  assert.equal(hqServer.name, 'Opencord HQ');
+  const hqNames = hqServer.channels.map((c) => c.name);
+  for (const name of ['OVERVIEW', 'today', 'limits', 'free-plan', 'accounts', 'sign-ups', 'charts', 'servers']) assert.ok(hqNames.includes(name), name);
+  const hqChannel = (name) => hqServer.channels.find((c) => c.name === name);
+  const todayMsgs = await alice.call('GET', `/api/channels/${hqChannel('today').id}/messages`);
+  assert.match(todayMsgs[0].content, /online now/);
+  // Nobody else can see it, get in, or post in it.
+  await carol.expect(404, 'GET', `/api/channels/${hqChannel('today').id}/messages`);
+  await alice.expect(403, 'POST', `/api/servers/${hqId}/invites`, {});
+  assert.ok(!(await carol.call('GET', '/api/bootstrap')).servers.some((x) => x.id === hqId));
+  // Buttons: suspend someone from #accounts, change sign-ups from #sign-ups. Refreshing edits, never re-posts.
+  const accountMsgs = await alice.call('GET', `/api/channels/${hqChannel('accounts').id}/messages?limit=100`);
+  const malloryCard = accountMsgs.find((m) => m.content.includes('@mallory'));
+  await carol.expect(404, 'POST', `/api/messages/${malloryCard.id}/buttons/0`);
+  await alice.call('POST', `/api/messages/${malloryCard.id}/buttons/0`); // Suspend
+  await new Client().expect(403, 'POST', '/api/auth/login', { username: 'mallory', password: 'password123' });
+  const signupMsg = (await alice.call('GET', `/api/channels/${hqChannel('sign-ups').id}/messages`))[0];
+  await new Promise((resolve) => setTimeout(resolve, 1100)); // buttons are limited to one a second
+  await alice.call('POST', `/api/messages/${signupMsg.id}/buttons/2`); // Closed
+  await new Client().expect(403, 'POST', '/api/auth/register', { username: 'toolate', password: 'password123' });
+  await alice.call('PUT', '/api/admin/registration', { mode: 'open' });
+  await alice.call('POST', '/api/admin/hq');
+  assert.equal((await alice.call('GET', `/api/channels/${hqChannel('today').id}/messages`)).length, 1);
+  ok('Opencord HQ: private dashboard server, live numbers, owner-only buttons');
+
   // --- pages and headers ---
   const page1 = await new Client().request('GET', '/channels/@me');
   assert.match(page1.headers.get('content-type'), /html/);

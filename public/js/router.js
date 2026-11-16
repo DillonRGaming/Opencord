@@ -6,11 +6,9 @@ import { state, emit } from './store.js';
 // /channels/<serverId>/<channelId> → a server channel
 // /channels/<serverId>/<channelId>/<postId> → a post in a posts channel
 // /invite/<code>           → invite preview
-// /dashboard               → the app dashboard (owner and admins only)
 export function parse(pathname) {
   const parts = pathname.split('/').filter(Boolean);
   if (parts[0] === 'invite' && parts[1]) return { name: 'invite', code: parts[1] };
-  if (parts[0] === 'dashboard') return { name: 'dashboard' };
   if (parts[0] === 'channels' && parts[1] && parts[1] !== '@me') {
     return { name: 'server', serverId: parts[1], channelId: parts[2] || null, postId: parts[3] || null };
   }
@@ -20,7 +18,6 @@ export function parse(pathname) {
 
 export const paths = {
   home: () => '/channels/@me',
-  dashboard: () => '/dashboard',
   dm: (channelId) => `/channels/@me/${channelId}`,
   dmCall: (channelId) => `/channels/@me/${channelId}/call`,
   channel: (serverId, channelId) => `/channels/${serverId}${channelId ? `/${channelId}` : ''}`,

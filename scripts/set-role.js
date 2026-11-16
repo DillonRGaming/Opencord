@@ -17,4 +17,5 @@ if (!user || user.is_bot) {
 db.prepare('UPDATE users SET app_role = ? WHERE id = ?').run(role === 'none' ? null : role, user.id);
 const label = { owner: 'the owner', admin: 'an admin', none: 'a regular user' }[role];
 console.log(`${username} is now ${label}.`);
+if (role === 'owner') console.log('Opencord HQ (the dashboard server) appears for them within 10 minutes.');
 db.close();

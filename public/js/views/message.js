@@ -289,7 +289,7 @@ function toolbar(message, row, mine, handlers, openTray) {
 // Buttons a bot put under its message. Clicking one sets off the bot's "when a button is clicked" scripts.
 function buttonsView(message) {
   return h('div', { class: 'bot-buttons' }, message.components.map((b, i) => (b.type === 'menu' ? menuView(message, b, i) : h('button', {
-    type: 'button', class: 'button ghost small bot-button',
+    type: 'button', class: `button small bot-button ${{ danger: 'danger', primary: 'accent' }[b.style] || 'ghost'}`,
     onclick: (event) => {
       const el = event.currentTarget;
       el.disabled = true;

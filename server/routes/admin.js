@@ -3,6 +3,7 @@ const crypto = require('node:crypto');
 const express = require('express');
 const db = require('../db');
 const limits = require('../lib/limits');
+const hq = require('../lib/hq');
 const { fail, text } = require('../lib/http');
 const sessions = require('../models/sessions');
 const appSettings = require('../models/appSettings');
@@ -26,6 +27,7 @@ router.post('/claim-owner', (req, res) => {
   if (db.prepare("SELECT 1 FROM users WHERE app_role = 'owner'").get()) fail(409, 'There is already an owner.');
   limits.reset('loginFailsPerAccount', 'claim-owner');
   users.update(req.user.id, { appRole: 'owner' });
+  hq.refresh();
   res.json({ appRole: 'owner' });
 });
 
@@ -56,6 +58,13 @@ router.put('/people/:id/role', (req, res) => {
   if (target.app_role === 'owner') fail(400, "The owner's role can't be changed here.");
   users.update(target.id, { appRole: role });
   res.json({ id: target.id, appRole: role });
+});
+
+// Builds or refreshes Opencord HQ right away (it also refreshes itself every 10 minutes). Owner only.
+router.post('/hq', (req, res) => {
+  if (req.user.app_role !== 'owner') fail(403, 'Only the owner has Opencord HQ.');
+  hq.refresh();
+  res.json({ serverId: appSettings.get('hq', {}).serverId });
 });
 
 // Who may make an account: open, invite (needs a server invite) or closed. Owner only.
