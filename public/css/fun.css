@@ -220,6 +220,12 @@
 .music-skip10 { font-size: 0.72rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .music-speed:hover { background: var(--hover); color: var(--text); }
 .music-speed.on { color: var(--accent-ink); background: var(--active); }
+.music-timing { display: inline-flex; align-items: center; gap: 1px; height: 2rem; padding-left: 6px; border-radius: 999px; color: var(--text-muted); }
+.music-timing > .icon { flex: none; opacity: 0.8; }
+.music-timing button { height: 100%; padding: 0 7px; border-radius: 999px; font-size: 0.8rem; font-weight: 600; color: inherit; font-variant-numeric: tabular-nums; touch-action: manipulation; user-select: none; }
+.music-timing button:hover { background: var(--hover); color: var(--text); }
+.music-timing-step { min-width: 1.6rem; font-size: 1rem; }
+.music-timing-value { min-width: 3.4rem; }
 .music-sync { display: inline-flex; align-items: center; gap: 6px; height: 2rem; padding: 0 10px; border-radius: 999px; font-size: 0.75rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
 .music-sync:hover { background: var(--hover); color: var(--text); }
 .music-sync i { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
