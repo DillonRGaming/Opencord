@@ -1,5 +1,8 @@
 // The Opencord dashboard: usage numbers for the app's owner and admins (app-wide roles, not server roles).
+const crypto = require('node:crypto');
 const express = require('express');
+const db = require('../db');
+const limits = require('../lib/limits');
 const { fail, text } = require('../lib/http');
 const sessions = require('../models/sessions');
 const appSettings = require('../models/appSettings');
@@ -8,6 +11,23 @@ const stats = require('../lib/stats');
 const realtime = require('../realtime');
 
 const router = express.Router();
+
+// Becoming the owner where there's no command line (Cloudflare): send the OWNER_CLAIM_TOKEN secret, which only
+// the person who deployed Opencord knows (`wrangler secret put OWNER_CLAIM_TOKEN`). It only works while nobody
+// is the owner yet, and without the secret set it doesn't exist at all.
+router.post('/claim-owner', (req, res) => {
+  const secret = process.env.OWNER_CLAIM_TOKEN;
+  const given = typeof req.body.token === 'string' ? req.body.token : '';
+  if (!secret || secret.length < 16) fail(404, 'Not found.');
+  limits.take('loginFailsPerAccount', 'claim-owner');
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(secret).digest();
+  if (!crypto.timingSafeEqual(a, b)) fail(403, 'That is not the token.');
+  if (db.prepare("SELECT 1 FROM users WHERE app_role = 'owner'").get()) fail(409, 'There is already an owner.');
+  limits.reset('loginFailsPerAccount', 'claim-owner');
+  users.update(req.user.id, { appRole: 'owner' });
+  res.json({ appRole: 'owner' });
+});
 
 router.use((req, res, next) => {
   if (!['owner', 'admin'].includes(req.user.app_role)) fail(404, 'Not found.');

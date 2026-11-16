@@ -1,6 +1,7 @@
 // Live connections on a computer: WebSockets at /live through the `ws` package, handed to the LiveServer.
 const { WebSocketServer } = require('ws');
 const { MAX_FRAME } = require('../live');
+const auth = require('./auth');
 
 const PING_MS = 30 * 1000;
 
@@ -15,6 +16,12 @@ function attach(httpServer, live) {
     try { sameSite = Boolean(origin) && new URL(origin).host === req.headers.host; } catch { /* bad origin */ }
     if (url.pathname !== '/live' || !sameSite) {
       socket.write('HTTP/1.1 403 Forbidden\r\nConnection: close\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+    // Not logged in: refused before upgrading (the browser then checks its login, see public/js/live.js).
+    if (!auth.authenticate(req.headers.cookie)) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n');
       socket.destroy();
       return;
     }

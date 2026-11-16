@@ -5,6 +5,7 @@
 //   client → server  [event, args, ackId?]
 //   server → client  [event, args]   or   ['ack', ackId, args]
 //   on open          ['hello', [socketId]]
+//   before a kick    ['bye', [code]]   (the client closes too: some runtimes don't deliver a server's close)
 // A connection that fails the login check is closed with code 4401 before 'hello'.
 //
 // A transport is { send(text), close(code, reason), save(json) }. `save` keeps a socket's id and data with
@@ -75,6 +76,7 @@ class LiveSocket {
 
   disconnect(kick = false) {
     if (!this.open) return;
+    this.emit('bye', kick ? CLOSE_KICKED : 1000);
     try {
       this.transport.close(kick ? CLOSE_KICKED : 1000, kick ? 'Disconnected by the server' : 'Bye');
     } catch {

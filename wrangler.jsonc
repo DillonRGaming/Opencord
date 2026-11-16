@@ -1,0 +1,36 @@
+// Opencord on Cloudflare's free Workers plan. Nothing here can bill: Workers, static assets and SQLite
+// Durable Objects on the free plan just stop for the day if a limit is reached.
+{
+  "name": "opencord",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Only orbital.monster; no *.workers.dev address (it would show the account's name) and no preview links.
+  "workers_dev": false,
+  "preview_urls": false,
+
+  // The page, scripts and styles. /api, /media and /live go to the Worker; any other unknown path is the app.
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*", "/media/*", "/live"]
+  },
+
+  "durable_objects": {
+    "bindings": [
+      { "name": "HUB", "class_name": "Hub" },
+      { "name": "FILES", "class_name": "FileShard" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Hub", "FileShard"] }],
+
+  // The server code calls require('express'); on Cloudflare that's the small stand-in in worker/express.js.
+  "alias": { "express": "./worker/express.js" },
+  "rules": [
+    { "type": "Text", "globs": ["**/*.sql"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.gz"], "fallthrough": true }
+  ],
+
+  "observability": { "enabled": true }
+}

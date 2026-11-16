@@ -60,6 +60,13 @@ export function connectLive(path = '/live') {
         fire('connect');
         return;
       }
+      // The server is ending this connection: count it as gone now, not when the close handshake finishes.
+      if (packet[0] === 'bye') {
+        client.connected = false;
+        fire('disconnect');
+        ws.close(1000);
+        return;
+      }
       if (packet[0] === 'ack') {
         const fn = pendingAcks.get(packet[1]);
         pendingAcks.delete(packet[1]);
@@ -73,6 +80,12 @@ export function connectLive(path = '/live') {
       client.connected = false;
       pendingAcks.clear();
       if (event.code === UNAUTHORIZED) fire('connect_error', new Error(event.reason || 'You are not logged in.'));
+      // Refused before it even opened: maybe the login ended (the server answers 401 then). Ask, to be sure.
+      if (!was && event.code !== UNAUTHORIZED) {
+        fetch('/api/users/@me', { credentials: 'same-origin' })
+          .then((res) => { if (res.status === 401) fire('connect_error', new Error('You are not logged in.')); })
+          .catch(() => {});
+      }
       if (was) fire('disconnect');
       if (stopped) return;
       // Back off between tries, a little random so many tabs don't all retry at the same moment.

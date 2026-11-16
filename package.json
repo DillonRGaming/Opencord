@@ -9,7 +9,11 @@
     "dev": "node --watch server/index.js",
     "tunnel": "node scripts/tunnel.js",
     "set-role": "node scripts/set-role.js",
-    "test": "node test/syntax.js && node test/limits.js && node test/e2e.js"
+    "test": "node test/syntax.js && node test/limits.js && node test/e2e.js",
+    "cf:build": "node scripts/build-worker.js",
+    "cf:dev": "node scripts/build-worker.js && wrangler dev",
+    "cf:deploy": "node scripts/build-worker.js && wrangler deploy",
+    "test:cf": "node test/syntax.js && node test/limits.js && TARGET=cf node test/e2e.js"
   },
   "license": "UNLICENSED",
   "engines": {
@@ -19,5 +23,8 @@
     "better-sqlite3": "^12.11.1",
     "express": "^5.3.0",
     "ws": "^8.23.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.86.0"
   }
 }

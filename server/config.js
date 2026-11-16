@@ -1,11 +1,14 @@
 const path = require('node:path');
 
-const root = path.join(__dirname, '..');
+// On Cloudflare there's no folder or .env file; only the numbers below matter there.
+const root = typeof __dirname === 'string' ? path.join(__dirname, '..') : '/';
 
-try {
-  process.loadEnvFile(path.join(root, '.env'));
-} catch (err) {
-  if (err.code !== 'ENOENT') throw err;
+if (typeof __dirname === 'string' && typeof process.loadEnvFile === 'function') {
+  try {
+    process.loadEnvFile(path.join(root, '.env'));
+  } catch (err) {
+    if (err.code !== 'ENOENT') throw err;
+  }
 }
 
 const dataDir = path.resolve(root, process.env.DATA_DIR || 'data');
@@ -17,7 +20,7 @@ module.exports = {
   registrationOpen: process.env.REGISTRATION !== 'closed',
 
   publicDir: path.join(root, 'public'),
-  migrationsDir: path.join(__dirname, 'db', 'migrations'),
+  migrationsDir: path.join(root, 'server', 'db', 'migrations'),
   dataDir,
   dbPath: path.join(dataDir, 'opencord.db'),
   uploadsDir,

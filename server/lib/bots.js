@@ -730,7 +730,7 @@ require('../platform').get('every')(60_000, () => {
       if (channel && channel.server_id === bot.server_id && channel.kind === 'text') run(bot, script.blocks, { channel });
     }
   }
-});
+}, { needed: () => Boolean(db.prepare(`SELECT 1 FROM bots WHERE enabled = 1 AND program LIKE '%"timer"%' LIMIT 1`).get()) });
 
 // Someone picked from a drop-down under one of a bot's messages: run its matching "menu" scripts.
 function pickFromMenu(channel, message, user, choice) {

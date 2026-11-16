@@ -15,6 +15,9 @@ const sessionRoom = (hash) => `session:${hash}`;
 // Sets up the live connection server. A transport (lib/liveNode.js, or the Durable Object on Cloudflare) feeds
 // it connections; this file decides what they may do.
 function init() {
+  // A fresh start (also when a Durable Object is rebuilt in the same process): forget the old connection
+  // objects without closing them, as the same connections are taken back right after (see worker/hub.js).
+  for (const map of [socketCounts, voice, idleSockets, lastStatus, callMessages]) map.clear();
   io = new LiveServer();
 
   io.use((socket, next) => {

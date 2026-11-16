@@ -6,7 +6,7 @@
 //   fetchUrl   (url, { maxBytes, headers, timeout, redirects }) → { url, type, body: Buffer } | null,
 //              refusing private and local addresses
 //   asset      (name) → Buffer, for files in server/assets
-//   every      (ms, fn) → runs fn every ms (jobs: cleanup, bot timers, flushing counters)
+//   every      (ms, fn, { needed }) → runs fn every ms; needed() false means "nothing to do, don't wake up"
 //   dataBytes  () → bytes Opencord stores (database + files)
 //   freeBytes  async () → bytes still free where files are kept
 const platform = {};

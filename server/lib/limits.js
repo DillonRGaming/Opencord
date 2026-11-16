@@ -42,14 +42,38 @@ const RATES = {
 };
 
 const SLOW_DOWN = 'You are doing that too fast. Wait a moment and try again.';
-const windows = new Map(); // `${kind}:${key}` → { count, resetAt }
+const DURABLE_FROM_MS = 5 * MINUTE; // windows this long or longer are kept in the database
 let onHit = () => {};
+
+// Short windows live in memory. Long ones go in the database once useDatabase() is called (at start-up), so
+// a restart or a sleeping Durable Object can't reset someone's daily sign-up count.
+const memory = new Map(); // `${kind}:${key}` → { count, resetAt }
+let durable = null;
+
+function useDatabase(db) {
+  durable = {
+    get: (k) => {
+      const row = db.prepare('SELECT count, reset_at FROM rate_windows WHERE key = ?').get(k);
+      return row ? { count: row.count, resetAt: row.reset_at } : undefined;
+    },
+    set: (k, entry) => db.prepare(`INSERT INTO rate_windows (key, count, reset_at) VALUES (?, ?, ?)
+      ON CONFLICT(key) DO UPDATE SET count = excluded.count, reset_at = excluded.reset_at`).run(k, entry.count, entry.resetAt),
+    delete: (k) => db.prepare('DELETE FROM rate_windows WHERE key = ?').run(k),
+    sweep: () => db.prepare('DELETE FROM rate_windows WHERE reset_at <= ?').run(Date.now()),
+  };
+}
+
+function storeFor(rate) {
+  if (durable && rate.windowMs >= DURABLE_FROM_MS) return durable;
+  return { get: (k) => memory.get(k), set: (k, entry) => memory.set(k, entry), delete: (k) => memory.delete(k) };
+}
 
 // Old windows are dropped (from take(), at most once a minute) so the map can't grow without end.
 let lastSweep = 0;
 function dropExpired() {
   const now = Date.now();
-  for (const [k, entry] of windows) if (entry.resetAt <= now) windows.delete(k);
+  for (const [k, entry] of memory) if (entry.resetAt <= now) memory.delete(k);
+  durable?.sweep();
 }
 
 function rateOf(kind) {
@@ -63,14 +87,13 @@ function take(kind, key) {
   if (key == null) return;
   if (Date.now() - lastSweep > MINUTE) { lastSweep = Date.now(); dropExpired(); }
   const rate = rateOf(kind);
+  const store = storeFor(rate);
   const now = Date.now();
   const k = `${kind}:${key}`;
-  let entry = windows.get(k);
-  if (!entry || entry.resetAt <= now) {
-    entry = { count: 0, resetAt: now + rate.windowMs };
-    windows.set(k, entry);
-  }
+  let entry = store.get(k);
+  if (!entry || entry.resetAt <= now) entry = { count: 0, resetAt: now + rate.windowMs };
   entry.count += 1;
+  store.set(k, entry);
   if (entry.count > rate.limit) {
     onHit(kind);
     fail(429, rate.message || SLOW_DOWN, { retryAfterMs: entry.resetAt - now, limit: kind });
@@ -79,13 +102,14 @@ function take(kind, key) {
 
 // Whether `kind` is used up for `key`, without counting a use (for checks before the real attempt).
 function exhausted(kind, key) {
-  const entry = windows.get(`${kind}:${key}`);
-  return Boolean(entry && entry.resetAt > Date.now() && entry.count >= rateOf(kind).limit);
+  const rate = rateOf(kind);
+  const entry = storeFor(rate).get(`${kind}:${key}`);
+  return Boolean(entry && entry.resetAt > Date.now() && entry.count >= rate.limit);
 }
 
 // Takes back the uses of `kind` by `key` (e.g. a successful log-in clears the wrong-password count).
 function reset(kind, key) {
-  windows.delete(`${kind}:${key}`);
+  storeFor(rateOf(kind)).delete(`${kind}:${key}`);
 }
 
 // Refuses when `current + adding` would pass size limit `kind`.
@@ -122,7 +146,7 @@ function describe() {
 }
 
 module.exports = {
-  SIZES, RATES, take, exhausted, reset, within, middleware, describe,
+  SIZES, RATES, take, exhausted, reset, within, middleware, describe, useDatabase,
   setHitListener: (fn) => { onHit = fn; },
   size: (kind) => SIZES[kind].value,
 };

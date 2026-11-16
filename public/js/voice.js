@@ -7,7 +7,9 @@ import { on, emit, findChannel } from './store.js';
 import { voiceEmit, voiceSend } from './realtime.js';
 import { toast } from './ui.js';
 
-const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
+// Cloudflare's free STUN server: it only tells each browser its public address so they can connect directly.
+// Audio and video then go person to person; nothing passes through Opencord or Cloudflare.
+const ICE = [{ urls: ['stun:stun.cloudflare.com:3478'] }];
 
 export const voice = {
   channelId: null,

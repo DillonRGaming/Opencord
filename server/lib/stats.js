@@ -47,7 +47,9 @@ function countLimitHit(kind) {
   limitHits.byKind.set(kind, (limitHits.byKind.get(kind) || 0) + 1);
 }
 
+let lastFlush = Date.now();
 function flush() {
+  lastFlush = Date.now();
   flushRequests();
   flushLimitHits();
 }
@@ -59,10 +61,12 @@ function countRequest(req, res, next) {
     requests = { day, count: 0 };
   }
   requests.count++;
+  // Written every 15 seconds too, so little is lost if the process stops (or a Durable Object sleeps).
+  if (Date.now() - lastFlush > 15 * 1000) flush();
   next();
 }
 
-platform.get('every')(60 * 1000, flush);
+platform.get('every')(60 * 1000, flush, { needed: () => requests.count > 0 || limitHits.byKind.size > 0 });
 
 // The last `days` days (UTC), oldest first, with zeros for days with nothing.
 function series(days, rows) {

@@ -1,5 +1,6 @@
-// End-to-end test: starts a real server on a throwaway data folder and drives it over HTTP and Socket.IO.
-// Run with: npm test
+// End-to-end test: starts a real server on a throwaway data folder and drives it over HTTP and /live.
+// Run with: npm test               (the server as it runs on a computer)
+//           npm run test:cf        (the Cloudflare version, in Wrangler's local Workers runtime)
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const fs = require('node:fs');
@@ -8,10 +9,18 @@ const path = require('node:path');
 const { spawn, execFileSync } = require('node:child_process');
 const { liveClient } = require('./liveClient');
 
-const PORT = 3190;
+const ON_CLOUDFLARE = process.env.TARGET === 'cf';
+const PORT = ON_CLOUDFLARE ? 8790 : 3190;
 const BASE = `http://127.0.0.1:${PORT}`;
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opencord-test-'));
 const uploads = path.join(dataDir, 'uploads');
+const OWNER_TOKEN = crypto.randomBytes(24).toString('hex');
+
+// Checks that look at the upload folder directly. Cloudflare keeps files in Durable Objects, not a folder,
+// so there these are skipped (the same code paths still run; only the peek at the disk is left out).
+function onDisk(check) {
+  if (!ON_CLOUDFLARE) check();
+}
 
 let passed = 0;
 function ok(label) {
@@ -124,7 +133,7 @@ async function run() {
   const bSock = bob.socket();
   await Promise.all([nextEvent(aSock, 'connect'), nextEvent(bSock, 'connect')]);
   // Live connections: refused without a login, and refused from another site even with one.
-  assert.equal(await nextEvent(liveClient(BASE), 'close'), 4401);
+  assert.equal(await nextEvent(liveClient(BASE), 'refused'), 401);
   assert.equal(await nextEvent(liveClient(BASE, { cookie: alice.cookie, origin: 'https://evil.example' }), 'refused'), 403);
 
   // --- friends ---
@@ -259,8 +268,10 @@ async function run() {
   assert.equal(attachment.kind, 'video');
   assert.equal(attachment.size, video.length);
   const stored = path.join(uploads, 'videos', `${attachment.id}.mp4`);
-  assert.equal(fs.statSync(stored).size, video.length);
-  assert.equal(fs.readdirSync(path.join(uploads, 'tmp')).length, 0);
+  onDisk(() => {
+    assert.equal(fs.statSync(stored).size, video.length);
+    assert.equal(fs.readdirSync(path.join(uploads, 'tmp')).length, 0);
+  });
   await alice.expect(404, 'GET', attachment.url); // unsent: uploader only
   await alice.expect(400, 'POST', `/api/channels/${general.id}/messages`, { attachmentIds: [attachment.id] });
   const withFile = await bob.call('POST', `/api/channels/${general.id}/messages`, { attachmentIds: [attachment.id] });
@@ -297,12 +308,12 @@ async function run() {
   assert.equal(empty.size, 0);
   const cancelled = await bob.call('POST', '/api/uploads', { name: 'a.bin', size: 5, type: '' });
   await bob.call('DELETE', `/api/uploads/${cancelled.id}`);
-  assert.equal(fs.existsSync(path.join(uploads, 'tmp', cancelled.id)), false);
+  onDisk(() => assert.equal(fs.existsSync(path.join(uploads, 'tmp', cancelled.id)), false));
   ok('upload resume, oversized chunk rolled back, html served as download, empty file, cancel');
 
   // Deleting a message deletes its file.
   await bob.call('DELETE', `/api/messages/${withFile.id}`);
-  assert.equal(fs.existsSync(stored), false);
+  onDisk(() => assert.equal(fs.existsSync(stored), false));
   await bob.expect(404, 'GET', attachment.url);
   ok('deleting a message deletes its files');
 
@@ -322,7 +333,7 @@ async function run() {
   await bob.expect(400, 'PUT', '/api/users/@me/avatar', Buffer.from('<svg onload=alert(1)>'));
   const firstAvatar = path.join(uploads, 'avatars', path.basename(me.avatar));
   me = await bob.call('PUT', '/api/users/@me/avatar', png);
-  assert.equal(fs.existsSync(firstAvatar), false);
+  onDisk(() => assert.equal(fs.existsSync(firstAvatar), false));
   me = await bob.call('PATCH', '/api/users/@me', {
     displayName: 'Bobby', bio: 'hello', statusText: 'busy', bannerColor: '#ff8800', settings: { theme: 'oled' },
   });
@@ -430,16 +441,16 @@ async function run() {
 
   // --- long messages are sent cut short; calendar, music and wiki channels ---
   const old = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'short for now' });
-  {
-    // Messages from before the limit can be huge: make one straight in the database.
+  // Messages from before the limit can be huge: make one straight in the database (only possible on a computer).
+  if (!ON_CLOUDFLARE) {
     const Database = require('better-sqlite3');
     const raw = new Database(path.join(dataDir, 'opencord.db'));
     raw.prepare('UPDATE messages SET content = ? WHERE id = ?').run('w'.repeat(50_000), old.id);
     raw.close();
+    const listed = (await alice.call('GET', `/api/channels/${general.id}/messages?limit=5`)).find((m) => m.id === old.id);
+    assert.ok(listed.truncated && listed.content.length < 2000 && listed.length === 50_000);
+    assert.equal((await alice.call('GET', `/api/messages/${old.id}/content`)).content.length, 50_000);
   }
-  const listed = (await alice.call('GET', `/api/channels/${general.id}/messages?limit=5`)).find((m) => m.id === old.id);
-  assert.ok(listed.truncated && listed.content.length < 2000 && listed.length === 50_000);
-  assert.equal((await alice.call('GET', `/api/messages/${old.id}/content`)).content.length, 50_000);
 
   const cal = await alice.call('POST', `/api/servers/${server.id}/channels`, { name: 'events', kind: 'calendar' });
   await bob.expect(400, 'POST', `/api/channels/${cal.id}/events`, { title: '', startsAt: Date.now() });
@@ -755,12 +766,14 @@ async function run() {
   const pic2 = await alice.upload('pic2.png', 'image/png', png);
   await alice.call('POST', `/api/channels/${general.id}/messages`, { attachmentIds: [pic2.id] });
   const picPath = (a) => path.join(uploads, 'images', `${a.id}.png`);
-  assert.ok(fs.existsSync(picPath(pic)) && fs.existsSync(picPath(pic2)));
+  onDisk(() => assert.ok(fs.existsSync(picPath(pic)) && fs.existsSync(picPath(pic2))));
   await alice.call('DELETE', `/api/channels/${channel.id}`);
-  assert.equal(fs.existsSync(picPath(pic)), false);
+  onDisk(() => assert.equal(fs.existsSync(picPath(pic)), false));
   await alice.call('DELETE', `/api/servers/${server.id}`);
-  assert.equal(fs.existsSync(picPath(pic2)), false);
-  assert.equal(fs.readdirSync(path.join(uploads, 'icons')).length, 0);
+  onDisk(() => {
+    assert.equal(fs.existsSync(picPath(pic2)), false);
+    assert.equal(fs.readdirSync(path.join(uploads, 'icons')).length, 0);
+  });
   assert.equal((await alice.call('GET', '/api/bootstrap')).servers.length, 0);
   ok('deleting a channel or server deletes its files');
 
@@ -775,9 +788,17 @@ async function run() {
 
   // --- app dashboard (owner/admin only) ---
   await alice.expect(404, 'GET', '/api/admin/overview');
-  execFileSync(process.execPath, ['scripts/set-role.js', 'alice', 'owner'], {
-    cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR: dataDir }, stdio: 'ignore',
-  });
+  // Becoming the owner: the one-time claim with the secret token (wrong token refused), or set-role on a computer.
+  await alice.expect(403, 'POST', '/api/admin/claim-owner', { token: 'not-the-token-at-all' });
+  if (ON_CLOUDFLARE) {
+    await alice.call('POST', '/api/admin/claim-owner', { token: OWNER_TOKEN });
+  } else {
+    execFileSync(process.execPath, ['scripts/set-role.js', 'alice', 'owner'], {
+      cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR: dataDir }, stdio: 'ignore',
+    });
+  }
+  await bob.expect(401, 'POST', '/api/admin/claim-owner', { token: OWNER_TOKEN }); // logged out by now
+  await (await register('claimer')).expect(409, 'POST', '/api/admin/claim-owner', { token: OWNER_TOKEN });
   assert.equal((await alice.call('GET', '/api/users/@me')).appRole, 'owner');
   const overview = await alice.call('GET', '/api/admin/overview');
   assert.ok(overview.totals.people >= 2 && overview.totals.messages > 0);
@@ -830,19 +851,58 @@ async function run() {
   const page1 = await new Client().request('GET', '/channels/@me');
   assert.match(page1.headers.get('content-type'), /html/);
   assert.match(page1.headers.get('content-security-policy'), /script-src 'self'/);
-  await new Client().expect(404, 'GET', '/js/missing.js');
+  // A missing file is a 404 on a computer; Cloudflare's single-page mode answers with the app page instead, which
+  // a browser won't run as a script (nosniff), so either is safe.
+  if (ON_CLOUDFLARE) assert.match((await new Client().request('GET', '/js/missing.js')).headers.get('content-type'), /html/);
+  else await new Client().expect(404, 'GET', '/js/missing.js');
   await alice.expect(404, 'GET', '/api/nope');
   ok('SPA fallback, security headers, 404s');
 
 }
 
-async function main() {
-  const server = spawn(process.execPath, ['server/index.js'], {
-    cwd: path.join(__dirname, '..'),
-    env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir, REGISTRATION: 'open', LIMITS_SCALE: '1000' },
-    stdio: ['ignore', 'pipe', 'inherit'],
+// The server under test: Node, or the Worker in Wrangler's local runtime (with its own throwaway storage).
+function startServer() {
+  const env = { ...process.env, REGISTRATION: 'open', LIMITS_SCALE: '1000', OWNER_CLAIM_TOKEN: OWNER_TOKEN };
+  if (!ON_CLOUDFLARE) {
+    return spawn(process.execPath, ['server/index.js'], {
+      cwd: path.join(__dirname, '..'),
+      env: { ...env, PORT: String(PORT), HOST: '127.0.0.1', DATA_DIR: dataDir },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+  }
+  const vars = ['REGISTRATION', 'LIMITS_SCALE', 'OWNER_CLAIM_TOKEN'].flatMap((k) => ['--var', `${k}:${env[k]}`]);
+  return spawn('npx', ['wrangler', 'dev', '--port', String(PORT), '--ip', '127.0.0.1', '--persist-to', dataDir, '--log-level', 'warn', ...vars], {
+    cwd: path.join(__dirname, '..'), env, stdio: ['ignore', 'pipe', 'inherit'], detached: true,
   });
-  await new Promise((resolve) => server.stdout.once('data', resolve));
+}
+
+// Wrangler runs under npx, so stop the whole process group.
+function stopServer(server) {
+  try {
+    if (ON_CLOUDFLARE) process.kill(-server.pid, 'SIGTERM');
+    else server.kill();
+  } catch {
+    // already gone
+  }
+}
+
+async function waitUntilUp() {
+  for (let i = 0; i < 120; i++) {
+    try {
+      if ((await fetch(`${BASE}/api/bootstrap`)).status === 401) return;
+    } catch {
+      // not listening yet
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error('The server did not start.');
+}
+
+async function main() {
+  if (ON_CLOUDFLARE) execFileSync(process.execPath, ['scripts/build-worker.js'], { cwd: path.join(__dirname, '..'), stdio: 'ignore' });
+  const server = startServer();
+  server.stdout.on('data', () => {});
+  await waitUntilUp();
   try {
     await run();
     console.log(`\nAll ${passed} groups passed.`);
@@ -851,7 +911,7 @@ async function main() {
     process.exitCode = 1;
   } finally {
     for (const socket of sockets) socket.close();
-    server.kill();
+    stopServer(server);
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
 }

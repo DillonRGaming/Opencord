@@ -3,3 +3,6 @@ data/
 .env
 *.log
 run-html/
+dist/
+worker/migrations.generated.js
+.wrangler/

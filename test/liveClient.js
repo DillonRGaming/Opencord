@@ -24,10 +24,11 @@ function liveClient(base, { cookie = '', origin = base } = {}) {
   ws.on('message', (data) => {
     const packet = JSON.parse(data.toString());
     if (packet[0] === 'hello') { client.id = packet[1][0]; fire('connect'); return; }
+    if (packet[0] === 'bye') { client.gone = true; fire('close', packet[1][0], ''); fire('disconnect', packet[1][0]); ws.terminate(); return; }
     if (packet[0] === 'ack') { const fn = acks.get(packet[1]); acks.delete(packet[1]); fn?.(...packet[2]); return; }
     fire(packet[0], ...packet[1]);
   });
-  ws.on('close', (code, reason) => { fire('close', code, reason.toString()); fire('disconnect', code); });
+  ws.on('close', (code, reason) => { if (client.gone) return; fire('close', code, reason.toString()); fire('disconnect', code); });
   ws.on('unexpected-response', (req, res) => fire('refused', res.statusCode));
   ws.on('error', () => {});
   return client;
