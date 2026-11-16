@@ -7,6 +7,7 @@ export function h(tag, props, ...children) {
     else if (key === 'dataset') Object.assign(el.dataset, value);
     else if (key === 'style') setStyles(el, value);
     else if (key.startsWith('on')) el.addEventListener(key.slice(2), value);
+    else if (key === 'list' || key === 'form') el.setAttribute(key, value); // read-only properties
     else if (key in el) el[key] = value;
     else el.setAttribute(key, value === true ? '' : value);
   }

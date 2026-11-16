@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+<rect width="256" height="256" fill="#a99bf0"/>
+<g fill="#141814">
+  <!-- antenna -->
+  <rect x="120" y="58" width="16" height="34" rx="8"/>
+  <circle cx="128" cy="54" r="16"/>
+  <!-- ears -->
+  <rect x="38" y="132" width="22" height="48" rx="11"/>
+  <rect x="196" y="132" width="22" height="48" rx="11"/>
+  <!-- head -->
+  <rect x="54" y="86" width="148" height="126" rx="36"/>
+</g>
+<g fill="#a99bf0">
+  <!-- eyes and mouth, cut out in the background colour like the lock's keyhole -->
+  <ellipse cx="102" cy="146" rx="13" ry="17"/>
+  <ellipse cx="154" cy="146" rx="13" ry="17"/>
+  <rect x="104" y="182" width="48" height="10" rx="5"/>
+</g>
+</svg>

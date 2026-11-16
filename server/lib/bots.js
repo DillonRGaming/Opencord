@@ -11,6 +11,7 @@ const realtime = require('../realtime');
 const post = require('./post');
 const audit = require('../models/audit');
 const previews = require('./previews');
+const botAi = require('./botAi');
 
 const MAX_STEPS = 500; // blocks per run
 const MAX_RUN_MS = 10 * 60_000; // a run (even a forever loop) stops after 10 minutes
@@ -30,6 +31,7 @@ function toBot(row) {
   return {
     id: row.id, serverId: row.server_id, enabled: Boolean(row.enabled), program: JSON.parse(row.program),
     admin: servers.roleOf(row.server_id, row.user_id) === 'admin',
+    ai: botAi.publicSettings(row),
     user: users.toUser(user), createdAt: row.created_at,
   };
 }
@@ -46,7 +48,7 @@ const create = db.transaction((serverId, creatorId, name) => {
   let username;
   do username = `bot_${Math.random().toString(36).slice(2, 8)}`; while (users.getByUsername(username));
   const user = users.create({ username, displayName: name, passwordHash: '!bot' });
-  db.prepare('UPDATE users SET is_bot = 1 WHERE id = ?').run(user.id);
+  db.prepare("UPDATE users SET is_bot = 1, avatar = '@default/bot' WHERE id = ?").run(user.id);
   servers.addMember(serverId, user.id);
   const id = newId();
   db.prepare('INSERT INTO bots (id, server_id, user_id, creator_id, program, created_at) VALUES (?, ?, ?, ?, ?, ?)')
@@ -66,6 +68,13 @@ function update(id, { enabled, program }) {
 
 const remove = db.transaction((bot) => {
   realtime.botLeaveVoice(bot.user_id);
+  // People's 1:1 DMs with the bot go too (a DM with nobody on the other end can't be shown).
+  const dms = db.prepare(`SELECT channels.id FROM channels JOIN dm_members ON dm_members.channel_id = channels.id
+    WHERE dm_members.user_id = ? AND channels.type = 'dm' AND COALESCE(channels.kind, 'dm') = 'dm'`).all(bot.user_id);
+  for (const { id } of dms) {
+    for (const userId of channels.dmMemberIds(id)) if (userId !== bot.user_id) realtime.toUser(userId, 'dm:delete', { id });
+    db.prepare('DELETE FROM channels WHERE id = ?').run(id);
+  }
   db.prepare('DELETE FROM users WHERE id = ?').run(bot.user_id); // cascades to membership, bot row and vars
 });
 
@@ -107,10 +116,11 @@ function pick(data, path) {
 
 // --- checking a program before saving it ---
 
-const TRIGGERS = ['message', 'command', 'join', 'timer', 'button', 'reaction', 'leave', 'menu'];
+const TRIGGERS = ['message', 'command', 'join', 'timer', 'button', 'reaction', 'leave', 'menu', 'tool', 'ai_message'];
 const ACTIONS = ['send', 'reply', 'react', 'wait', 'set', 'change', 'if', 'repeat', 'random', 'stop',
   'forever', 'until', 'dm', 'ping', 'pin', 'join_voice', 'leave_voice',
-  'buttons', 'menu_send', 'http', 'math', 'random_number', 'list_add', 'list_remove', 'list_pick', 'list_clear', 'text_case', 'unpin'];
+  'buttons', 'menu_send', 'http', 'math', 'random_number', 'list_add', 'list_remove', 'list_pick', 'list_clear', 'text_case', 'unpin',
+  'ai_reply', 'ai_ask', 'ai_tell', 'ai_instructions', 'ai_remember', 'ai_forget', 'ai_model'];
 // These only run when the bot is an admin.
 const ADMIN_ACTIONS = ['delete', 'purge', 'create_channel', 'delete_channel', 'rename_channel', 'topic', 'slowmode', 'lock',
   'kick', 'ban', 'timeout', 'untimeout', 'everyone', 'invite',
@@ -141,6 +151,8 @@ function validateBlocks(blocks, depth = 0) {
     if (b.count !== undefined) out.count = Math.min(Math.max(Math.round(Number(b.count)) || 1, 1), 100);
     if (b.minutes !== undefined) out.minutes = Math.min(Math.max(Math.round(Number(b.minutes)) || 1, 1), 10080);
     if (b.op !== undefined) out.op = OPS.includes(b.op) ? b.op : 'equals';
+    if (b.mode !== undefined) out.mode = b.mode === 'plain' ? 'plain' : 'tools';
+    if (b.what !== undefined) out.what = b.what === 'memory' ? 'memory' : 'chat';
     if (b.seconds !== undefined) out.seconds = Math.min(Math.max(Number(b.seconds) || 0, 0), MAX_WAIT);
     if (b.times !== undefined) out.times = Math.min(Math.max(Math.round(Number(b.times)) || 1, 1), 10);
     if (b.options !== undefined) out.options = (Array.isArray(b.options) ? b.options : []).slice(0, 20).map((o) => clean(o));
@@ -168,6 +180,12 @@ function validateProgram(program) {
     }
     if (t.type === 'button' || t.type === 'menu') trigger.text = clean(t.text, 80);
     if (t.type === 'reaction') trigger.emoji = clean(t.emoji, 80);
+    if (t.type === 'tool') {
+      // A tool the AI can use: a name the model calls it by, what it does, and its parameters (one per line).
+      trigger.name = clean(t.name, 40).trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '') || 'tool';
+      trigger.description = clean(t.description, 500);
+      trigger.options = (Array.isArray(t.options) ? t.options : []).slice(0, 15).map((o) => clean(o, 200));
+    }
     if (t.type === 'timer') {
       trigger.minutes = Math.min(Math.max(Math.round(Number(t.minutes)) || 60, 1), 10080);
       trigger.channel = clean(t.channel, 40);
@@ -204,6 +222,19 @@ function fill(text, ctx) {
       case 'button': return ctx.button ?? '';
       case 'choice': return ctx.choice ?? '';
       case 'emoji': return ctx.emoji ?? '';
+      // AI: {param.city} is what the AI passed to a tool; {prompt} what someone said to it; {answer} its last answer.
+      case 'param': {
+        const value = ctx.params?.[rest || ''];
+        return value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+      }
+      case 'params': return ctx.params ? JSON.stringify(ctx.params) : '';
+      case 'prompt': return ctx.prompt ?? ctx.message?.content ?? '';
+      case 'answer': return ctx.answer ?? '';
+      case 'ai': {
+        const settings = botAi.settingsOf(get(ctx.bot.id) || ctx.bot);
+        if (rest === 'error') return ctx.aiError ?? '';
+        return ctx.aiModel || settings.modelName || settings.model;
+      }
       case 'list': {
         // {list.name} → the items joined with commas; {list.name.length} → how many.
         const [name, prop] = (rest || '').split('.');
@@ -321,6 +352,59 @@ function tick(ctx) {
 function stillOn(ctx) {
   const row = get(ctx.bot.id);
   if (!row?.enabled) throw new Stop();
+}
+
+// --- AI ---
+
+const MAX_AI_DEPTH = 2; // a tool may ask the AI something, but that can't call tools that ask again…
+
+// Shows "… is typing" while the AI thinks.
+function typing(ctx) {
+  if (ctx.channel) realtime.toChannel(ctx.channel, 'typing', { channelId: ctx.channel.id, userId: ctx.bot.user_id });
+}
+
+// Asks the bot's AI; tools it calls run as blocks. Resolves the answer, or '' with ctx.aiError set.
+async function askAi(ctx, { extra = '', turns = null, useTools = true } = {}) {
+  ctx.aiError = '';
+  if ((ctx.aiDepth || 0) >= MAX_AI_DEPTH) {
+    ctx.aiError = 'Tools can’t ask the AI this deep.';
+    return '';
+  }
+  const row = get(ctx.bot.id);
+  if (!row) return '';
+  typing(ctx);
+  const keepTyping = setInterval(() => typing(ctx), 4000);
+  try {
+    const answer = await botAi.converse(row, {
+      channel: ctx.channel, message: ctx.message, turns, extra, useTools, model: ctx.aiModel,
+      runTool: (script, params) => runTool(row, script, params, ctx),
+    });
+    ctx.answer = answer;
+    return answer;
+  } catch (err) {
+    if (!(err instanceof botAi.AiError)) console.error(`Bot ${ctx.bot.id} AI failed:`, err);
+    ctx.aiError = err instanceof botAi.AiError ? err.message : 'The AI request failed.';
+    return '';
+  } finally {
+    clearInterval(keepTyping);
+  }
+}
+
+// The AI called one of the bot's tools: run the blocks under that "tool" hat. Whatever they "tell the AI" is
+// the tool's result; with nothing told, the AI hears what happened.
+async function runTool(bot, script, params, parent = {}) {
+  const ctx = {
+    bot, steps: 0, sends: 0, started: Date.now(), channel: parent.channel || null, message: parent.message || null, user: parent.user || null,
+    params, args: Object.values(params).map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))),
+    prompt: parent.prompt, toolResult: [], aiDepth: (parent.aiDepth || 0) + 1, aiModel: parent.aiModel,
+  };
+  try {
+    await runBlocks(script.blocks || [], ctx);
+  } catch (err) {
+    if (!(err instanceof Stop)) throw err;
+  }
+  if (ctx.toolResult.length) return ctx.toolResult.join('\n');
+  return ctx.sends ? `Done. Sent ${ctx.sends} message${ctx.sends === 1 ? '' : 's'}.` : 'Done.';
 }
 
 async function runBlocks(blocks, ctx) {
@@ -478,6 +562,35 @@ async function runBlocks(blocks, ctx) {
         setVar(ctx.bot.id, block.name, out);
         break;
       }
+      // --- AI ---
+      case 'ai_reply': {
+        const answer = await askAi(ctx, { extra: [ctx.aiExtra, fill(block.text, ctx)].filter(Boolean).join('\n') });
+        if (answer) say(ctx, ctx.channel, answer, ctx.message && messages.get(ctx.message.id) ? ctx.message.id : null);
+        else if (ctx.aiError) say(ctx, ctx.channel, `⚠️ ${ctx.aiError}`, ctx.message?.id);
+        break;
+      }
+      case 'ai_ask': {
+        const prompt = fill(block.text, ctx).trim();
+        const answer = prompt ? await askAi(ctx, { turns: [{ role: 'user', content: prompt }], useTools: block.mode !== 'plain', extra: ctx.aiExtra }) : '';
+        setVar(ctx.bot.id, block.name || 'answer', answer || '');
+        break;
+      }
+      case 'ai_tell':
+        (ctx.toolResult ||= []).push(fill(block.text, ctx));
+        break;
+      case 'ai_instructions':
+        ctx.aiExtra = [ctx.aiExtra, fill(block.text, ctx)].filter(Boolean).join('\n');
+        break;
+      case 'ai_model':
+        ctx.aiModel = fill(block.value, ctx).trim().slice(0, 120);
+        break;
+      case 'ai_remember':
+        botAi.remember(ctx.bot.id, fill(block.text, ctx));
+        break;
+      case 'ai_forget':
+        if (block.what === 'memory') botAi.forgetMemory(ctx.bot.id);
+        else if (ctx.channel) botAi.forgetChat(ctx.bot.id, ctx.channel.id);
+        break;
       case 'unpin':
         if (ctx.message && messages.get(ctx.message.id)) {
           realtime.toChannel(ctx.channel, 'message:update', messages.serialize(messages.setPinned(ctx.message.id, false)));
@@ -655,6 +768,20 @@ async function run(bot, blocks, ctx) {
   }
 }
 
+// Someone talked to the bot (a mention, a reply, a DM, or a channel where it answers everything): run its
+// "when someone talks to me" scripts, or, with none, let its AI answer.
+function maybeAnswer(bot, channel, message, commanded) {
+  if (commanded) return;
+  const settings = botAi.settingsOf(bot);
+  const why = botAi.shouldAnswer(bot, settings, channel, message);
+  if (!why) return;
+  const prompt = botAi.promptOf(bot, message);
+  const ctx = { channel, message, user: message.author, args: prompt.split(/\s+/).filter(Boolean), prompt, why };
+  const scripts = JSON.parse(bot.program).filter((s) => s.trigger?.type === 'ai_message');
+  if (scripts.length) for (const script of scripts) run(bot, script.blocks, ctx);
+  else run(bot, [{ type: 'ai_reply', text: '' }], ctx);
+}
+
 function enabledBots(serverId) {
   return db.prepare('SELECT * FROM bots WHERE server_id = ? AND enabled = 1').all(serverId);
 }
@@ -673,8 +800,17 @@ function matches(trigger, content) {
 post.onPost((event, payload) => {
   if (event === 'message') {
     const { channel, message } = payload;
-    if (channel.type !== 'text' || message.author.bot) return;
+    if (message.author.bot) return;
+    if (channel.type === 'dm') {
+      // A DM with a bot: only its AI answers there.
+      const ids = channels.dmMemberIds(channel.id);
+      const rows = db.prepare('SELECT * FROM bots WHERE enabled = 1 AND user_id IN (SELECT value FROM json_each(?))').all(JSON.stringify(ids));
+      for (const bot of rows) maybeAnswer(bot, channel, message, false);
+      return;
+    }
+    if (channel.type !== 'text') return;
     for (const bot of enabledBots(channel.server_id)) {
+      let commanded = false;
       for (const script of JSON.parse(bot.program)) {
         const { trigger } = script;
         if (!trigger) continue;
@@ -684,9 +820,11 @@ post.onPost((event, payload) => {
           const m = /^[!/](\S+)\s*([\s\S]*)$/.exec(message.content.trim());
           if (!m || m[1].toLowerCase() !== trigger.name) continue;
           args = m[2].split(/\s+/).filter(Boolean);
+          commanded = true;
         } else if (trigger.type !== 'message' || !matches(trigger, message.content)) continue;
         run(bot, script.blocks, { channel, message, user: message.author, args });
       }
+      maybeAnswer(bot, channel, message, commanded);
     }
   }
   if (event === 'reaction') {
@@ -762,4 +900,14 @@ function clickButton(channel, message, user, label) {
   return ran;
 }
 
-module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu };
+// The builder's test chat: talk to the AI without posting anything (tools still really run).
+async function testChat(bot, { turns, channel, user }) {
+  const trace = [];
+  const ctx = { bot, channel, user, message: null, aiDepth: 0 };
+  const reply = await botAi.converse(bot, {
+    channel, turns, trace, runTool: (script, params) => runTool(bot, script, params, ctx),
+  });
+  return { reply, trace };
+}
+
+module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu, testChat };

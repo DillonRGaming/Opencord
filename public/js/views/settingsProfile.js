@@ -15,16 +15,30 @@ const stacked = (row) => { row.classList.add('stacked'); return row; };
 const IMAGE_TYPES = 'image/png,image/jpeg,image/gif,image/webp';
 
 export function profilePage() {
-  const { me } = state;
+  return profileEditor({
+    user: state.me,
+    accent: state.me.settings.accent || DEFAULTS.accent,
+    save: async (fields) => { setMe(await api.patch('/api/users/@me', fields)); toast('Profile saved.', 'ok'); return state.me; },
+    uploadAvatar: async (file) => { setMe(await api.putFile('/api/users/@me/avatar', file)); return state.me; },
+    defaultAvatar: async (n) => { setMe(await api.put(`/api/users/@me/avatar/default/${n}`)); return state.me; },
+    removeAvatar: async () => { setMe(await api.del('/api/users/@me/avatar')); return state.me; },
+  });
+}
+
+// The profile form with a live preview, for yourself or for a bot. Each callback saves and resolves the
+// updated user.
+// `extraAvatars` are more built-in pictures offered first (bots get the robot: ['bot']).
+export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvatar, defaultAvatar, removeAvatar, labels = {}, extraAvatars = [] }) {
+  let me = user;
   let bannerColor = me.bannerColor;
   let bannerPattern = me.bannerPattern;
   let bannerPatternColor = me.bannerPatternColor;
 
   const displayName = h('input', { class: 'input', required: true, maxLength: 32, value: me.displayName });
-  const statusText = h('input', { class: 'input', maxLength: 128, value: me.statusText, placeholder: 'What are you up to?' });
-  const bio = h('textarea', { class: 'textarea', maxLength: 190, value: me.bio, placeholder: 'A few words about you' });
+  const statusText = h('input', { class: 'input', maxLength: 128, value: me.statusText, placeholder: labels.status || 'What are you up to?' });
+  const bio = h('textarea', { class: 'textarea', maxLength: 190, value: me.bio, placeholder: labels.bio || 'A few words about you' });
   const banner = colorField({
-    value: bannerColor || state.me.settings.accent || DEFAULTS.accent, label: 'Banner colour',
+    value: bannerColor || accent, label: 'Banner colour',
     onInput: (c) => { bannerColor = c; draw(); }, onChange: (c) => { bannerColor = c; draw(); },
   });
   const preview = h('div');
@@ -32,7 +46,7 @@ export function profilePage() {
   // The preview shows what is typed, before it is saved.
   function draw() {
     preview.replaceChildren(profileCard({
-      ...state.me,
+      ...me,
       displayName: displayName.value || me.username,
       statusText: statusText.value,
       bio: bio.value,
@@ -45,7 +59,7 @@ export function profilePage() {
   async function changeAvatar() {
     const [file] = await pickFiles({ accept: IMAGE_TYPES });
     if (!file) return;
-    await attempt(async () => setMe(await api.putFile('/api/users/@me/avatar', file)));
+    await attempt(async () => { me = await uploadAvatar(file); });
     drawDefaults();
     draw();
   }
@@ -54,17 +68,18 @@ export function profilePage() {
   const DEFAULT_AVATARS = 10;
   const defaults = h('div', { class: 'swatches avatar-swatches' });
   function drawDefaults() {
-    defaults.replaceChildren(...Array.from({ length: DEFAULT_AVATARS }, (_, i) => {
-      const src = `/avatars/${i + 1}.svg`;
+    const names = [...extraAvatars, ...Array.from({ length: DEFAULT_AVATARS }, (_, i) => i + 1)];
+    defaults.replaceChildren(...names.map((n) => {
+      const src = `/avatars/${n}.svg`;
       return h('button', {
-        type: 'button', class: 'swatch avatar-swatch', 'aria-label': `Default avatar ${i + 1}`,
-        'aria-pressed': String(state.me.avatar === src),
-        onclick: () => pickDefault(i + 1),
+        type: 'button', class: 'swatch avatar-swatch', 'aria-label': n === 'bot' ? 'Robot avatar' : `Default avatar ${n}`,
+        'aria-pressed': String(me.avatar === src),
+        onclick: () => pickDefault(n),
       }, h('img', { src, alt: '', draggable: false }));
     }));
   }
   async function pickDefault(n) {
-    await attempt(async () => setMe(await api.put(`/api/users/@me/avatar/default/${n}`)));
+    await attempt(async () => { me = await defaultAvatar(n); });
     drawDefaults();
     draw();
   }
@@ -87,7 +102,7 @@ export function profilePage() {
 
   // Banner colour from the profile picture (mostly its edges), or the initials' colour without one.
   async function matchAvatar() {
-    const color = state.me.avatar ? await edgeColor(state.me.avatar) : colorFor(state.me.id);
+    const color = me.avatar ? await edgeColor(me.avatar) : colorFor(me.id);
     if (!color) return toast('Could not read colours from that picture.', 'error');
     bannerColor = color;
     banner.value = color;
@@ -95,25 +110,24 @@ export function profilePage() {
     draw();
   }
 
-  async function removeAvatar() {
-    await attempt(async () => setMe(await api.del('/api/users/@me/avatar')));
+  async function dropAvatar() {
+    await attempt(async () => { me = await removeAvatar(); });
     drawDefaults();
     draw();
   }
 
   const editor = form({
-    submitLabel: 'Save profile',
+    submitLabel: labels.save || 'Save profile',
     onSubmit: async () => {
-      setMe(await api.patch('/api/users/@me', {
+      me = await save({
         displayName: displayName.value, statusText: statusText.value, bio: bio.value, bannerColor, bannerPattern, bannerPatternColor,
-      }));
-      toast('Profile saved.', 'ok');
+      });
     },
   },
   settingsCard('Avatar', settingRow('Profile picture',
-    [button('Upload', changeAvatar, 'ghost small'), button('Remove', removeAvatar, 'ghost small')]),
+    [button('Upload', changeAvatar, 'ghost small'), button('Remove', dropAvatar, 'ghost small')]),
     stacked(settingRow('Or pick one', defaults))),
-  settingsCard('About you', field('Display name', displayName), field('Status', statusText), field('About me', bio)),
+  settingsCard(labels.about || 'About you', field('Display name', displayName), field('Status', statusText), field(labels.bioLabel || 'About me', bio)),
   settingsCard('Banner', settingRow('Banner colour',
     [banner, button('Match profile picture', matchAvatar, 'ghost small')]),
     stacked(settingRow('Pattern', patterns)),

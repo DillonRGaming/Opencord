@@ -115,10 +115,32 @@ function settingOf(userId, key, fallback) {
   return row ? settingFrom(row, key, fallback) : fallback;
 }
 
+// The profile parts of a request body (name, bio, status, banner), checked. Used for people and for bots.
+function profileFields({ displayName, bio, statusText, bannerColor, bannerPattern, bannerPatternColor }) {
+  const { fail, text } = require('../lib/http');
+  const fields = {};
+  if (displayName !== undefined) fields.displayName = text(displayName, 'Display name', { min: 1, max: 32 });
+  if (bio !== undefined) fields.bio = text(bio, 'Bio', { max: 190 });
+  if (statusText !== undefined) fields.statusText = text(statusText, 'Status', { max: 128 });
+  if (bannerColor !== undefined) {
+    if (bannerColor !== null && !/^#[0-9a-f]{6}$/i.test(bannerColor)) fail(400, 'Banner colour must look like #rrggbb.');
+    fields.bannerColor = bannerColor;
+  }
+  if (bannerPattern !== undefined) {
+    if (bannerPattern !== null && !BANNER_PATTERNS.includes(bannerPattern)) fail(400, 'No such banner pattern.');
+    fields.bannerPattern = bannerPattern;
+  }
+  if (bannerPatternColor !== undefined) {
+    if (bannerPatternColor !== null && !/^#[0-9a-f]{6}$/i.test(bannerPatternColor)) fail(400, 'Pattern colour must look like #rrggbb.');
+    fields.bannerPatternColor = bannerPatternColor;
+  }
+  return fields;
+}
+
 function touchLastSeen(id) {
   db.prepare('UPDATE users SET last_seen = ? WHERE id = ?').run(Date.now(), id);
 }
 
 module.exports = {
   DEFAULT_AVATARS, BANNER_PATTERNS, isDefaultAvatar, avatarUrl, defaultAvatar,
-  settingOf, touchLastSeen, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };
+  settingOf, touchLastSeen, profileFields, toUser, toMe, create, get, getByUsername, mapByIds, update, audienceIds };

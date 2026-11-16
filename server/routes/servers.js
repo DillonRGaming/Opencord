@@ -14,6 +14,7 @@ const notes = require('../models/notes');
 const attachments = require('../models/attachments');
 const realtime = require('../realtime');
 const bots = require('../lib/bots');
+const botAi = require('../lib/botAi');
 
 const router = express.Router();
 const rawImage = express.raw({ type: () => true, limit: config.maxImageBytes });
@@ -527,6 +528,91 @@ router.patch('/:id/bots/:botId', (req, res) => {
   audit.log(server.id, req.user.id, 'bot.update', users.get(bot.user_id).display_name,
     [fields.program && 'blocks', fields.enabled !== undefined && (fields.enabled ? 'turned on' : 'turned off'), req.body.name && 'name', req.body.admin !== undefined && (req.body.admin ? 'made admin' : 'admin removed')].filter(Boolean).join(', '));
   res.json(bots.toBot(updated));
+});
+
+// The bot's profile: like a person's (name, status, bio, banner, picture), changed by whoever manages bots.
+function botChanged(server, bot) {
+  const user = users.get(bot.user_id);
+  realtime.toAudience(user.id, 'user:update', users.toUser(user));
+  realtime.toServer(server.id, 'user:update', users.toUser(user));
+  return bots.toBot(bots.get(bot.id));
+}
+
+router.patch('/:id/bots/:botId/profile', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  const fields = users.profileFields(req.body || {});
+  users.update(bot.user_id, fields);
+  audit.log(server.id, req.user.id, 'bot.update', users.get(bot.user_id).display_name, 'profile');
+  res.json(botChanged(server, bot));
+});
+
+function setBotAvatar(server, bot, file) {
+  const before = users.get(bot.user_id).avatar;
+  users.update(bot.user_id, { avatar: file });
+  if (before && !users.isDefaultAvatar(before) && before !== file) storage.remove(`avatars/${before}`);
+  return botChanged(server, bot);
+}
+
+router.put('/:id/bots/:botId/avatar', rawImage, async (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  res.json(setBotAvatar(server, bot, await storage.saveImage('avatars', req.body)));
+});
+
+router.put('/:id/bots/:botId/avatar/default/:n', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  // 1 to DEFAULT_AVATARS, or "bot" for the robot picture.
+  const n = req.params.n === 'bot' ? 'bot' : Number(req.params.n);
+  if (n !== 'bot' && (!Number.isInteger(n) || n < 1 || n > users.DEFAULT_AVATARS)) fail(400, 'No such default avatar.');
+  res.json(setBotAvatar(server, bot, users.defaultAvatar(n)));
+});
+
+router.delete('/:id/bots/:botId/avatar', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  res.json(setBotAvatar(server, bot, users.defaultAvatar('bot'))); // removing a picture goes back to the robot
+});
+
+// The bot's AI: endpoint, key, model, instructions, when it answers. The key is write-only.
+router.put('/:id/bots/:botId/ai', (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  try { botAi.saveSettings(bot, req.body || {}); } catch (err) { fail(400, err.message); }
+  audit.log(server.id, req.user.id, 'bot.update', users.get(bot.user_id).display_name, 'AI settings');
+  res.json(bots.toBot(bots.get(bot.id)));
+});
+
+router.get('/:id/bots/:botId/ai/models', async (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  try {
+    res.json(await botAi.listModels(bot));
+  } catch (err) {
+    if (err instanceof botAi.AiError) fail(400, err.message);
+    throw err;
+  }
+});
+
+// The builder's test chat: { messages: [{ role: 'user' | 'assistant', content }], channelId? } → { reply, trace }.
+router.post('/:id/bots/:botId/ai/chat', async (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  const turns = (Array.isArray(req.body.messages) ? req.body.messages : []).slice(-40)
+    .map((m) => ({ role: m?.role === 'assistant' ? 'assistant' : 'user', content: String(m?.content ?? '').slice(0, 4000) }))
+    .filter((m) => m.content.trim());
+  if (!turns.length) fail(400, 'Say something first.');
+  const me = users.get(req.user.id);
+  const named = turns.map((t) => (t.role === 'user' ? { ...t, content: `${me.display_name} (@${me.username}): ${t.content}` } : t));
+  const channel = req.body.channelId ? channels.get(req.body.channelId) : null;
+  const where = channel && channel.server_id === server.id && channel.kind === 'text' ? channel : null;
+  try {
+    res.json(await bots.testChat(bot, { turns: named, channel: where, user: users.toUser(me) }));
+  } catch (err) {
+    if (err instanceof botAi.AiError) fail(400, err.message);
+    throw err;
+  }
 });
 
 router.delete('/:id/bots/:botId', (req, res) => {

@@ -7,6 +7,7 @@ import { icon } from '../icons.js';
 import { attempt, button, toast } from '../ui.js';
 import { openPage } from './page.js';
 import { colorField } from '../colorPicker.js';
+import { aiPanel } from './botAi.js';
 
 // --- block definitions ---
 // Each part of `parts` is a word, or a field: { key, kind: 'text' | 'number' | 'select' | 'lines' | 'channel', … }.
@@ -14,6 +15,7 @@ import { colorField } from '../colorPicker.js';
 const CATEGORIES = [
   { id: 'events', label: 'Events', colors: ['#ffbf00', '#e6ac00', '#cc9900'] },
   { id: 'messages', label: 'Messages', colors: ['#9966ff', '#855cd6', '#774dcb'] },
+  { id: 'ai', label: 'AI', colors: ['#5b6ee1', '#4c5fd4', '#3c4cb8'] },
   { id: 'control', label: 'Control', colors: ['#ffab19', '#ec9c13', '#cf8b17'] },
   { id: 'voice', label: 'Voice', colors: ['#cf63cf', '#c94fc9', '#bd42bd'] },
   { id: 'variables', label: 'Variables', colors: ['#ff8c1a', '#ff8000', '#db6e00'] },
@@ -40,6 +42,17 @@ const BLOCKS = {
   leave: { hat: true, category: 'events', parts: ['when someone leaves the server'], make: () => ({ type: 'leave' }) },
   join: { hat: true, category: 'events', parts: ['when someone joins the server'], make: () => ({ type: 'join' }) },
   timer: { hat: true, category: 'events', parts: ['every', { key: 'minutes', kind: 'number', width: 3 }, 'minutes in', { key: 'channel', kind: 'channel' }], make: () => ({ type: 'timer', minutes: 60, channel: '' }) },
+
+  // AI: tools the model can call (the blocks under the hat run), and blocks that use the model
+  tool: { hat: true, category: 'ai', parts: ['the AI can use the tool', { key: 'name', kind: 'text', placeholder: 'roll_dice', width: 8 }, 'to', { key: 'description', kind: 'text', placeholder: 'what it does, for the AI' }, 'given', { key: 'options', kind: 'lines', placeholder: 'one per line, like\ncity: the city name\ndays (number): how many\nunits?: optional' }], make: () => ({ type: 'tool', name: 'roll_dice', description: 'Roll a dice for someone', options: ['sides (number): how many sides the dice has'] }) },
+  ai_message: { hat: true, category: 'ai', parts: ['when someone talks to me'], make: () => ({ type: 'ai_message' }) },
+  ai_reply: { category: 'ai', parts: ['answer them with AI, also told', { key: 'text', kind: 'text', placeholder: 'nothing extra' }], make: () => ({ type: 'ai_reply', text: '' }) },
+  ai_ask: { category: 'ai', parts: ['ask the AI', { key: 'text', kind: 'text', placeholder: 'Write a haiku about {args}' }, { key: 'mode', kind: 'select', options: [['plain', 'without tools'], ['tools', 'with tools']] }, 'and keep the answer in', { key: 'name', kind: 'text', placeholder: 'answer', width: 6 }], make: () => ({ type: 'ai_ask', text: 'Write a haiku about {args}', mode: 'plain', name: 'answer' }) },
+  ai_tell: { category: 'ai', parts: ['tell the AI', { key: 'text', kind: 'text', placeholder: 'Rolled {var.roll}' }], make: () => ({ type: 'ai_tell', text: 'Rolled {var.roll}' }) },
+  ai_instructions: { category: 'ai', parts: ['add AI instructions', { key: 'text', kind: 'text', placeholder: 'Talk like a pirate' }], make: () => ({ type: 'ai_instructions', text: 'Talk like a pirate.' }) },
+  ai_model: { category: 'ai', parts: ['use the model', { key: 'value', kind: 'text', placeholder: 'model id', width: 10 }], make: () => ({ type: 'ai_model', value: '' }) },
+  ai_remember: { category: 'ai', parts: ['AI: remember', { key: 'text', kind: 'text', placeholder: '{user} likes cats' }], make: () => ({ type: 'ai_remember', text: '{user} likes cats' }) },
+  ai_forget: { category: 'ai', parts: ['AI: forget', { key: 'what', kind: 'select', options: [['chat', 'this conversation'], ['memory', 'everything it remembers']] }], make: () => ({ type: 'ai_forget', what: 'chat' }) },
 
   // messages
   send: { category: 'messages', parts: ['send', { key: 'text', kind: 'text', placeholder: 'Hi {user}!' }, 'in', { key: 'channel', kind: 'channel', here: true }], make: () => ({ type: 'send', text: 'Hi {user}!', channel: '' }) },
@@ -108,6 +121,8 @@ const VALUES = [
   ['{var.score}', 'a variable'], ['{random 1 10}', 'random number'], ['{roles}', 'their roles'],
   ['{button}', 'button clicked'], ['{choice}', 'menu choice'], ['{emoji}', 'reaction emoji'], ['{list.queue}', 'a list'], ['{list.queue.length}', 'list size'],
   ['{time}', 'the time'], ['{date}', 'the date'],
+  ['{prompt}', 'what they said to the AI'], ['{param.sides}', 'a tool parameter'], ['{params}', 'all tool parameters'],
+  ['{answer}', 'the AI’s last answer'], ['{ai.model}', 'the model'], ['{ai.error}', 'why the AI failed'],
 ];
 
 const categoryOf = (type) => CATEGORIES.find((c) => c.id === BLOCKS[type].category);
@@ -185,7 +200,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 // --- the editor ---
 
-export function openBotBuilder(server, bot) {
+export function openBotBuilder(server, bot, { ai: openAi = false } = {}) {
   let program = clone(bot.program || []);
   let dirty = false;
   let lastField = null;
@@ -245,9 +260,10 @@ export function openBotBuilder(server, bot) {
     }
     if (part.kind === 'lines') {
       const el = h('textarea', {
-        class: 'bb-field bb-lines', rows: Math.max(2, (block.options || []).length), placeholder: part.placeholder,
-        value: (block.options || []).join('\n'),
-        oninput: () => { block.options = el.value.split('\n'); el.rows = Math.max(2, block.options.length); markDirty(); },
+        class: 'bb-field bb-lines', rows: Math.max(2, (block[part.key] || []).length), placeholder: part.placeholder,
+        style: { width: `${Math.min(48, Math.max(18, ...(block[part.key] || []).map((l) => l.length + 2)))}ch` },
+        value: (block[part.key] || []).join('\n'),
+        oninput: () => { block[part.key] = el.value.split('\n'); el.rows = Math.max(2, block[part.key].length); markDirty(); },
       });
       remember(el);
       return el;
@@ -530,7 +546,7 @@ export function openBotBuilder(server, bot) {
         onpointerdown: (event) => afterNudge(event, (e) => startNew(e, type)),
       }, h('div', { class: 'bb-row' }, def.parts.map((p) => (typeof p === 'string'
         ? h('span', { class: 'bb-word' }, p)
-        : h('span', { class: `bb-field fake${['select', 'channel', 'voice'].includes(p.kind) ? ' select' : ''}` }, p.kind === 'select' ? (p.options.find(([v]) => v === def.make()[p.key]) || p.options[0])[1] : p.kind === 'channel' ? (p.here ? 'this channel' : 'channel') : p.kind === 'voice' ? 'voice channel' : p.kind === 'role' ? 'role' : p.kind === 'color' ? '●' : String(def.make()[p.key] ?? p.placeholder ?? ''))))),
+        : h('span', { class: `bb-field fake${['select', 'channel', 'voice'].includes(p.kind) ? ' select' : ''}` }, p.kind === 'select' ? (p.options.find(([v]) => v === def.make()[p.key]) || p.options[0])[1] : p.kind === 'channel' ? (p.here ? 'this channel' : 'channel') : p.kind === 'voice' ? 'voice channel' : p.kind === 'role' ? 'role' : p.kind === 'color' ? '●' : [def.make()[p.key] ?? p.placeholder ?? ''].flat().join(', '))))),
       def.mouths && [h('div', { class: 'bb-mouth' }), h('div', { class: 'bb-foot' })])))));
   drawPalette();
   shapeAll(palette);
@@ -572,14 +588,24 @@ export function openBotBuilder(server, bot) {
   }
 
   const saveButton = button('Save', () => attempt(save), 'primary small');
+  // The AI drawer: settings (endpoint, key, model…) and a test chat. Testing saves the blocks first, so the
+  // AI sees the tools as they are on screen.
+  const ai = aiPanel({ server, bot, program: () => program, saveFirst: async () => { if (dirty) await save(); } });
   const page = openPage({
     title: 'Bot builder',
-    actions: h('div', { class: 'bb-actions' }, nameInput, adminToggle, status, saveButton),
-    content: h('div', { class: 'bb' }, rail, palette, h('div', { class: 'bb-stage' }, wrap, controls)),
+    actions: h('div', { class: 'bb-actions' }, nameInput,
+      h('button', { type: 'button', class: 'bb-admin-toggle', title: 'Name, picture, bio, banner…', onclick: async () => {
+        if (dirty) await attempt(save);
+        const { openBotSettings } = await import('./botSettings.js');
+        openBotSettings(server, bot);
+      } }, icon('settings', 16), 'Settings'),
+      ai.button, adminToggle, status, saveButton),
+    content: h('div', { class: 'bb' }, rail, palette, h('div', { class: 'bb-stage' }, wrap, controls, ai.el)),
     onClose: () => { if (dirty) toast('Your bot had unsaved changes.'); },
   });
   page.el?.classList.add('wide');
   draw();
+  if (openAi) ai.toggle(true);
 
   const keys = (event) => {
     if (!canvas.isConnected) return window.removeEventListener('keydown', keys);

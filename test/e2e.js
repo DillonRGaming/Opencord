@@ -701,6 +701,35 @@ async function run() {
   await browser.expect(401, 'GET', '/api/users/@me');
   ok('linked channels copy, edit and delete; message links; bot menus; several accounts, switching, logout to the next');
 
+  // --- bot profiles: name, status, bio, banner and picture, by whoever manages bots ---
+  {
+    const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Pretty' });
+    assert.equal(bot.user.avatar, '/avatars/bot.svg', 'new bots get the robot picture');
+    await bob.expect(403, 'PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, { bio: 'hacked' });
+    const wait = nextEvent(bSock, 'user:update', (u) => u.id === bot.user.id && u.bio === 'I help out');
+    const updated = await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, {
+      displayName: 'Pretty Bot', statusText: 'Watching #general', bio: 'I help out', bannerColor: '#ff8800', bannerPattern: 'dots', bannerPatternColor: null,
+    });
+    await wait;
+    assert.equal(updated.user.displayName, 'Pretty Bot');
+    assert.equal(updated.user.statusText, 'Watching #general');
+    assert.equal(updated.user.bannerPattern, 'dots');
+    await alice.expect(400, 'PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, { bannerColor: 'red' });
+    await alice.expect(400, 'PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, { displayName: '' });
+    assert.equal((await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar/default/3`)).user.avatar, '/avatars/3.svg');
+    const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+    const uploaded = await alice.request('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar`, png);
+    assert.equal(uploaded.status, 200, JSON.stringify(uploaded.data));
+    assert.match(uploaded.data.user.avatar, /^\/media\/avatars\//);
+    assert.equal((await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar/default/bot`)).user.avatar, '/avatars/bot.svg');
+    assert.equal((await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}/avatar`)).user.avatar, '/avatars/bot.svg');
+    await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
+  }
+  ok('bot profiles: name, status, bio, banner, default and uploaded pictures; only for bot managers');
+
+  // --- AI bots: a pretend OpenAI-style and Anthropic-style service on this machine ---
+  if (!ON_CLOUDFLARE) await aiBots(alice, bob, server, general, bSock);
+
   // --- role and channel permissions ---
   await bob.expect(403, 'POST', `/api/servers/${server.id}/channels`, { name: 'nope' });
   const builders = await alice.call('POST', `/api/servers/${server.id}/roles`, { name: 'Builders', perms: ['manageChannels', 'manageRoles', 'bogus'] });
@@ -931,9 +960,166 @@ async function run() {
 
 }
 
+// A stand-in AI service. OpenAI format at /v1, Anthropic format at /anthropic/v1. It calls the "roll_dice"
+// tool when asked to roll, says what the tool returned, and otherwise echoes the last thing it was told.
+function fakeAi() {
+  const http = require('node:http');
+  const seen = [];
+  const server = http.createServer((req, res) => {
+    let raw = '';
+    req.on('data', (c) => { raw += c; });
+    req.on('end', () => {
+      const send = (status, data) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(data)); };
+      if (req.method === 'GET' && req.url.startsWith('/v1/models')) return send(200, { data: [{ id: 'fake-1' }, { id: 'fake-2' }] });
+      const body = raw ? JSON.parse(raw) : {};
+      seen.push({ url: req.url, headers: req.headers, body });
+      if (body.model === 'broken') return send(401, { error: { message: 'Incorrect API key provided' } });
+      const anthropic = req.url.startsWith('/anthropic/');
+      const last = body.messages.at(-1);
+      const lastText = (typeof last.content === 'string' ? last.content : last.content.map((b) => b.text || b.content || '').join('')).split('\n').at(-1);
+      const toolNames = (body.tools || []).map((t) => t.name || t.function?.name);
+      if (anthropic) {
+        if (last.content?.[0]?.type === 'tool_result') return send(200, { content: [{ type: 'text', text: `Tool said: ${last.content[0].content}` }], stop_reason: 'end_turn' });
+        if (/roll/i.test(lastText) && toolNames.includes('roll_dice')) return send(200, { content: [{ type: 'tool_use', id: 'tu1', name: 'roll_dice', input: { sides: 20 } }], stop_reason: 'tool_use' });
+        return send(200, { content: [{ type: 'text', text: `Claude echo: ${lastText}` }], stop_reason: 'end_turn' });
+      }
+      if (last.role === 'tool') return send(200, { choices: [{ message: { role: 'assistant', content: `Tool said: ${last.content}` } }] });
+      if (/roll/i.test(lastText) && toolNames.includes('roll_dice')) {
+        return send(200, { choices: [{ message: { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'roll_dice', arguments: '{"sides":6}' } }] } }] });
+      }
+      if (/remember/i.test(lastText) && toolNames.includes('remember') && !body.messages.some((m) => m.role === 'tool')) {
+        return send(200, { choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c2', type: 'function', function: { name: 'remember', arguments: '{"fact":"Bob likes tea"}' } }] } }] });
+      }
+      return send(200, { choices: [{ message: { role: 'assistant', content: `Echo: ${lastText}` } }] });
+    });
+  });
+  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, seen, base: `http://127.0.0.1:${server.address().port}` })));
+}
+
+async function aiBots(alice, bob, server, general, bSock) {
+  const ai = await fakeAi();
+  try {
+    const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Brainy' });
+    assert.equal(bot.ai.enabled, false);
+    assert.equal(bot.ai.hasKey, false);
+    await bob.expect(403, 'PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { enabled: true });
+    const saved = await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, {
+      enabled: true, baseUrl: `${ai.base}/v1`, apiKey: 'sk-test-123', model: 'fake-1', modelName: 'Fakey', system: 'Be a pirate.', temperature: 0.3,
+    });
+    assert.equal(saved.ai.hasKey, true);
+    assert.equal(saved.ai.apiKey, undefined, 'the key never comes back');
+    assert.ok(!JSON.stringify(await alice.call('GET', `/api/servers/${server.id}/bots`)).includes('sk-test-123'), 'the key is not listed');
+    const models = await alice.call('GET', `/api/servers/${server.id}/bots/${bot.id}/ai/models`);
+    assert.deepEqual(models.map((m) => m.id), ['fake-1', 'fake-2']);
+
+    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+      enabled: true,
+      program: [
+        { trigger: { type: 'tool', name: 'Roll Dice', description: 'Roll a dice', options: ['sides (number): how many sides', 'note?: optional'] }, blocks: [
+          { type: 'set', name: 'rolled', value: '{param.sides}' },
+          { type: 'ai_tell', text: 'rolled a {var.rolled} for {user}' },
+        ] },
+        { trigger: { type: 'command', name: 'haiku' }, blocks: [
+          { type: 'ai_ask', text: 'haiku about {args}', mode: 'plain', name: 'poem' },
+          { type: 'reply', text: '{var.poem} ({ai.model})' },
+        ] },
+      ],
+    });
+    const program = (await alice.call('GET', `/api/servers/${server.id}/bots`)).find((b) => b.id === bot.id).program;
+    assert.equal(program[0].trigger.name, 'roll_dice', 'tool names are tidied for the AI');
+
+    // @mention: the AI answers in the channel, as a reply, with the instructions and key sent along.
+    let wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `hey @${bot.user.username} how are you` });
+    let answer = await wait;
+    assert.match(answer.content, /^Echo: Bobby \(@bob\): hey @bot_\w+ how are you$/);
+    assert.ok(answer.replyTo, 'the answer is a reply');
+    const first = ai.seen.at(-1);
+    assert.equal(first.headers.authorization, 'Bearer sk-test-123');
+    assert.match(first.body.messages[0].content, /Be a pirate\./);
+    assert.equal(first.body.temperature, 0.3);
+    assert.ok(first.body.tools.some((t) => t.function.name === 'roll_dice' && t.function.parameters.required.includes('sides') && !t.function.parameters.required.includes('note')));
+
+    // A tool call runs the blocks under the tool hat and sends what they "tell the AI" back.
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} roll for me` });
+    answer = await wait;
+    assert.match(answer.content, /^Tool said: rolled a 6 for Bob/);
+
+    // Replying to the bot also wakes it; messages that don't involve it don't.
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'and again', replyToId: answer.id });
+    assert.match((await wait).content, /Echo: .*and again/);
+    const calls = ai.seen.length;
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'just chatting' });
+    await new Promise((r) => setTimeout(r, 300));
+    assert.equal(ai.seen.length, calls, 'unrelated messages are ignored');
+
+    // A block that asks the AI and keeps the answer.
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: '/haiku the sea' });
+    assert.equal((await wait).content, 'Echo: haiku about the sea (Fakey)');
+
+    // Built-in memory: the "remember" tool saves a fact, and it's in later instructions.
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} remember I like tea` });
+    await wait;
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} hi` });
+    await wait;
+    assert.match(ai.seen.at(-1).body.messages[0].content, /Bob likes tea/);
+
+    // "When someone talks to me" scripts replace the automatic answer.
+    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+      program: [{ trigger: { type: 'ai_message' }, blocks: [
+        { type: 'if', left: '{prompt}', op: 'contains', right: 'secret', do: [{ type: 'reply', text: 'no secrets' }], else: [{ type: 'ai_instructions', text: 'Answer in French.' }, { type: 'ai_reply', text: '' }] },
+      ] }],
+    });
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} tell me a secret` });
+    assert.equal((await wait).content, 'no secrets');
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} bonjour` });
+    await wait;
+    assert.match(ai.seen.at(-1).body.messages[0].content, /Answer in French\./);
+
+    // DMs with the bot.
+    const dm = await bob.call('POST', '/api/dms', { userId: bot.user.id });
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id && m.channelId === dm.id);
+    await bob.call('POST', `/api/channels/${dm.id}/messages`, { content: 'hello in private' });
+    assert.match((await wait).content, /Echo: .*hello in private/);
+
+    // The builder's test chat, with the tool trace; then Anthropic's format.
+    await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}`, {
+      program: [{ trigger: { type: 'tool', name: 'roll_dice', description: 'Roll', options: ['sides (number)'] }, blocks: [{ type: 'ai_tell', text: 'got {param.sides}' }] }],
+    });
+    const test = await alice.call('POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'please roll' }] });
+    assert.equal(test.reply, 'Tool said: got 6');
+    assert.deepEqual(test.trace, [{ tool: 'roll_dice', args: { sides: 6 }, output: 'got 6' }]);
+    await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { provider: 'anthropic', baseUrl: `${ai.base}/anthropic/v1`, model: 'claude-test' });
+    const claude = await alice.call('POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'roll please' }] });
+    assert.equal(claude.reply, 'Tool said: got 20');
+    const sent = ai.seen.at(-1);
+    assert.equal(sent.headers['x-api-key'], 'sk-test-123');
+    assert.match(sent.body.system, /Be a pirate\./);
+    assert.equal(sent.body.tools[0].input_schema.properties.sides.type, 'number');
+
+    // Errors from the service come back readable.
+    await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { provider: 'openai', baseUrl: `${ai.base}/v1`, model: 'broken' });
+    const failed = await alice.expect(400, 'POST', `/api/servers/${server.id}/bots/${bot.id}/ai/chat`, { messages: [{ role: 'user', content: 'hi' }] });
+    assert.match(JSON.stringify(failed), /Incorrect API key/);
+    const cleared = await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/ai`, { apiKey: null });
+    assert.equal(cleared.ai.hasKey, false);
+    await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
+  } finally {
+    ai.server.close();
+  }
+  ok('AI bots: settings and hidden key, model list, mentions, replies, DMs, tools from blocks, ask-the-AI, memory, talk scripts, test chat, Anthropic format, readable errors');
+}
+
 // The server under test: Node, or the Worker in Wrangler's local runtime (with its own throwaway storage).
 function startServer() {
-  const env = { ...process.env, REGISTRATION: 'open', LIMITS_SCALE: '1000', OWNER_CLAIM_TOKEN: OWNER_TOKEN };
+  const env = { ...process.env, REGISTRATION: 'open', LIMITS_SCALE: '1000', OWNER_CLAIM_TOKEN: OWNER_TOKEN, AI_ALLOW_LOCAL: '1' };
   if (!ON_CLOUDFLARE) {
     return spawn(process.execPath, ['server/index.js'], {
       cwd: path.join(__dirname, '..'),

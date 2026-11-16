@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { state, on, emit, remember, roleOf, can } from '../store.js';
 import { openModerate } from './moderation.js';
 import { openBotBuilder } from './botBuilder.js';
+import { openBotSettings } from './botSettings.js';
 import { formatDate, formatStamp } from '../format.js';
 import {
   attempt, avatar, button, confirmButton, copyText, field, form, iconButton, pickFiles, segmented, serverIcon,
@@ -348,6 +349,7 @@ export function openServerSettings(server) {
         h('span', { class: 'manage-main' }, h('strong', {}, bot.user.displayName, h('span', { class: 'member-tag bot' }, 'Bot')),
           h('span', {}, `${bot.program.length} script${bot.program.length === 1 ? '' : 's'} · ${bot.enabled ? 'on' : 'off'}`)),
         h('span', { class: 'manage-actions always' },
+          button('Settings', () => openBotSettings(current(), bot), 'ghost small'),
           button('Edit blocks', () => openBotBuilder(current(), bot), 'ghost small'),
           iconButton(bot.enabled ? 'play' : 'x', bot.enabled ? 'Turn off' : 'Turn on', () => attempt(async () => { await api.patch(`/api/servers/${id}/bots/${bot.id}`, { enabled: !bot.enabled }); load(); }), bot.enabled ? 'on' : ''),
           confirmButton({
