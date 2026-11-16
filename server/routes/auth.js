@@ -27,6 +27,10 @@ const reserved = (name) => RESERVED.has(name) || /^(opencord|admin|staff|support
 const dummyHash = auth.hashPassword(crypto.randomBytes(16).toString('hex'));
 
 router.post('/register', async (req, res) => {
+  // Sign-ups are counted only once an account is really made: a taken name, a short password, a refused invite
+  // or a blocked attempt never uses up the address's allowance.
+  limits.guard('signupPerIp', req.ip);
+  limits.guard('signupGlobal', 'all');
   const mode = appSettings.registrationMode();
   if (mode === 'closed') fail(403, 'Sign-ups are closed on this Opencord.');
   const inviteCode = typeof req.body.inviteCode === 'string' ? req.body.inviteCode : null;
@@ -40,10 +44,10 @@ router.post('/register', async (req, res) => {
   const displayName = req.body.displayName ? text(req.body.displayName, 'Display name', { min: 1, max: 32 }) : username;
   const password = text(req.body.password, 'Password', { min: 8, max: 200, trim: false });
   if (users.getByUsername(username)) fail(409, 'That username is taken.');
-  limits.take('signupPerIp', req.ip);
-  limits.take('signupGlobal', 'all');
 
   const user = users.create({ username, displayName, passwordHash: await auth.hashPassword(password) });
+  limits.count('signupPerIp', req.ip);
+  limits.count('signupGlobal', 'all');
   try { hq.refresh(); } catch {}
   if (inviteCode) {
     try {

@@ -72,6 +72,14 @@
 }
 .auth-check .icon { stroke-width: 2.5; }
 .auth-control.valid .auth-check { opacity: 1; transform: none; }
+.auth-control.has-reveal .auth-input { padding-right: 84px; }
+.auth-control.has-reveal .auth-check { right: 46px; }
+.auth-reveal {
+  position: absolute; right: 8px; top: 50%; display: grid; place-items: center; width: 34px; height: 34px; margin-top: -17px;
+  border-radius: 10px; color: var(--text-muted);
+}
+.auth-reveal:hover { background: var(--hover); color: var(--text); }
+.auth-reveal:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .auth-submit {
   display: flex; align-items: center; justify-content: center; gap: 10px; height: 52px; margin-top: 0.4rem; border-radius: 14px;
   background: var(--accent); color: var(--accent-text); font-size: 1rem; font-weight: 600;

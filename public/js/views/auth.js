@@ -6,9 +6,24 @@ import { inviteCard } from './serverPages.js';
 const USERNAME = /^[a-z0-9_.]{2,32}$/i;
 
 // A labelled input that shows a check mark once what's typed is acceptable.
+// A password field also gets a show / hide button on the right.
 function input(label, props, isValid, hint) {
   const control = h('input', { class: 'auth-input', ...props });
-  const wrap = h('span', { class: 'auth-control' }, control, h('span', { class: 'auth-check', 'aria-hidden': 'true' }, icon('check', 14)));
+  const reveal = props.type === 'password' && h('button', {
+    type: 'button', class: 'auth-reveal', 'aria-label': 'Show password', title: 'Show password', 'aria-pressed': 'false',
+    // Keep focus (and the caret) in the field.
+    onpointerdown: (event) => event.preventDefault(),
+    onclick: () => {
+      const show = control.type === 'password';
+      control.type = show ? 'text' : 'password';
+      reveal.replaceChildren(icon(show ? 'eyeOff' : 'eye', 18));
+      reveal.setAttribute('aria-pressed', String(show));
+      reveal.setAttribute('aria-label', show ? 'Hide password' : 'Show password');
+      reveal.title = show ? 'Hide password' : 'Show password';
+    },
+  }, icon('eye', 18));
+  const wrap = h('span', { class: `auth-control${reveal ? ' has-reveal' : ''}` }, control,
+    h('span', { class: 'auth-check', 'aria-hidden': 'true' }, icon('check', 14)), reveal);
   const check = () => wrap.classList.toggle('valid', isValid(control.value));
   control.addEventListener('input', check);
   return { control, el: h('label', { class: 'auth-field' }, h('span', { class: 'auth-label' }, label), wrap, hint && h('span', { class: 'auth-hint' }, hint)) };

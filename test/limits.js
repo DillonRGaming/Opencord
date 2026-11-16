@@ -27,6 +27,15 @@ assert.throws(() => limits.within('reactionsPerMessage', 20, 1), (err) => err.st
 limits.within('reactionsPerMessage', 19, 1);
 assert.deepEqual(hits, ['messages', 'fileBytes', 'reactionsPerMessage']);
 
+// guard() refuses only when used up and never counts; count() counts without refusing. Sign-ups use these so
+// failed attempts don't use up an address's allowance.
+const signups = limits.describe().rates.find((r) => r.kind === 'signupPerIp').limit;
+for (let i = 0; i < signups * 3; i++) limits.guard('signupPerIp', 'ip1'); // many failed attempts: nothing counted
+assert.equal(limits.exhausted('signupPerIp', 'ip1'), false);
+for (let i = 0; i < signups; i++) { limits.guard('signupPerIp', 'ip1'); limits.count('signupPerIp', 'ip1'); }
+assert.throws(() => limits.guard('signupPerIp', 'ip1'), (err) => err.status === 429 && err.extra.limit === 'signupPerIp');
+limits.guard('signupPerIp', 'ip2');
+
 // An unknown limit is a programming mistake, not a silent pass.
 assert.throws(() => limits.take('nope', 'x'), /Unknown rate limit/);
 

@@ -100,6 +100,28 @@ function take(kind, key) {
   }
 }
 
+// For limits that only count what worked (sign-ups): refuse (429) if `kind` is already used up for `key`,
+// without counting this attempt. Call count() once the thing has actually happened.
+function guard(kind, key) {
+  if (key == null || !exhausted(kind, key)) return;
+  const entry = storeFor(rateOf(kind)).get(`${kind}:${key}`);
+  onHit(kind);
+  fail(429, rateOf(kind).message || SLOW_DOWN, { retryAfterMs: entry.resetAt - Date.now(), limit: kind });
+}
+
+// Counts one use of `kind` by `key` that already happened. Never refuses.
+function count(kind, key) {
+  if (key == null) return;
+  const rate = rateOf(kind);
+  const store = storeFor(rate);
+  const now = Date.now();
+  const k = `${kind}:${key}`;
+  let entry = store.get(k);
+  if (!entry || entry.resetAt <= now) entry = { count: 0, resetAt: now + rate.windowMs };
+  entry.count += 1;
+  store.set(k, entry);
+}
+
 // Whether `kind` is used up for `key`, without counting a use (for checks before the real attempt).
 function exhausted(kind, key) {
   const rate = rateOf(kind);
@@ -146,7 +168,7 @@ function describe() {
 }
 
 module.exports = {
-  SIZES, RATES, take, exhausted, reset, within, middleware, describe, useDatabase,
+  SIZES, RATES, take, guard, count, exhausted, reset, within, middleware, describe, useDatabase,
   setHitListener: (fn) => { onHit = fn; },
   size: (kind) => SIZES[kind].value,
 };
