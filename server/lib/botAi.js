@@ -159,7 +159,13 @@ async function postJson(url, headers, body) {
   let data = null;
   try { data = JSON.parse(res.body.toString('utf8')); } catch { /* not JSON */ }
   if (res.status !== 200) {
-    const message = data?.error?.message || data?.error?.type || data?.message || (typeof data?.error === 'string' ? data.error : '') || res.body.toString('utf8').slice(0, 300);
+    let message = data?.error?.message || data?.error?.type || data?.message || (typeof data?.error === 'string' ? data.error : '') || res.body.toString('utf8').slice(0, 300);
+    // OpenRouter puts the real reason, and who said it, under error.metadata.
+    const meta = data?.error?.metadata;
+    const raw = typeof meta?.raw === 'string' ? meta.raw : meta?.raw ? JSON.stringify(meta.raw) : '';
+    let reason = raw;
+    try { reason = JSON.parse(raw)?.error?.message || raw; } catch { /* plain text */ }
+    if (meta?.provider_name || reason) message = `${message}${meta?.provider_name ? ` (${meta.provider_name})` : ''}${reason ? `: ${String(reason).slice(0, 200)}` : ''}`;
     const hint = res.status === 401 && !headers.Authorization && !headers['x-api-key'] ? ' (the key box in the “use AI” block is empty)' : '';
     throw Object.assign(new AiError(`The AI service said ${res.status}: ${message}${hint}`), { status: res.status, detail: message });
   }
@@ -169,11 +175,22 @@ async function postJson(url, headers, body) {
 
 // Some models refuse settings others need (max_tokens vs max_completion_tokens, tools). When the service
 // says so, rename or drop that setting and try again.
+// Busy or rate-limited (429, 5xx, Anthropic's 529): wait and try again a few times before giving up.
+const RETRY_WAITS = [2000, 5000, 10000];
+const RETRY_STATUS = [429, 500, 502, 503, 504, 529];
+
 async function postAdapting(url, headers, body) {
+  let retries = 0;
   for (let attempt = 0; ; attempt++) {
     try {
       return await postJson(url, headers, body);
     } catch (err) {
+      if (RETRY_STATUS.includes(err.status) && retries < RETRY_WAITS.length) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_WAITS[retries++]));
+        attempt -= 1;
+        continue;
+      }
+      if (RETRY_STATUS.includes(err.status)) throw Object.assign(new AiError(`${err.message} (tried ${retries + 1} times; the model is busy or rate-limited, so try again later or pick another model)`), { status: err.status });
       const detail = String(err.detail || '').toLowerCase();
       if (attempt >= 3 || err.status !== 400) throw err;
       if (detail.includes('max_tokens') && 'max_tokens' in body) { body.max_completion_tokens = body.max_tokens; delete body.max_tokens; }

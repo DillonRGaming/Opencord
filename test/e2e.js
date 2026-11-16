@@ -94,9 +94,9 @@ class Client {
   }
 }
 
-function nextEvent(socket, event, match = () => true) {
+function nextEvent(socket, event, match = () => true, timeout = 3000) {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`No "${event}" event arrived`)), 3000);
+    const timer = setTimeout(() => reject(new Error(`No "${event}" event arrived`)), timeout);
     const handler = (payload) => {
       if (!match(payload)) return;
       clearTimeout(timer);
@@ -1003,6 +1003,11 @@ function fakeAi() {
       const body = raw ? JSON.parse(raw) : {};
       seen.push({ url: req.url, headers: req.headers, body });
       if (body.model === 'broken') return send(401, { error: { message: 'Incorrect API key provided' } });
+      // "flaky" is rate-limited on its first try, like a busy OpenRouter provider.
+      if (body.model === 'flaky' && !fakeAi.flaked) {
+        fakeAi.flaked = true;
+        return send(429, { error: { message: 'Provider returned error', code: 429, metadata: { provider_name: 'SomeHost', raw: 'Rate limit exceeded' } } });
+      }
       // Tools are plain text: the model writes <tool name="…">{…}</tool>, the bot answers "Tool results…".
       const anthropic = req.url.startsWith('/anthropic/');
       const system = anthropic ? body.system : body.messages[0].content;
@@ -1137,6 +1142,14 @@ async function aiBots(alice, bob, server, general, bSock) {
     const sent = ai.seen.at(-1);
     assert.equal(sent.headers['x-api-key'], 'sk-ant');
     assert.match(sent.body.system, /"sides" \(number\)/);
+
+    // A busy, rate-limited model is retried after a short wait.
+    await alice.call('PATCH', `${base}/${bot.id}`, {
+      program: [{ trigger: { type: 'ai_message' }, blocks: [{ type: 'ai_connect', url: `${ai.base}/v1`, key: 'x', model: 'flaky' }, { type: 'ai_reply' }] }],
+    });
+    wait = nextEvent(bSock, 'message:create', (m) => m.author.id === bot.user.id, 8000);
+    await bob.call('POST', `/api/channels/${general.id}/messages`, { content: `@${bot.user.username} still there?` });
+    assert.match((await wait).content, /^Echo: .*still there\?$/);
 
     // Errors come back readable, as the bot's reply.
     await alice.call('PATCH', `${base}/${bot.id}`, {
