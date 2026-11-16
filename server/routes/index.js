@@ -24,6 +24,7 @@ api.use('/auth', require('./auth'));
 api.use('/invites', require('./invites'));
 api.use('/webhooks', require('./webhooks').hooks); // other programs post here with the webhook's secret
 
+api.use('/admin', require('./admin').claim);
 api.use(auth.requireAuth);
 api.use(writesPerUser);
 api.use('/', require('./users'));

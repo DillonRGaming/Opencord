@@ -9,6 +9,10 @@
   // Only orbital.monster; no *.workers.dev address (it would show the account's name) and no preview links.
   "workers_dev": false,
   "preview_urls": false,
+  "routes": [
+    { "pattern": "orbital.monster", "custom_domain": true },
+    { "pattern": "www.orbital.monster", "custom_domain": true }
+  ],
 
   // The page, scripts and styles. /api, /media and /live go to the Worker; any other unknown path is the app.
   "assets": {

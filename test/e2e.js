@@ -789,16 +789,15 @@ async function run() {
   // --- app dashboard (owner/admin only) ---
   await alice.expect(404, 'GET', '/api/admin/overview');
   // Becoming the owner: the one-time claim with the secret token (wrong token refused), or set-role on a computer.
-  await alice.expect(403, 'POST', '/api/admin/claim-owner', { token: 'not-the-token-at-all' });
+  await alice.expect(403, 'POST', '/api/admin/claim-owner', { token: 'not-the-token-at-all', username: 'alice' });
   if (ON_CLOUDFLARE) {
-    await alice.call('POST', '/api/admin/claim-owner', { token: OWNER_TOKEN });
+    await new Client().call('POST', '/api/admin/claim-owner', { token: OWNER_TOKEN, username: 'alice' });
   } else {
     execFileSync(process.execPath, ['scripts/set-role.js', 'alice', 'owner'], {
       cwd: path.join(__dirname, '..'), env: { ...process.env, DATA_DIR: dataDir }, stdio: 'ignore',
     });
   }
-  await bob.expect(401, 'POST', '/api/admin/claim-owner', { token: OWNER_TOKEN }); // logged out by now
-  await (await register('claimer')).expect(409, 'POST', '/api/admin/claim-owner', { token: OWNER_TOKEN });
+  await new Client().expect(409, 'POST', '/api/admin/claim-owner', { token: OWNER_TOKEN, username: 'bob' });
   assert.equal((await alice.call('GET', '/api/users/@me')).appRole, 'owner');
   const overview = await alice.call('GET', '/api/admin/overview');
   assert.ok(overview.totals.people >= 2 && overview.totals.messages > 0);
