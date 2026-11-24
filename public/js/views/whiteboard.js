@@ -9,6 +9,7 @@ import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { confirmButton, iconButton, toast } from '../ui.js';
 import { boardSend } from '../realtime.js';
+import { membersButton } from './side.js';
 import { colorField } from '../colorPicker.js';
 
 const BACKGROUND = '#ffffff';
@@ -294,7 +295,8 @@ export function showWhiteboard(container, channel, serverId) {
       can(serverId, 'manageMessages') && confirmButton({
         label: 'Clear the board', confirmLabel: 'Clear for everyone?', face: icon('trash'), className: 'icon-button',
         onConfirm: () => api.del(`/api/channels/${channel.id}/strokes`),
-      })),
+      }),
+      membersButton()),
     h('div', { class: 'wb-wrap' }, stage, toolbar));
   container.replaceChildren(root);
 

@@ -12,6 +12,7 @@ export function openModerate(server, user, action) {
   const reason = h('textarea', { class: 'textarea', maxLength: 500, placeholder: 'Reason (only admins see this, in the audit log)' });
   const page = openPage({
     title: `${TITLES[action]} ${user.displayName}`,
+    icon: 'shield',
     content: h('div', { class: 'settings-content' },
       settingsHero(avatar(user, { size: 72 }), user.displayName, `@${user.username}`),
       settingsCard(TITLES[action], form({

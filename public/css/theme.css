@@ -2,8 +2,8 @@
    a user's custom CSS can change the whole look. Flat on purpose: no shadows, no glows. */
 
 :root {
-  --accent: #a99bf0;
-  --accent-text: #141814;
+  --accent: #ffffff;
+  --accent-text: #101114;
   --font-size: 16px;
   --font: var(--font-geist);
   --emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", "Twemoji Mozilla", sans-serif;
@@ -17,6 +17,7 @@
   --radius-small: 10px;
   --avatar-radius: 50%;
   --gap: 10px;
+  --control-h: 2.25rem; /* one height for every button, icon button, tab and header search box */
   --message-gap: 0.9rem;
 }
 
@@ -90,6 +91,24 @@
   --bg-panel: #0b0b0b;
   --bg-raised: #171717;
   --bg-input: #171717;
+  --hover: rgba(255, 255, 255, 0.05);
+  --active: rgba(255, 255, 255, 0.09);
+  --border: rgba(255, 255, 255, 0.09);
+  --text: #f2f2f2;
+  --text-muted: #a5a5a5;
+  --text-faint: #858585;
+  --accent-ink: var(--accent);
+  --danger: #e08a7a;
+  --ok: #8fca86;
+}
+
+/* Like OLED, with a slightly lifted black. */
+[data-theme="onyx"] {
+  color-scheme: dark;
+  --bg-app: #0a0a0a;
+  --bg-panel: #121212;
+  --bg-raised: #1d1d1d;
+  --bg-input: #1d1d1d;
   --hover: rgba(255, 255, 255, 0.05);
   --active: rgba(255, 255, 255, 0.09);
   --border: rgba(255, 255, 255, 0.09);
@@ -431,7 +450,7 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .button {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
-  min-height: 2.4rem; padding: 0.5rem 1rem; border-radius: var(--radius-small);
+  height: var(--control-h); min-height: var(--control-h); padding: 0 1rem; border-radius: var(--radius-small);
   font-weight: 500; font-size: 0.88rem; white-space: nowrap;
   transition: background 0.12s, color 0.12s;
 }
@@ -445,11 +464,11 @@ button:disabled { cursor: default; opacity: 0.55; }
 .button.danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 22%, var(--bg-raised)); }
 .button:disabled { opacity: 0.55; cursor: not-allowed; }
 .button.danger.armed, .button.danger.armed:hover, .button.armed, .button.armed:hover { background: var(--danger); color: var(--bg-panel); }
-.button.small { min-height: 2.1rem; padding: 0.35rem 0.8rem; font-size: 0.84rem; }
+.button.small { padding: 0 0.85rem; font-size: 0.84rem; } /* same height as every other control, just tighter */
 .button.wide { width: 100%; }
 
 .icon-button {
-  display: inline-grid; place-items: center; width: 2.25rem; height: 2.25rem; flex: none;
+  display: inline-grid; place-items: center; width: var(--control-h); height: var(--control-h); flex: none;
   border-radius: var(--radius-small); color: var(--text-muted);
 }
 .icon-button:hover { background: var(--active); color: var(--text); }
@@ -489,7 +508,8 @@ button:disabled { cursor: default; opacity: 0.55; }
 
 .badge {
   display: inline-grid; place-items: center; min-width: 1.2rem; height: 1.2rem; padding: 0 0.35rem;
-  border-radius: 1rem; background: var(--accent); color: var(--accent-text); font-size: 0.7rem; font-weight: 600;
+  /* Every count (sidebar, tabs, server rail, menus) is the same red, whatever the accent colour. */
+  border-radius: 1rem; background: var(--danger); color: #fff; font-size: 0.7rem; font-weight: 700; font-variant-numeric: tabular-nums;
 }
 
 /* --- avatars --- */

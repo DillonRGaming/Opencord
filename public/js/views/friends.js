@@ -5,14 +5,14 @@ import { showNav } from '../router.js';
 import { icon } from '../icons.js';
 import { state, on, relationsWith } from '../store.js';
 import * as actions from '../actions.js';
-import { attempt, avatar, button, confirmButton, iconButton } from '../ui.js';
+import { attempt, avatar, button, confirmButton, iconButton, pageTabs } from '../ui.js';
 import { openProfile } from './profile.js';
 
 const TABS = [['online', 'Online'], ['all', 'All'], ['pending', 'Pending'], ['blocked', 'Blocked']];
 const SUBTITLE = { incoming: 'Wants to be your friend', outgoing: 'Request sent', blocked: 'Blocked' };
 
 // The tab you were on comes back after a reload.
-let tab = (() => { try { return localStorage.getItem('oc:friendsTab') || 'online'; } catch { return 'online'; } })();
+let tab = (() => { try { const t = localStorage.getItem('oc:friendsTab'); return TABS.some(([id]) => id === t) ? t : 'online'; } catch { return 'online'; } })();
 const pickTab = (id) => { tab = id; try { localStorage.setItem('oc:friendsTab', id); } catch { /* storage off */ } };
 let root = null;
 let addBox = null; // kept between renders so typing isn't lost when a friend comes online
@@ -56,9 +56,8 @@ const EMPTY = {
 
 function list(heading, relations) {
   if (!relations.length) return null;
-  const byName = (a, b) => a.user.displayName.localeCompare(b.user.displayName);
   return h('section', { class: 'settings-card friend-group' },
-    h('h2', { class: 'settings-card-title' }, `${heading} — ${relations.length}`), relations.sort(byName).map(row));
+    h('h2', { class: 'settings-card-title' }, `${heading} — ${relations.length}`), relations.map(row));
 }
 
 function empty() {
@@ -88,6 +87,8 @@ function buildAddBox() {
           : `Request sent to ${relation.user.displayName}.`;
         status.classList.add('ok');
         username.value = '';
+        clearTimeout(status.timer);
+        status.timer = setTimeout(() => { status.textContent = ''; }, 4000);
       } catch (err) {
         status.textContent = err.message;
         status.classList.add('error');
@@ -95,8 +96,9 @@ function buildAddBox() {
         send.disabled = false;
       }
     },
-  }, h('label', { class: 'add-friend-title' }, 'Add a friend'),
-  h('div', { class: 'add-friend-row' }, h('span', { class: 'add-at' }, '@'), username, send), status);
+  }, h('label', { class: 'settings-card-title add-friend-title' }, 'Add a friend'),
+  // The result ("Request sent to …") shows inside the box, next to the button, then fades after a few seconds.
+  h('div', { class: 'add-friend-row' }, h('span', { class: 'add-at' }, '@'), username, status, send));
 }
 
 function body() {
@@ -118,16 +120,13 @@ function render() {
   addBox ??= buildAddBox();
   const pending = relationsWith('incoming').length;
   // On a computer the tabs sit in the header; a phone has no room there, so they get a row of their own.
-  const tabs = (extra) => h('div', { class: `tabs ${extra}`, role: 'tablist' }, TABS.map(([id, label]) => h('button', {
-    type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
-    onclick: () => { pickTab(id); render(); },
-  }, label, id === 'pending' && pending > 0 && h('span', { class: 'badge' }, pending))));
+  const tabs = pageTabs(TABS.map(([id, label]) => [id, label, id === 'pending' ? pending : 0]), tab, (id) => { pickTab(id); render(); });
   root.replaceChildren(
     h('header', { class: 'main-header' },
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('users', 18), h('span', {}, 'Friends')),
-      tabs('header-tabs')),
-    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, tabs('page-tabs'), bodyOrEmpty())));
+      tabs.header),
+    h('div', { class: 'page-scroll' }, h('div', { class: 'friends-page' }, addBox, tabs.page, bodyOrEmpty())));
 }
 
 on('relationships presence users', render);

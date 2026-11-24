@@ -53,7 +53,8 @@ function row(item) {
   return el;
 }
 
-export function showMenu(event, items, { above = false } = {}) {
+// `width` makes the menu exactly that wide (to line up with what opened it).
+export function showMenu(event, items, { above = false, width = null } = {}) {
   const rows = items.filter(Boolean);
   // Drop dividers at the ends or next to each other.
   const clean = rows.filter((item, i) => item !== '-' || (i > 0 && i < rows.length - 1 && rows[i - 1] !== '-'));
@@ -63,6 +64,7 @@ export function showMenu(event, items, { above = false } = {}) {
   closeMenu();
 
   const el = h('div', { class: 'context-menu', role: 'menu', tabIndex: -1 }, clean.map(row));
+  if (width) Object.assign(el.style, { width: `${width}px`, minWidth: `${width}px`, maxWidth: `${width}px` });
   document.body.append(el);
   const { innerWidth: w, innerHeight: vh } = window;
   const box = el.getBoundingClientRect();

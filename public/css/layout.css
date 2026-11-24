@@ -38,7 +38,65 @@ body.offline .offline-bar {
   border-radius: 0 3px 3px 0; background: var(--text); opacity: 0;
 }
 .rail-item.unread .rail-pill { opacity: 1; }
+.rail-bots { margin-top: auto; }
 .rail-divider { width: 24px; height: 1px; background: var(--border); flex: none; }
+.rail-label { display: none; }
+
+/* --- prototype: the server list as a row of tabs along the top, like a browser (Appearance → Server list → Top) --- */
+@media (min-width: 800px) {
+  [data-rail="top"] .app { grid-template-columns: var(--sidebar-width) minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  [data-rail="top"] .rail {
+    grid-column: 1 / -1; flex-direction: row; align-items: stretch; gap: 4px; height: 44px; padding: 0;
+    overflow-x: auto; overflow-y: hidden;
+  }
+  [data-rail="top"] .rail-item { width: auto; align-items: center; }
+  [data-rail="top"] .rail-item > button {
+    display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 8px; border-radius: 10px;
+    color: var(--text-muted); transition: background 0.12s, color 0.12s;
+  }
+  [data-rail="top"] .rail-item > button:hover { background: var(--hover); color: var(--text); }
+  [data-rail="top"] .rail-item.active > button { background: var(--bg-panel); color: var(--text); }
+  /* Small icons inside the tabs, never the big filled tile. */
+  [data-rail="top"] .rail .server-icon { --size: 22px !important; border-radius: 7px; outline: none !important; }
+  [data-rail="top"] .rail-item.active .server-icon:not(:has(img)) { background: var(--active); color: var(--text); }
+  [data-rail="top"] .rail-button { width: 22px; height: 22px; background: none !important; color: inherit !important; }
+  [data-rail="top"] .rail-button .icon { width: 18px; height: 18px; }
+  [data-rail="top"] .rail-label { display: inline; max-width: 160px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 0.86rem; font-weight: 500; }
+  /* The logo (home) and "add a server" stay as icons only. */
+  [data-rail="top"] .rail-item:first-child .rail-label, [data-rail="top"] .rail-item.add-server .rail-label { display: none; }
+  [data-rail="top"] .rail-item:first-child > button, [data-rail="top"] .rail-item.add-server > button { padding: 0 7px; }
+  [data-rail="top"] .rail-pill { display: none; }
+  [data-rail="top"] .rail-item.unread .rail-label { color: var(--text); font-weight: 600; }
+  [data-rail="top"] .rail .ping-badge { position: static; margin-left: -10px; margin-right: 6px; box-shadow: none; }
+  [data-rail="top"] .rail-divider { width: 1px; height: 20px; margin: 0 4px; }
+  [data-rail="top"] .rail-bots { margin-top: 0; margin-left: auto; }
+  [data-rail="top"] .rail-folder-open { flex-direction: row; }
+  [data-rail="top"] .rail::-webkit-scrollbar { display: none; }
+  /* The rubber-band stretch at the ends (rail.js sets --rubber); pinned buttons stay still. */
+  [data-rail="top"] .rail > :not(.rail-item:first-child):not(.add-server):not(.rail-bots) { transform: translateX(var(--rubber, 0px)); }
+  /* Home stays pinned on the left and "add a server" (and Bots) on the right while the server tabs scroll between
+     them. Where tabs slide under a pinned button they fade and blur out. */
+  [data-rail="top"] .rail-item:first-child, [data-rail="top"] .rail-item.add-server, [data-rail="top"] .rail-bots {
+    position: sticky; z-index: 2; background: var(--bg-app);
+  }
+  /* Solid to the very edge, top to bottom, so no tab ever shows beside or behind a pinned button. */
+  [data-rail="top"] .rail-item:first-child { left: 0; padding-right: 4px; box-shadow: -12px 0 0 var(--bg-app); }
+  [data-rail="top"] .rail-item.add-server { right: 0; margin-left: auto; padding-left: 4px; box-shadow: 12px 0 0 var(--bg-app); }
+  [data-rail="top"] .rail:has(.rail-bots) .rail-item.add-server { right: 40px; box-shadow: 4px 0 0 var(--bg-app); }
+  [data-rail="top"] .rail-bots { right: 0; margin-left: 0; box-shadow: 12px 0 0 var(--bg-app); }
+  [data-rail="top"] .rail-item:first-child::after, [data-rail="top"] .rail-item.add-server::after {
+    content: ''; position: absolute; top: 0; bottom: 0; width: 32px; pointer-events: none;
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  }
+  [data-rail="top"] .rail-item:first-child::after {
+    left: 100%; background: linear-gradient(90deg, var(--bg-app), transparent);
+    -webkit-mask-image: linear-gradient(90deg, #000, transparent); mask-image: linear-gradient(90deg, #000, transparent);
+  }
+  [data-rail="top"] .rail-item.add-server::after {
+    right: 100%; background: linear-gradient(270deg, var(--bg-app), transparent);
+    -webkit-mask-image: linear-gradient(270deg, #000, transparent); mask-image: linear-gradient(270deg, #000, transparent);
+  }
+}
 
 /* --- sidebar --- */
 
@@ -111,9 +169,6 @@ button.main-title:hover { background: var(--hover); }
 .back-button { display: none; }
 .icon-button[aria-pressed="true"] { background: var(--active); color: var(--text); }
 
-.empty-state { display: grid; place-content: center; justify-items: center; gap: 0.5rem; flex: 1; padding: 2rem; text-align: center; color: var(--text-muted); }
-.empty-state h2 { color: var(--text); font-size: 1.1rem; font-weight: 600; }
-.empty-state .icon { color: var(--text-faint); }
 
 /* --- side panel --- */
 

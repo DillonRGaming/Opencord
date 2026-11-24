@@ -4,8 +4,8 @@
 import { setClock } from './format.js';
 
 export const DEFAULTS = {
-  theme: 'graphite',
-  accent: '#a99bf0',
+  theme: 'onyx',
+  accent: '#ffffff',
   fontSize: 16,
   density: 'cozy',
   avatarShape: 'round',
@@ -19,6 +19,7 @@ export const DEFAULTS = {
   contrast: 'normal',
   motion: 'full',
   customCss: '',
+  railPosition: 'left',
 };
 
 export const FONTS = [
@@ -35,6 +36,7 @@ export const THEMES = [
   { id: 'graphite', name: 'Graphite' },
   { id: 'moss', name: 'Moss' },
   { id: 'oled', name: 'OLED' },
+  { id: 'onyx', name: 'Onyx' },
   { id: 'slate', name: 'Slate' },
   { id: 'ocean', name: 'Ocean' },
   { id: 'deepsea', name: 'Deep Sea' },
@@ -58,7 +60,7 @@ export const THEMES = [
 // Themes that were renamed, so settings saved before keep working.
 const RENAMED = { light: 'paper', dark: 'graphite', midnight: 'moss' };
 
-export const ACCENTS = ['#a99bf0', '#a9c79a', '#d6bb84', '#e0a07e', '#e3a3a3', '#d6a8c8', '#c8cf9e', '#b9bdb5'];
+export const ACCENTS = ['#ffffff', '#8b5cf6', '#6366f1', '#3b82f6', '#0ea5e9', '#14b8a6', '#22c55e', '#eab308', '#f97316', '#ef4444', '#ec4899', '#000000'];
 
 const CACHE_KEY = 'oc_appearance';
 
@@ -98,6 +100,7 @@ export function apply(settings) {
   root.dataset.media = pick(s.mediaSize, ['small', 'normal', 'large'], 'normal');
   root.dataset.showTyping = String(s.showTyping !== false);
   root.dataset.bubbles = String(Boolean(s.bubbles));
+  root.dataset.rail = pick(s.railPosition, ['left', 'top'], 'left');
   root.dataset.underlineLinks = String(Boolean(s.underlineLinks));
   root.dataset.timestamps = pick(s.timestamps, ['hover', 'always'], 'hover');
   setClock(pick(s.clock, ['auto', '12', '24'], 'auto'));

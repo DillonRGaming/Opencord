@@ -1,7 +1,7 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { formatSize } from '../format.js';
-import { sendTyping } from '../realtime.js';
+import { sendTyping, sendTypingText } from '../realtime.js';
 import { startUpload } from '../upload.js';
 import { icon } from '../icons.js';
 import { avatar, iconButton, pickFiles, toast } from '../ui.js';
@@ -83,6 +83,22 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
   let replying = null; // the message being answered
   let queue = Promise.resolve();
   let lastTyping = 0;
+  // Opt-in live draft: the text goes out at most every 300ms, with the latest text always sent last.
+  let draftShareTimer = null;
+  let lastDraftShare = 0;
+  let sharedText = '';
+  const flushDraft = () => {
+    draftShareTimer = null;
+    const text = textarea.value.trim();
+    if (text === sharedText) return;
+    sharedText = text;
+    lastDraftShare = Date.now();
+    sendTypingText(channel.id, text);
+  };
+  const shareDraft = () => {
+    if (draftShareTimer) return;
+    draftShareTimer = setTimeout(flushDraft, Math.max(0, 300 - (Date.now() - lastDraftShare)));
+  };
 
   const tray = h('div', { class: 'uploads' });
   const suggestBox = h('div', { class: 'suggest', role: 'listbox' });
@@ -161,7 +177,9 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
       updateSuggest();
       clearTimeout(draftTimer);
       draftTimer = setTimeout(() => writeDraft(draft, textarea.value), 300);
-      if (textarea.value && Date.now() - lastTyping > TYPING_EVERY_MS) {
+      if (setting('sendTyping', true) !== false && setting('sendTypingText', false) === true) {
+        shareDraft();
+      } else if (textarea.value && Date.now() - lastTyping > TYPING_EVERY_MS) {
         lastTyping = Date.now();
         if (setting('sendTyping', true) !== false) sendTyping(channel.id);
       }
@@ -351,6 +369,7 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
     autoGrow(textarea);
     uploads = [];
     lastTyping = 0;
+    if (sharedText) { clearTimeout(draftShareTimer); draftShareTimer = null; sharedText = ''; sendTypingText(channel.id, ''); }
     queue = queue.then(() => deliver(content, batch, replyToId));
   }
 

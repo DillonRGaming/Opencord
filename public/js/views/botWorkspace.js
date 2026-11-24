@@ -8,7 +8,7 @@ import { state, emit, can } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { attempt, avatar, emptyList, switchControl, toast } from '../ui.js';
 import { showMenu } from '../contextMenu.js';
-import { createBotBuilder } from './botBuilder.js';
+import { createBotBuilder } from './nodeBuilder.js';
 import { botProfileView } from './botSettings.js';
 
 const LAST_BOT = 'oc:lastBot';
@@ -134,7 +134,7 @@ export async function showBotWorkspace(main) {
 
 function workspaceMain(tab) {
   const { server, bot, builder } = ws;
-  const tabs = h('div', { class: 'tabs bot-ws-tabs', role: 'tablist' }, [['blocks', 'Blocks'], ['profile', 'Profile']].map(([id, label]) => h('button', {
+  const tabs = h('div', { class: 'tabs bot-ws-tabs', role: 'tablist' }, [['blocks', 'Flow'], ['profile', 'Profile']].map(([id, label]) => h('button', {
     type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(tab === id),
     onclick: () => navigate(paths.bots(server.id, bot.id, id), { replace: true }),
   }, label)));
@@ -144,7 +144,6 @@ function workspaceMain(tab) {
     emit('botws');
   }), 'Bot on or off');
   const header = h('header', { class: 'main-header bot-ws-header' },
-    h('div', { class: 'main-title' }, avatar(bot.user, { size: 24 }), h('span', {}, bot.user.displayName)),
     tabs,
     h('span', { class: 'main-spacer' }),
     h('label', { class: 'bot-ws-toggle' }, onSwitch, 'On'),

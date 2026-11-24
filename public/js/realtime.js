@@ -10,6 +10,11 @@ export function sendTyping(channelId) {
   socket?.emit('typing', channelId);
 }
 
+// The live text of a message being written (only when "show what I'm typing" is on). Empty text clears it.
+export function sendTypingText(channelId, text) {
+  socket?.emit('typing:text', { channelId, text });
+}
+
 // Voice signaling goes over the same socket. ack-style calls return a promise.
 export function voiceEmit(event, payload) {
   return new Promise((resolve) => socket?.emit(event, payload, resolve));
@@ -115,7 +120,9 @@ export function connect() {
 
   socket.on('relationship:update', (relation) => {
     state.relationships.set(relation.user.id, relation);
-    remember(relation.user);
+    // It carries their latest profile: update it everywhere (messages, member lists), not just the friends list.
+    updateUser(relation.user);
+    emit('users', relation.user);
     emit('relationships');
   });
   socket.on('relationship:remove', ({ userId }) => {

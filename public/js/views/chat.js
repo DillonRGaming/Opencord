@@ -6,11 +6,11 @@ import { groupFace } from './sidebar.js';
 import { voice, joinVoice } from '../voice.js';
 import { ensureMembers } from './members.js';
 import { state, on, emit, isUnread, canModerate, can, canPostIn, markRead, dmName, roleColor } from '../store.js';
-import { attempt, avatar, confirmButton, copyText, iconButton, toast } from '../ui.js';
+import { attempt, avatar, confirmButton, copyText, iconButton, toast, skeletonMessages } from '../ui.js';
 import { createComposer } from './composer.js';
 import { messageCard, messageRow, fullContent } from './message.js';
-import { membersShown, openPanel, toggleMembers, dismissPanel } from './side.js';
-import { openProfile } from './profile.js';
+import { membersShown, openPanel, toggleMembers, dismissPanel, membersButton } from './side.js';
+import { openProfile, profileButton } from './profile.js';
 
 const PAGE = 50;
 const TYPING_MS = 8000;
@@ -33,6 +33,7 @@ function header(channel, serverId) {
     searchBox(channel),
     iconButton('pin', 'Pinned messages', () => showPins(channel)),
     serverId && membersButton(),
+    channel.type === 'dm' && channel.kind !== 'group' && channel.recipient && profileButton(channel.recipient),
   ];
   if (channel.kind === 'group') {
     return h('header', { class: 'main-header' }, back,
@@ -135,14 +136,6 @@ export async function jumpToMessage(channelId, id) {
   if (view?.channel.id === channelId) jumpTo(id);
 }
 
-function membersButton() {
-  const el = iconButton('users', 'Members', () => {
-    toggleMembers();
-    el.setAttribute('aria-pressed', String(membersShown()));
-  });
-  el.setAttribute('aria-pressed', String(membersShown()));
-  return el;
-}
 
 function historyStart(channel) {
   if (channel.kind === 'group') {
@@ -261,7 +254,9 @@ function drawSeen(v) {
 }
 
 function drawTop(v) {
-  v.top.replaceChildren(v.hasMore ? h('div', { class: 'history-loading' }, 'Loading older messages…') : historyStart(v.channel));
+  // Before the first page arrives the skeleton is showing, so nothing goes above it.
+  if (!v.ready) return v.top.replaceChildren();
+  return v.top.replaceChildren(v.hasMore ? h('div', { class: 'history-loading' }, 'Loading older messages…') : historyStart(v.channel));
 }
 
 function scrollToBottom(v) {
@@ -378,15 +373,26 @@ function deleteMessage(message) {
 }
 
 function drawTyping(v) {
-  const names = [...v.typing.keys()].map(nameOf);
-  if (!names.length) return v.typingEl.replaceChildren();
-  if (names.length > 3) return v.typingEl.replaceChildren('Several people are typing…');
+  // People sharing their draft get a line each with the text; everyone else is listed as usual below.
+  // At most 3 live drafts at once (anyone past that joins the plain list), each on one line showing only its newest ~60 characters.
+  const live = [...v.typing.keys()].filter((id) => v.typingText.has(id)).slice(0, 3);
+  const tail = (text) => (text.length > 60 ? `…${text.slice(-60)}` : text);
+  const lines = live.map((id) => h('div', { class: 'typing-live' }, h('strong', {}, nameOf(id)), h('span', {}, tail(v.typingText.get(id)))));
+  const names = [...v.typing.keys()].filter((id) => !live.includes(id)).map(nameOf);
+  if (!names.length) return v.typingEl.replaceChildren(...lines);
+  if (lines.length) return v.typingEl.replaceChildren(...lines, h('div', {}, ...typingNames(names)));
+  return v.typingEl.replaceChildren(...typingNames(names));
+}
+
+function typingNames(names) {
+  if (names.length > 3) return ['Several people are typing…'];
   const parts = names.flatMap((name, index) => [index > 0 && (index === names.length - 1 ? ' and ' : ', '), h('strong', {}, name)]);
-  return v.typingEl.replaceChildren(...parts.filter(Boolean), names.length === 1 ? ' is typing…' : ' are typing…');
+  return [...parts.filter(Boolean), names.length === 1 ? ' is typing…' : ' are typing…'];
 }
 
 function stopTyping(v, userId) {
   clearTimeout(v.typing.get(userId));
+  v.typingText.delete(userId);
   if (v.typing.delete(userId)) drawTyping(v);
 }
 
@@ -467,9 +473,13 @@ on('message:delete', ({ id }) => {
   drawSeen(view);
 });
 
-on('typing', ({ channelId, userId }) => {
+on('typing', ({ channelId, userId, text }) => {
   const v = view;
   if (!v || channelId !== v.channel.id) return;
+  if (text !== undefined) {
+    if (text) v.typingText.set(userId, text);
+    else { v.typingText.delete(userId); return stopTyping(v, userId); }
+  }
   clearTimeout(v.typing.get(userId));
   v.typing.set(userId, setTimeout(() => stopTyping(v, userId), TYPING_MS));
   drawTyping(v);
@@ -571,10 +581,12 @@ export function showChat(container, channel, serverId = null) {
     channel, serverId, root: container,
     messages: [], early: [], hasMore: true, ready: false, loading: false, stick: true, height: 0,
     typing: new Map(),
+    typingText: new Map(), // userId → the live draft, for people who share it
     top: h('div'),
     list: h('div', { class: 'message-list' }),
     typingEl: h('div', { class: 'typing', role: 'status' }),
   };
+  v.list.append(skeletonMessages()); // until the first page of messages arrives (drawAll replaces it)
   v.composer = createComposer(channel, placeholder, { onEditLast: () => editLast(v) });
   v.scroller = h('div', {
     class: 'scroller',

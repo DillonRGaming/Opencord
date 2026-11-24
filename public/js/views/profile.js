@@ -5,7 +5,7 @@ import { formatStamp } from '../format.js';
 import * as actions from '../actions.js';
 import { attempt, button, confirmButton, iconButton, toast } from '../ui.js';
 import { profileCard } from './profileCard.js';
-import { openPanel, refreshPanel } from './side.js';
+import { openPanel, refreshPanel, closePanel } from './side.js';
 import { openSettings } from './settings.js';
 import { roleChips } from './roles.js';
 
@@ -53,7 +53,7 @@ function modNotes(serverId, user) {
         await api.del(`${base}/${note.id}`);
         notes = notes.filter((n) => n.id !== note.id);
         draw();
-      }))))) : [h('p', { class: 'mod-notes-empty' }, 'No notes yet.')]));
+      }))))) : []));
   const add = () => attempt(async () => {
     const content = input.value.trim();
     if (!content) return;
@@ -69,12 +69,37 @@ function modNotes(serverId, user) {
 }
 
 // Shows someone's profile in the side panel. `serverId` adds the Kick button for the server's owner.
+// The Profile toggle in a DM's header (where server channels have Members): opens or closes their profile on the right.
+const DM_PROFILE_KEY = 'opencord:dm-profile';
+const dmProfilePref = () => { try { return localStorage.getItem(DM_PROFILE_KEY) === '1'; } catch { return false; } };
+const setDmProfilePref = (on) => { try { localStorage.setItem(DM_PROFILE_KEY, on ? '1' : '0'); } catch { /* private mode */ } };
+
+// Closing the profile with its ✕ (or Escape) in a DM turns the remembered preference off too.
+on('panel:dismissed', (title) => { if (title === 'Profile' && state.route.name === 'dm') setDmProfilePref(false); });
+
+export function profileButton(user) {
+  const el = iconButton('user', 'Profile', () => {
+    if (showing?.userId === user.id) { closePanel(); setDmProfilePref(false); }
+    else { openProfile(user); el.setAttribute('aria-pressed', 'true'); setDmProfilePref(true); }
+  });
+  // Left open last time: open it again for this DM (on a computer; on a phone it would cover the chat).
+  if (dmProfilePref() && showing?.userId !== user.id && matchMedia('(min-width: 800px)').matches) {
+    setTimeout(() => { if (el.isConnected) { openProfile(user); el.setAttribute('aria-pressed', 'true'); } });
+  }
+  el.dataset.profileToggle = '';
+  el.setAttribute('aria-pressed', String(showing?.userId === user.id));
+  return el;
+}
+
 export function openProfile(user, { serverId } = {}) {
   showing = { userId: user.id, serverId };
   const notes = serverId && user.id !== state.me.id && !user.bot && can(serverId, 'moderateMembers') ? modNotes(serverId, user) : null;
   const panel = openPanel({
     title: 'Profile',
-    onClose: () => { showing = null; },
+    onClose: () => {
+      showing = null;
+      document.querySelectorAll('[data-profile-toggle]').forEach((b) => b.setAttribute('aria-pressed', 'false'));
+    },
     build: () => {
       const fresh = state.users.get(user.id) || user;
       return profileCard(fresh, buttonsFor(fresh, serverId, () => panel.close()), serverId && roleChips(serverId, fresh), notes);

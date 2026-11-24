@@ -1,4 +1,5 @@
 import * as api from '../api.js';
+import { lockMaker } from './botFace.js';
 import { h } from '../dom.js';
 import { state } from '../store.js';
 import { setMe } from '../actions.js';
@@ -27,8 +28,9 @@ export function profilePage() {
 
 // The profile form with a live preview, for yourself or for a bot. Each callback saves and resolves the
 // updated user.
-// `extraAvatars` are more built-in pictures offered first (bots get the robot: ['bot']).
-export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvatar, defaultAvatar, removeAvatar, labels = {}, extraAvatars = [] }) {
+// `extraAvatars` are more built-in pictures offered first; `avatarChoices` replaces the whole list; `avatarMaker(onChange)`
+// replaces the list with a maker (people get the lock, bots the face); what's made shows in the preview and saves with the profile.
+export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvatar, defaultAvatar, removeAvatar, labels = {}, extraAvatars = [], avatarChoices = null, avatarMaker = lockMaker }) {
   let me = user;
   let bannerColor = me.bannerColor;
   let bannerPattern = me.bannerPattern;
@@ -42,11 +44,14 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
     onInput: (c) => { bannerColor = c; draw(); }, onChange: (c) => { bannerColor = c; draw(); },
   });
   const preview = h('div');
+  // A picture made in the maker: shown in the preview right away, uploaded when the profile is saved.
+  let made = null; // { url, file() }
 
   // The preview shows what is typed, before it is saved.
   function draw() {
     preview.replaceChildren(profileCard({
       ...me,
+      avatar: made ? made.url : me.avatar,
       displayName: displayName.value || me.username,
       statusText: statusText.value,
       bio: bio.value,
@@ -59,7 +64,7 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
   async function changeAvatar() {
     const [file] = await pickFiles({ accept: IMAGE_TYPES });
     if (!file) return;
-    await attempt(async () => { me = await uploadAvatar(file); });
+    await attempt(async () => { me = await uploadAvatar(file); made = null; });
     drawDefaults();
     draw();
   }
@@ -68,12 +73,12 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
   const DEFAULT_AVATARS = 10;
   const defaults = h('div', { class: 'swatches avatar-swatches' });
   function drawDefaults() {
-    const names = [...extraAvatars, ...Array.from({ length: DEFAULT_AVATARS }, (_, i) => i + 1)];
+    const names = avatarChoices || [...extraAvatars, ...Array.from({ length: DEFAULT_AVATARS }, (_, i) => i + 1)];
     defaults.replaceChildren(...names.map((n) => {
       const src = `/avatars/${n}.svg`;
       return h('button', {
-        type: 'button', class: 'swatch avatar-swatch', 'aria-label': n === 'bot' ? 'Robot avatar' : `Default avatar ${n}`,
-        'aria-pressed': String(me.avatar === src),
+        type: 'button', class: 'swatch avatar-swatch', 'aria-label': String(n).startsWith('bot') ? 'Bot face' : `Default avatar ${n}`,
+        'aria-pressed': String(me.avatar?.split('?')[0] === src),
         onclick: () => pickDefault(n),
       }, h('img', { src, alt: '', draggable: false }));
     }));
@@ -111,7 +116,7 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
   }
 
   async function dropAvatar() {
-    await attempt(async () => { me = await removeAvatar(); });
+    await attempt(async () => { me = await removeAvatar(); made = null; });
     drawDefaults();
     draw();
   }
@@ -119,6 +124,10 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
   const editor = form({
     submitLabel: labels.save || 'Save profile',
     onSubmit: async () => {
+      if (made) {
+        me = await uploadAvatar(await made.file());
+        made = null;
+      }
       me = await save({
         displayName: displayName.value, statusText: statusText.value, bio: bio.value, bannerColor, bannerPattern, bannerPatternColor,
       });
@@ -126,7 +135,9 @@ export function profileEditor({ user, accent = DEFAULTS.accent, save, uploadAvat
   },
   settingsCard('Avatar', settingRow('Profile picture',
     [button('Upload', changeAvatar, 'ghost small'), button('Remove', dropAvatar, 'ghost small')]),
-    stacked(settingRow('Or pick one', defaults))),
+    avatarMaker && !avatarChoices
+      ? stacked(settingRow('Or make one', avatarMaker((picture) => { made = picture; draw(); })))
+      : stacked(settingRow('Or pick one', defaults))),
   settingsCard(labels.about || 'About you', field('Display name', displayName), field('Status', statusText), field(labels.bioLabel || 'About me', bio)),
   settingsCard('Banner', settingRow('Banner colour',
     [banner, button('Match profile picture', matchAvatar, 'ghost small')]),

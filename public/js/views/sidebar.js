@@ -15,7 +15,7 @@ import { openSettings } from './settings.js';
 import { openNotifications } from './notifications.js';
 import { openNewGroup } from './groups.js';
 import { updateMusicDock } from './music.js';
-import { botWorkspaceSidebar, lastBotPath } from './botWorkspace.js';
+import { botWorkspaceSidebar } from './botWorkspace.js';
 
 // The server whose action list (under its name) is folded open, if any.
 let actionsFor = null;
@@ -58,11 +58,13 @@ function homeList() {
   return [
     h('div', { class: 'sidebar-header brand' }, icon('logo', 20), h('span', { class: 'sidebar-title' }, 'Opencord')),
     h('div', { class: 'sidebar-scroll' },
-      navItem({ active: route.name === 'home', onclick: () => navigate(paths.home()) },
+      navItem({ active: route.name === 'home' && !['Notifications', 'Stats'].includes(document.body.dataset.page), className: 'nav-friends', onclick: () => navigate(paths.home()) },
         icon('users', 18), h('span', { class: 'nav-label' }, 'Friends'), pending > 0 && h('span', { class: 'badge' }, pending)),
-      navItem({ onclick: () => openNotifications() },
+      navItem({ active: document.body.dataset.page === 'Notifications', className: 'nav-notifications', onclick: () => openNotifications() },
         icon('bell', 18), h('span', { class: 'nav-label' }, 'Notifications'),
         state.unreadNotifications > 0 && h('span', { class: 'badge' }, state.unreadNotifications > 99 ? '99+' : state.unreadNotifications)),
+      navItem({ active: document.body.dataset.page === 'Stats', className: 'nav-stats', onclick: async () => (await import('./personStats.js')).openMyStats() },
+        icon('gauge', 18), h('span', { class: 'nav-label' }, 'Stats')),
       h('div', { class: 'sidebar-heading' }, h('span', { class: 'heading-label' }, 'Direct messages'),
         iconButton('plus', 'New group', () => openNewGroup())),
       dms.map((dm) => {
@@ -246,13 +248,14 @@ function serverList(server) {
 
 // Clicking your name: pick a status, or go to your profile.
 async function statusMenu(event) {
-  const box = event.currentTarget.getBoundingClientRect();
+  // Lined up with the whole user panel: same left edge and width, a little above it.
+  const box = (event.currentTarget.closest('.user-panel') || event.currentTarget).getBoundingClientRect();
   const choose = (presence) => attempt(async () => setMe(await api.patch('/api/users/@me', { presence })));
   const current = state.me.presence || 'online';
   // The other accounts logged in on this browser, to switch to.
   const accounts = await listAccounts().catch(() => []);
   const others = accounts.filter((a) => !a.current);
-  showMenu({ clientX: box.left, clientY: box.top - 6, preventDefault() {}, stopPropagation() {} }, [
+  showMenu({ clientX: box.left, clientY: box.top - 16, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
       label, checked: current === value, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
     })),
@@ -263,7 +266,7 @@ async function statusMenu(event) {
     ...others.map((user) => ({ label: `Switch to ${user.displayName}`, face: avatar(user, { size: 20 }), badge: user.pings, onClick: () => attempt(() => switchAccount(user.id)) })),
     { label: 'Add an account', icon: 'userPlus', onClick: () => addAccount() },
     others.length > 0 && { label: 'Manage accounts', icon: 'settings', onClick: () => openSettings('account') },
-  ], { above: true });
+  ], { above: true, width: box.width });
 }
 
 // While you're in a call your picture gets a thin green ring, which lights up fully while you talk.
@@ -285,9 +288,16 @@ function userPanel() {
     call && iconButton(voice.muted ? 'micOff' : 'mic', voice.muted ? 'Unmute' : 'Mute', toggleMute, `call-control${voice.muted ? ' off' : ''}`),
     call && iconButton(voice.deafened ? 'headphonesOff' : 'headphones', voice.deafened ? 'Undeafen' : 'Deafen', toggleDeafen, `call-control${voice.deafened ? ' off' : ''}`),
     call && iconButton('phoneOff', 'Leave call', () => leaveVoice(), 'call-control leave-call'),
-    !call && state.me.settings?.developerMode && iconButton('bot', 'Bots', () => navigate(state.route.name === 'bots' ? paths.bots() : lastBotPath()), state.route.name === 'bots' ? 'on' : ''),
     !call && iconButton('settings', 'Settings', () => openSettings()));
 }
+
+// Opening or closing a page (Notifications) moves the highlight without redrawing the sidebar.
+on('page', () => {
+  const page = document.body.dataset.page;
+  document.querySelector('.nav-notifications')?.classList.toggle('active', page === 'Notifications');
+  document.querySelector('.nav-stats')?.classList.toggle('active', page === 'Stats');
+  document.querySelector('.nav-friends')?.classList.toggle('active', !page && state.route.name === 'home');
+});
 
 on('voice:speaking', () => {
   document.querySelector('.user-panel .avatar.in-call')?.classList.toggle('speaking', isSpeaking());

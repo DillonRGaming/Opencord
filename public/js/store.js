@@ -104,14 +104,14 @@ export function dmPingTotal() {
 
 // DMs newest first; ones just opened (no messages yet) sit at the top.
 export function sortedDms() {
-  return [...state.dms.values()].sort((a, b) => {
-    if (!a.lastMessageId || !b.lastMessageId) return a.lastMessageId ? 1 : -1;
-    return a.lastMessageId < b.lastMessageId ? 1 : -1;
-  });
+  // Newest first: by the last message, or for a DM with none yet, by when it was made (ids are in time order).
+  const key = (dm) => dm.lastMessageId || dm.id;
+  return [...state.dms.values()].sort((a, b) => (key(a) < key(b) ? 1 : key(a) > key(b) ? -1 : 0));
 }
 
 export function relationsWith(status) {
-  return [...state.relationships.values()].filter((relation) => relation.status === status);
+  // Newest first: the friend (or request) you just added sits at the top.
+  return [...state.relationships.values()].filter((relation) => relation.status === status).sort((a, b) => (b.since || 0) - (a.since || 0));
 }
 
 export function isOwner(serverId) {

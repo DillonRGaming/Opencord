@@ -9,6 +9,7 @@ import { navigate, paths, showNav } from '../router.js';
 import { formatStamp, renderMarkdown } from '../format.js';
 import { attempt, button, confirmButton, iconButton, toast } from '../ui.js';
 import { openPage } from './page.js';
+import { membersButton } from './side.js';
 import { ensureMembers } from './members.js';
 
 let view = null; // { root, channel, serverId, pages: Map(id → summary), full: Map(id → page), query, editing, loaded }
@@ -62,7 +63,7 @@ function pageList() {
       .sort((a, b) => a.title.localeCompare(b.title));
     items.replaceChildren(...(pages.length ? pages.map((p) => h('button', {
       type: 'button', class: `wiki-item${p.id === openPageId() ? ' active' : ''}`, onclick: () => go(p.id),
-    }, icon('file', 15), h('span', {}, p.title))) : [h('p', { class: 'muted wiki-none' }, view.loaded ? (q ? 'No pages match.' : 'No pages yet.') : 'Loading…')]));
+    }, icon('file', 15), h('span', {}, p.title))) : [h('p', { class: 'muted wiki-none' }, view.loaded ? (q ? 'No pages match.' : '') : 'Loading…')]));
   };
   drawItems();
   return h('nav', { class: 'wiki-nav' }, h('div', { class: 'wiki-nav-top' }, h('label', { class: 'search-field' }, icon('search', 16), search)), items);
@@ -92,7 +93,7 @@ function pageView(pageId) {
         }))),
     page.content.trim()
       ? linkPages(h('div', { class: 'message-content wiki-body' }, renderMarkdown(page.content)))
-      : h('p', { class: 'muted' }, 'This page is empty.'));
+      : '');
 }
 
 function editorView() {
@@ -140,7 +141,7 @@ function editorView() {
 
 function openHistory(page) {
   const list = h('div', { class: 'card-list' }, h('p', { class: 'loading' }, 'Loading…'));
-  const historyPage = openPage({ title: `History of ${page.title}`, content: h('div', { class: 'settings-content' }, list) });
+  const historyPage = openPage({ title: `History of ${page.title}`, icon: 'history', content: h('div', { class: 'settings-content' }, list) });
   api.get(`/api/channels/${view.channel.id}/pages/${page.id}/history`).then((revisions) => {
     list.replaceChildren(...(revisions.length ? revisions.map((r) => {
       const who = state.users.get(r.userId);
@@ -158,7 +159,7 @@ function openHistory(page) {
             }),
           }, 'Restore')),
         h('div', { class: 'message-card-text' }, r.content.slice(0, 600) || '(empty)'));
-    }) : [h('p', { class: 'muted' }, 'No earlier versions yet.')]));
+    }) : []));
   }).catch((err) => toast(err.message));
 }
 
@@ -180,7 +181,8 @@ function render() {
         : iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('book', 18), h('span', {}, channel.name)),
       channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
-      canWrite() && !view.editing && button('New page', () => newPage(), 'accent small')),
+      canWrite() && !view.editing && button('New page', () => newPage(), 'accent small'),
+      membersButton()),
     h('div', { class: `wiki-layout${pageId || view.editing ? ' reading' : ''}` }, pageList(), h('div', { class: 'page-scroll wiki-main' }, main)));
 }
 

@@ -5,6 +5,7 @@ import { h } from '../dom.js';
 import { confirmButton, settingRow, toast } from '../ui.js';
 import { navigate, paths } from '../router.js';
 import { profileEditor } from './settingsProfile.js';
+import { botFaceMaker } from './botFace.js';
 
 export function openBotSettings(server, bot) {
   navigate(paths.bots(server.id, bot.id, 'profile'));
@@ -17,7 +18,8 @@ export function botProfileView(server, bot, { onChange, onDelete }) {
 
   const editor = profileEditor({
     user: bot.user,
-    extraAvatars: ['bot'],
+    // Bots make a face (colour, pattern, eyes, mouth) instead of picking people's lock pictures.
+    avatarMaker: botFaceMaker,
     labels: { about: 'About the bot', bioLabel: 'Bio', bio: 'What this bot does', status: 'Playing with blocks', save: 'Save profile' },
     save: async (fields) => {
       const user = take(await api.patch(`${base}/profile`, fields));

@@ -50,6 +50,7 @@ export async function openAddServer(start = 'create') {
 
   const page = openSectionedPage({
     title: 'Add a server',
+    icon: 'plus',
     groups: [['Add a server', [['create', 'Create a server', create, 'new make'], ['join', 'Join with an invite', join, 'invite code link']]]],
     start,
   });
@@ -74,6 +75,7 @@ function invitePreview(invite, done) {
 export function openInvite(invite) {
   const page = openPage({
     title: 'You’ve been invited',
+    icon: 'userPlus',
     content: h('div', { class: 'settings-content' }, invitePreview(invite, () => page.close())),
   });
 }
@@ -88,6 +90,7 @@ export async function openInviteLink(server) {
   });
   openPage({
     title: `Invite people to ${server.name}`,
+    icon: 'userPlus',
     content: h('div', { class: 'settings-content' },
       settingsHero(serverIcon(server, 72), server.name, 'Anyone with this link can join'),
       settingsCard('Invite link', h('div', { class: 'input-row' }, link, copy))),
@@ -146,12 +149,11 @@ function linksCard(channel) {
     const pick = h('select', { class: 'input', 'aria-label': 'Channel to link' },
       candidates.map((c) => h('option', { value: c.id }, `${c.serverName} · #${c.name}`)));
     body.replaceChildren(
-      h('p', { class: 'muted' }, 'Messages posted in any linked channel show up in all of them, with where they came from. Only channels in servers you own can be linked.'),
       linked.length
         ? h('div', { class: 'manage-list' }, linked.map((c) => h('div', { class: 'manage-row' },
           h('span', { class: 'attachment-icon' }, icon('link', 18)),
           h('span', { class: 'manage-main' }, h('strong', {}, `#${c.name}`), h('span', {}, c.serverName)))))
-        : h('p', { class: 'muted' }, 'Not linked to anything yet.'),
+        : '',
       candidates.length
         ? h('div', { class: 'button-row' }, pick, button('Link', () => attempt(async () => {
           await api.post(`/api/channels/${channel.id}/links`, { channelId: pick.value });
@@ -228,7 +230,8 @@ export function openChannelPage(server, channel, options = {}) {
 
   const what = kind === 'category' ? 'category' : 'channel';
   const page = openPage({
-    title: channel ? (['text', 'voice'].includes(kind) ? `${kind === 'voice' ? '🔊' : '#'} ${channel.name}` : channel.name) : `New in ${server.name}`,
+    icon: channel ? ({ text: 'hash', voice: 'volume', category: 'folder', posts: 'posts', whiteboard: 'whiteboard', calendar: 'calendar', music: 'music', wiki: 'book', video: 'video' }[kind] || 'hash') : 'plus',
+    title: channel ? channel.name : `New in ${server.name}`,
     content: h('div', { class: 'settings-content' },
       settingsCard(channel ? KIND_LABEL[kind] : null, editor),
       channel && kind === 'text' && server.ownerId === state.me.id && linksCard(channel),

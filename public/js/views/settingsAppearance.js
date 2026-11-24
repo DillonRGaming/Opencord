@@ -12,6 +12,7 @@ const PREVIEW = {
   graphite: ['#121211', '#1a1a19', '#252523'],
   paper: ['#e9e5db', '#f6f3ec', '#fdfbf7'],
   oled: ['#000000', '#0b0b0b', '#171717'],
+  onyx: ['#0a0a0a', '#121212', '#1d1d1d'],
   slate: ['#101114', '#15181b', '#1f2226'],
   ocean: ['#0c1118', '#101820', '#19222c'],
   dusk: ['#0f0e16', '#14131e', '#1d1c29'],
@@ -63,7 +64,7 @@ function choices(values, build) {
 // Defaults for settings that aren't about looks (kept apart so "Reset appearance" leaves them alone).
 const OTHER_DEFAULTS = {
   timestamps: 'hover', jumboEmoji: true, spoilers: 'click', linkPreviews: true, mediaSize: 'normal', underlineLinks: false,
-  sendKey: 'enter', showTyping: true, translateAuto: false, bubbles: false, dmsFrom: 'servers', sendTyping: true, friendRequestsFrom: 'everyone',
+  sendKey: 'enter', showTyping: true, translateAuto: false, bubbles: false, dmsFrom: 'servers', sendTyping: true, sendTypingText: false, friendRequestsFrom: 'everyone',
   readReceipts: false, showLastSeen: false, developerMode: false,
 };
 const settingsNow = () => ({ ...DEFAULTS, ...OTHER_DEFAULTS, ...state.me.settings });
@@ -88,7 +89,12 @@ export function appearancePage() {
   }));
   accents.press(current.accent);
 
+  // The whole app's language. English is how it's written; others are translated (see uiLanguage.js).
+  const language = h('select', { class: 'input', 'aria-label': 'Language', 'data-no-translate': '', onchange: () => changeSettings({ uiLanguage: language.value === 'en' ? '' : language.value }) },
+    LANGUAGES.map(([code, name]) => h('option', { value: code, selected: code === (current.uiLanguage || 'en') }, name)));
+
   return [
+    settingsCard('Language', settingRow('App language', language)),
     // Dark themes, then light ones, each under its own heading.
     settingsCard('Theme',
       h('div', { class: 'theme-group-title' }, 'Dark'),
@@ -96,6 +102,8 @@ export function appearancePage() {
       h('div', { class: 'theme-group-title' }, 'Light'),
       h('div', { class: 'theme-grid' }, themes.elements.filter((_, i) => THEMES[i].light)),
       settingRow('Accent colour', h('div', { class: 'swatches' }, accents.elements, picker))),
+    settingsCard('Layout',
+      settingRow('Server list', option('railPosition', [['left', 'Left'], ['top', 'Top (prototype)']], current))),
     settingsCard('Text',
       settingRow('Font', option('font', FONTS.map(([id, name]) => [id, name]), current)),
       settingRow('Size', slider('fontSize', current, { min: 12, max: 24 })),
@@ -141,10 +149,7 @@ export function translationPage() {
   return [
     settingsCard('Translation',
       settingRow('Translate into', to),
-      settingRow('Translate other languages automatically', option('translateAuto', [[false, 'Off'], [true, 'On']], current)),
-      h('p', { class: 'muted' }, 'With it on, every message in another language shows in yours, with a "Show original" link. '
-        + 'You can also translate any message by hand from its tools (the 文A button), picking both languages or letting it detect the first. '
-        + 'Text being translated is sent to Google Translate.')),
+      settingRow('Translate other languages automatically', option('translateAuto', [[false, 'Off'], [true, 'On']], current))),
   ];
 }
 
@@ -154,7 +159,8 @@ export function privacyPage() {
     settingsCard('Messages',
       settingRow('Who can DM you', option('dmsFrom', [['servers', 'Friends and server members'], ['friends', 'Friends only']], current)),
       settingRow('Let others see when you’re typing', option('sendTyping', [[true, 'Yes'], [false, 'No']], current)),
-      settingRow('Read receipts in DMs (you only see theirs if you share yours)', option('readReceipts', [[false, 'Off'], [true, 'On']], current)),
+      settingRow('Show what I’m typing, live, before I send it', option('sendTypingText', [[false, 'Off'], [true, 'On']], current)),
+      settingRow('Read receipts in DMs', option('readReceipts', [[false, 'Off'], [true, 'On']], current)),
       settingRow('Show when I was last online', option('showLastSeen', [[false, 'No'], [true, 'Yes']], current))),
     settingsCard('Friends',
       settingRow('Who can send you friend requests', option('friendRequestsFrom', [['everyone', 'Everyone'], ['servers', 'People in my servers'], ['nobody', 'Nobody']], current))),
@@ -174,8 +180,7 @@ export function accessibilityPage() {
 export function advancedPage() {
   const current = settingsNow();
   return [settingsCard('Developer',
-    settingRow('Developer mode', option('developerMode', [[false, 'Off'], [true, 'On']], current)),
-    h('p', { class: 'field-hint' }, 'Adds a bot button at the bottom left, next to Settings. It opens a workspace for building your bots with blocks.'))];
+    settingRow('Developer mode', option('developerMode', [[false, 'Off'], [true, 'On']], current)))];
 }
 
 export function customCssPage() {

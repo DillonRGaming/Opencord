@@ -82,8 +82,8 @@ export function openEmojiPicker(anchor, onPick, { keepOpen = false } = {}) {
   document.body.append(el);
   draw();
 
-  // Sit above the anchor, kept on screen.
-  const a = anchor.getBoundingClientRect();
+  // Sit above the anchor, kept on screen. From the message box, all the pickers line up with its right edge.
+  const a = (anchor.closest('.composer') || anchor).getBoundingClientRect();
   const box = el.getBoundingClientRect();
   const left = Math.max(8, Math.min(a.right - box.width, innerWidth - box.width - 8));
   const top = a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8);

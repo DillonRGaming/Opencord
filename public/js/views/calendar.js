@@ -7,6 +7,7 @@ import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, button, confirmButton, emptyList, field, form, iconButton, settingRow, settingsCard } from '../ui.js';
 import { openPage } from './page.js';
+import { membersButton } from './side.js';
 import { ensureMembers } from './members.js';
 
 let view = null; // { root, channel, serverId, events: Map, month: Date (1st of it), day: 'YYYY-MM-DD' or null, loaded }
@@ -114,6 +115,7 @@ function openEventEditor(event = null, presetDay = null) {
 
   const page = openPage({
     title: event ? 'Edit event' : 'New event',
+    icon: 'calendar',
     content: h('div', { class: 'settings-content' }, settingsCard(null, editor),
       event && h('section', { class: 'settings-card danger' }, settingRow('Delete this event', confirmButton({
         label: 'Delete event', confirmLabel: 'Click again to delete',
@@ -184,7 +186,8 @@ function render() {
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('calendar', 18), h('span', {}, channel.name)),
       channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
-      canAdd() && button('New event', () => openEventEditor(null, view.day), 'accent small')),
+      canAdd() && button('New event', () => openEventEditor(null, view.day), 'accent small'),
+      membersButton()),
     h('div', { class: 'page-scroll' }, h('div', { class: 'calendar-page' }, monthGrid(), sideList())));
   view.root.querySelector('.page-scroll').scrollTop = scroll;
 }

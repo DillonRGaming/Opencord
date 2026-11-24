@@ -11,6 +11,8 @@ const servers = require('../models/servers');
 const channels = require('../models/channels');
 const realtime = require('../realtime');
 const hq = require('../lib/hq');
+const stats = require('../lib/stats');
+const myStats = require('../lib/myStats');
 
 const router = express.Router();
 const rawImage = express.raw({ type: () => true, limit: config.maxImageBytes });
@@ -45,6 +47,13 @@ router.get('/time', (req, res) => {
 
 router.get('/users/@me', (req, res) => {
   res.json(users.toMe(req.user));
+});
+
+// Your own stats (the same numbers and charts admins see on the dev dashboard). ?tz= is your offset in minutes.
+router.get('/users/@me/stats', (req, res) => {
+  const tz = Number(req.query.tz);
+  const data = stats.person(req.user.id, Number.isFinite(tz) && Math.abs(tz) <= 14 * 60 ? tz : 0);
+  res.json({ ...data, user: users.toUser(req.user), online: true, personal: myStats.personal(req.user.id) });
 });
 
 router.patch('/users/@me', (req, res) => {

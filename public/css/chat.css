@@ -35,7 +35,7 @@
 .message-header { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .author-name { min-width: 0; font-size: 0.94rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .author-name:hover { text-decoration: underline; }
-.message-stamp { flex: none; font-family: var(--mono); font-size: 0.74rem; color: var(--text-faint); }
+.message-stamp { flex: none; font-size: 0.75rem; font-variant-numeric: tabular-nums; color: var(--text-faint); }
 .message-main { min-width: 0; }
 .message-content { overflow-wrap: anywhere; color: color-mix(in srgb, var(--text) 90%, var(--bg-panel)); line-height: 1.55; }
 .message-content.collapsed { max-height: 16rem; overflow: hidden; -webkit-mask-image: linear-gradient(#000 70%, transparent); mask-image: linear-gradient(#000 70%, transparent); }
@@ -131,7 +131,7 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 
 /* Search in the chat header. */
 .header-search {
-  display: flex; align-items: center; gap: 6px; flex: 0 1 180px; min-width: 110px; height: 34px; margin-right: 4px; padding: 0 10px;
+  display: flex; align-items: center; gap: 6px; flex: 0 1 180px; min-width: 110px; height: var(--control-h); margin: 0; padding: 0 10px;
   border-radius: var(--radius-small); background: var(--bg-input); color: var(--text-faint); transition: width 0.15s;
 }
 .header-search:focus-within { flex-basis: 240px; outline: 1px solid var(--text-faint); }
@@ -180,8 +180,14 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 
 /* --- typing + composer --- */
 
-.typing { flex: none; height: 1.4rem; padding: 0 32px; font-size: 0.78rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.typing { flex: none; min-height: 1.4rem; max-height: 40vh; padding: 0 32px; font-size: 0.78rem; color: var(--text-faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .typing strong { color: var(--text-muted); font-weight: 500; }
+/* Someone's live draft (they opted in): their name, then what they've written so far with a blinking caret. */
+.typing-live { display: flex; gap: 8px; padding: 1px 0; font-size: 0.84rem; line-height: 1.35; color: var(--text-muted); }
+.typing-live strong { flex: none; white-space: nowrap; }
+.typing-live span { min-width: 0; overflow: hidden; white-space: nowrap; font-style: italic; opacity: 0.85; }
+.typing-live span::after { content: '▍'; margin-left: 1px; animation: typing-caret 1s steps(1) infinite; }
+@keyframes typing-caret { 50% { opacity: 0; } }
 
 .composer { flex: none; margin: 0 20px 18px; background: var(--bg-input); border-radius: 14px; }
 .reply-bar { display: flex; align-items: center; gap: 8px; padding: 6px 8px 0 14px; font-size: 0.82rem; color: var(--text-muted); }
@@ -454,7 +460,7 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 }
 
 /* --- calendar channels --- */
-.calendar-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 20px; align-items: start; padding: 1.25rem 1.5rem 3rem; }
+.calendar-page { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: var(--gap); align-items: start; padding: var(--page-pad); }
 .cal-month { display: grid; gap: 10px; }
 .cal-bar { display: flex; align-items: center; gap: 4px; }
 .cal-bar h2 { flex: 1; font-size: 1.15rem; font-weight: 600; }
@@ -525,7 +531,7 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
 .music-frame, .music-file-video { display: block; width: 100%; aspect-ratio: 16 / 9; border: 0; border-radius: var(--radius); background: #000; }
 .music-player-slot:fullscreen { display: grid; place-items: center; max-width: none; padding: 0; background: #000; }
 .music-player-slot:fullscreen .music-frame, .music-player-slot:fullscreen .music-file-video { width: 100%; height: 100%; aspect-ratio: auto; border-radius: 0; }
-.music-page { display: grid; gap: 14px; max-width: 720px; margin: 0 auto; padding: 14px 1.5rem 3rem; }
+.music-page { display: grid; gap: var(--gap); padding: var(--page-pad); }
 .music-now { display: grid; gap: 14px; padding: 18px; border-radius: var(--radius); background: var(--bg-raised); }
 .music-now.empty { justify-items: center; gap: 6px; padding: 28px 16px; text-align: center; }
 .music-info { display: flex; align-items: center; gap: 14px; min-width: 0; }
@@ -669,7 +675,7 @@ button.reply-ref:hover .reply-text, button.reply-ref:hover strong { color: var(-
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; padding: 6px 6px 6px 10px;
   border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-panel); color: var(--text-muted);
 }
-.translate-bar select.input { width: auto; min-width: 0; max-width: 11rem; padding: 0.35rem 0.5rem; font-size: 0.84rem; }
+.translate-bar select.input, .translate-bar .dd-button.input { width: auto; min-width: 0; max-width: 11rem; padding: 0.35rem 0.5rem; font-size: 0.84rem; }
 .translate-bar .icon-button { width: 28px; height: 28px; margin-left: auto; }
 
 /* --- "Your messages on the right", like a messenger --- */
@@ -712,7 +718,7 @@ button.relay-tag:hover { color: var(--text); background: var(--hover); }
 .message-list:has(.message.selected) .message:not(.selected):hover { background: none; }
 
 /* --- posts channels --- */
-.posts-page { display: grid; align-content: start; gap: 12px; max-width: 780px; margin: 0 auto; padding: 1.25rem 1.5rem 3rem; }
+.posts-page { display: grid; align-content: start; gap: var(--gap); padding: var(--page-pad); }
 .posts-top { display: flex; align-items: center; gap: 8px; }
 .posts-top .search-field { flex: 1; }
 .posts-top .button { flex: none; }

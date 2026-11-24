@@ -44,6 +44,7 @@ export function openNewGroup() {
   const count = h('span', { class: 'note' }, `0 of ${GROUP_MAX - 1} picked`);
   const page = openPage({
     title: 'New group',
+    icon: 'users',
     content: h('div', { class: 'settings-content' },
       settingsCard('People', count, friendPicker({
         max: GROUP_MAX - 1,
@@ -97,7 +98,7 @@ export function openGroupSettings(dm) {
         }))),
     );
   };
-  const page = openPage({ title: dmName(dm), content });
+  const page = openPage({ title: dmName(dm), icon: 'users', content });
   draw();
   const stop = on('dms', () => {
     if (!content.isConnected) return stop();

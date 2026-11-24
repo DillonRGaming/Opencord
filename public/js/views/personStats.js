@@ -3,12 +3,13 @@
 import * as api from '../api.js';
 import { h } from '../dom.js';
 import { state, remember } from '../store.js';
-import { attempt, avatar, button, confirmButton } from '../ui.js';
+import { attempt, avatar, button, confirmButton, serverIcon, skeletonRows } from '../ui.js';
 import { formatSize, formatStamp, timeAgo } from '../format.js';
 import { openDm } from '../actions.js';
+import { navigate, paths } from '../router.js';
 import { barChart, shortDay, minutesText } from '../charts.js';
 import { openPage, closePage } from './page.js';
-import { openProfile } from './profile.js';
+import { openProfile, profileButton } from './profile.js';
 
 const tile = (label, value, sub) => h('div', { class: 'rc-tile' },
   h('span', { class: 'rc-tile-label' }, label), h('strong', { class: 'rc-tile-value' }, String(value)), sub && h('span', { class: 'rc-sub' }, sub));
@@ -42,7 +43,7 @@ function ownerActions(p) {
   return out;
 }
 
-function body(p) {
+function body(p, { mine = false } = {}) {
   const u = p.user;
   const c = p.counts;
   const badges = [p.appRole === 'owner' && 'Owner', p.appRole === 'admin' && 'Admin', p.suspendedAt && 'Suspended', u.bot && 'Bot'].filter(Boolean);
@@ -58,7 +59,7 @@ function body(p) {
         u.statusText && h('div', { class: 'ps-status' }, u.statusText)),
       h('div', { class: 'ps-actions' },
         u.id !== state.me.id && !u.bot && button('Message', () => attempt(async () => { closePage(); await openDm(u.id); }), 'accent small'),
-        button('Profile', () => openProfile(u), 'ghost small'),
+        !mine && button('Profile', () => openProfile(u), 'ghost small'),
         ...ownerActions(p))),
     h('div', { class: 'rc-tiles' },
       tile('Messages', c.messages.toLocaleString(), `${c.messagesThisMonth.toLocaleString()} in the last 30 days`),
@@ -82,17 +83,68 @@ function body(p) {
         h('tbody', {}, p.recentSessions.map((s) => h('tr', {},
           h('td', { title: formatStamp(s.start) }, formatStamp(s.start)),
           h('td', { class: 'num' }, s.end ? minutesText((s.end - s.start) / 60000) : 'still online')))))
-        : h('p', { class: 'rc-sub' }, 'No sessions recorded yet.')),
+        : ''),
       section('Where they talk', p.topPlaces.length ? h('table', { class: 'rc-table' },
         h('thead', {}, h('tr', {}, h('th', {}, 'Place'), h('th', { class: 'num' }, 'Messages'))),
         h('tbody', {}, p.topPlaces.map((t) => h('tr', {}, h('td', {}, t.name), h('td', { class: 'num' }, t.n.toLocaleString())))))
-        : h('p', { class: 'rc-sub' }, 'No messages yet.'))),
-    h('p', { class: 'rc-sub' }, 'Days and hours are in your time zone. Online time is counted from when tracking started.'));
+        : '')));
+}
+
+// --- the personal part: only on your own Stats page ---
+
+const sizeOf = (n) => n.toLocaleString();
+// A ranked list: optional picture, a name and a line under it, and the count.
+function ranking(rows) {
+  if (!rows.length) return h('p', { class: 'rc-sub' }, '—');
+  return h('div', { class: 'ms-rank' }, rows.map((r) => h(r.onclick ? 'button' : 'div', { type: r.onclick ? 'button' : undefined, class: 'ms-rank-row', onclick: r.onclick },
+    r.face || '', h('span', { class: 'ms-rank-text' }, h('strong', {}, r.name), r.sub && h('span', { class: 'rc-sub' }, r.sub)),
+    h('span', { class: 'ms-rank-n' }, sizeOf(r.n)))));
+}
+const person = (r, sub) => ({ face: avatar(r.user, { size: 28 }), name: r.user.displayName, sub, n: r.n, onclick: () => openProfile(r.user) });
+
+function personal(q) {
+  if (!q) return '';
+  const f = q.facts;
+  const go = (m) => {
+    closePage();
+    navigate(m.serverId ? paths.channel(m.serverId, m.channelId) : paths.dm(m.channelId));
+    import('./chat.js').then((chat) => chat.jumpToMessage(m.channelId, m.id));
+  };
+  return h('div', { class: 'ps ms' },
+    h('h2', { class: 'ms-heading' }, 'Just for you'),
+    h('div', { class: 'rc-tiles' },
+      tile('All messages', sizeOf(f.totalMessages), 'ever'),
+      tile('Reactions got', sizeOf(f.reactionsReceived), 'from other people'),
+      tile('Mentioned', sizeOf(f.mentions), `${sizeOf(f.replies)} replies to you`),
+    ),
+    h('div', { class: 'ps-grid' },
+      section('Recent messages', q.recent.length ? h('div', { class: 'ms-recent' }, q.recent.map((m) => h('button', { type: 'button', class: 'ms-recent-row', onclick: () => go(m) },
+        h('span', { class: 'ms-recent-text' }, m.content || '(an attachment)'), h('span', { class: 'rc-sub' }, `${m.place} · ${timeAgo(m.at)}`)))) : h('p', { class: 'rc-sub' }, '—')),
+      section('People you talk to most', ranking(q.dmPeople.map((r) => person(r, `${sizeOf(r.mine || 0)} from you`))))),
+    h('div', { class: 'ps-grid' },
+      section('Servers you talk in most', ranking(q.topServers.map((r) => ({ face: serverIcon(state.servers.get(r.id) || { name: r.name }, 28), name: r.name, n: r.n })))),
+      section('Channels you talk in most', ranking(q.topChannels.map((r) => ({ name: r.name, sub: r.server, n: r.n, onclick: () => { closePage(); navigate(paths.channel(r.serverId, r.id)); } }))))),
+  );
+}
+
+// Your own stats, for the Friends page's Stats tab: placeholders first, then the charts.
+export function myStats() {
+  const holder = h('div', { class: 'my-stats' }, skeletonRows(6, 40));
+  api.get(`/api/users/@me/stats?tz=${new Date().getTimezoneOffset()}`)
+    .then((p) => holder.replaceChildren(body(p, { mine: true }), personal(p.personal)))
+    .catch((err) => holder.replaceChildren(h('p', { class: 'rc-sub' }, err.message)));
+  return holder;
+}
+
+// The sidebar's Stats button: your own stats as a page, like Notifications.
+export function openMyStats() {
+  // Your profile toggle sits where the ✕ would be (the same button DMs have), so there's no separate Profile button.
+  openPage({ title: 'Stats', icon: 'gauge', key: 'stats', content: myStats(), actions: profileButton(state.me), closable: false });
 }
 
 export async function openPersonStats(user) {
   const holder = h('div', { class: 'ps-loading' }, 'Loading…');
-  openPage({ title: user.displayName, content: holder });
+  openPage({ title: user.displayName, icon: 'gauge', content: holder });
   const p = await attempt(() => api.get(`/api/admin/people/${user.id}?tz=${new Date().getTimezoneOffset()}`));
   if (!p || !holder.isConnected) return;
   remember(p.user);

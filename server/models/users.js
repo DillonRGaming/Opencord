@@ -5,9 +5,11 @@ const { newId } = require('../lib/ids');
 // Everyone starts with a random one.
 const DEFAULT_AVATARS = 10;
 const DEFAULT_PREFIX = '@default/';
+const BOT_AVATAR_VERSION = 3;
 
 // Patterns that can be drawn over a profile banner (public/js/patterns.js draws them).
 const BANNER_PATTERNS = ['dots', 'lines', 'chainlink', 'checks', 'waves', 'zigzag', 'plus'];
+
 
 function isDefaultAvatar(value) {
   return typeof value === 'string' && value.startsWith(DEFAULT_PREFIX);
@@ -15,7 +17,10 @@ function isDefaultAvatar(value) {
 
 function avatarUrl(value) {
   if (!value) return null;
-  return isDefaultAvatar(value) ? `/avatars/${value.slice(DEFAULT_PREFIX.length)}.svg` : `/media/avatars/${value}`;
+  if (!isDefaultAvatar(value)) return `/media/avatars/${value}`;
+  const name = value.slice(DEFAULT_PREFIX.length);
+  // The bot picture was redrawn: the ?v makes browsers fetch the new one instead of a cached robot.
+  return name === 'bot' ? `/avatars/${name}.svg?v=${BOT_AVATAR_VERSION}` : `/avatars/${name}.svg`;
 }
 
 function defaultAvatar(n = 1 + Math.floor(Math.random() * DEFAULT_AVATARS)) {

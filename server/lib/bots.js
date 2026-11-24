@@ -31,7 +31,7 @@ const MAX_NODES = 60; // reporter blocks inside one block's inputs
 function toBot(row) {
   const user = users.get(row.user_id);
   return {
-    id: row.id, serverId: row.server_id, enabled: Boolean(row.enabled), program: JSON.parse(row.program),
+    id: row.id, serverId: row.server_id, enabled: Boolean(row.enabled), program: JSON.parse(row.program), graph: row.graph ? JSON.parse(row.graph) : null,
     admin: servers.roleOf(row.server_id, row.user_id) === 'admin',
     user: users.toUser(user), createdAt: row.created_at,
   };
@@ -61,7 +61,8 @@ function setAdmin(bot, admin) {
   servers.setRole(bot.server_id, bot.user_id, admin ? 'admin' : 'member');
 }
 
-function update(id, { enabled, program }) {
+function update(id, { enabled, program, graph }) {
+  if (graph !== undefined) db.prepare('UPDATE bots SET graph = ? WHERE id = ?').run(graph === null ? null : JSON.stringify(graph), id);
   if (enabled !== undefined) db.prepare('UPDATE bots SET enabled = ? WHERE id = ?').run(enabled ? 1 : 0, id);
   if (program !== undefined) db.prepare('UPDATE bots SET program = ? WHERE id = ?').run(JSON.stringify(program), id);
   return get(id);
@@ -213,6 +214,17 @@ function validateBlocks(blocks, depth = 0) {
     if (b.else !== undefined) out.else = validateBlocks(b.else, depth + 1);
     return out;
   });
+}
+
+// The node editor's own layout. The server never runs it (it runs `program`), so it only has to be
+// plain data of a sensible size.
+function validateGraph(graph) {
+  if (graph === null) return null;
+  if (!graph || typeof graph !== 'object' || !Array.isArray(graph.nodes) || !Array.isArray(graph.edges)) throw new Error('A graph has nodes and wires.');
+  if (graph.nodes.length > 400 || graph.edges.length > 800) throw new Error('Too many nodes.');
+  const out = { v: 1, nodes: graph.nodes, edges: graph.edges, view: graph.view && typeof graph.view === 'object' ? graph.view : null };
+  if (JSON.stringify(out).length > 300000) throw new Error('This bot is too big.');
+  return out;
 }
 
 function validateProgram(program) {
@@ -1298,4 +1310,4 @@ function clickButton(channel, message, user, label) {
   return ran;
 }
 
-module.exports = { toBot, forServer, get, create, update, remove, validateProgram, setAdmin, clickButton, pickFromMenu };
+module.exports = { toBot, forServer, get, create, update, remove, validateProgram, validateGraph, setAdmin, clickButton, pickFromMenu };

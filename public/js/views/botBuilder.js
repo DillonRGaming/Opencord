@@ -23,7 +23,7 @@ let memoryClip = null;
 
 // --- categories (Scratch's colours) ---
 
-const CATEGORIES = [
+export const CATEGORIES = [
   { id: 'events', label: 'Events', colors: ['#ffbf00', '#e6ac00', '#cc9900'] },
   { id: 'messages', label: 'Messages', colors: ['#9966ff', '#855cd6', '#774dcb'] },
   { id: 'control', label: 'Control', colors: ['#ffab19', '#ec9c13', '#cf8b17'] },
@@ -57,7 +57,7 @@ const L = { key: 'name', kind: 'list' };
 const CH = { key: 'channel', kind: 'channel', here: true };
 const WHO = { key: 'target', kind: 'select', options: TARGET };
 
-const BLOCKS = {
+export const BLOCKS = {
   // events
   message: { hat: true, category: 'events', parts: ['when a message', { key: 'match', kind: 'select', options: MATCH }, { key: 'text', kind: 'name', hideWhen: (b) => b.match === 'any' }], make: () => ({ type: 'message', match: 'contains', text: 'hello' }) },
   command: { hat: true, category: 'events', parts: ['when someone types /', { key: 'name', kind: 'name' }], make: () => ({ type: 'command', name: 'ping' }) },
@@ -150,7 +150,7 @@ const BLOCKS = {
 
 const ROUND = 'round';
 const BOOL = 'bool';
-const REPORTERS = {
+export const REPORTERS = {
   // operators
   add: { category: 'operators', parts: [T('a'), '+', T('b')], make: () => ({ r: 'add', a: '', b: '' }) },
   sub: { category: 'operators', parts: [T('a'), '−', T('b')], make: () => ({ r: 'sub', a: '', b: '' }) },
@@ -208,12 +208,12 @@ const REPORTERS = {
 };
 
 // Which reporters go in each palette group, after the stack blocks (variables and lists add one per name).
-const REPORTER_ORDER = {
+export const REPORTER_ORDER = {
   operators: ['add', 'sub', 'mul', 'div', 'random', 'gt', 'lt', 'eq', 'and', 'or', 'not', 'join', 'letter', 'length', 'contains', 'starts', 'mod', 'round', 'math', 'case'],
   info: ['user_name', 'user_mention', 'user_id', 'message', 'said', 'words', 'word', 'mentioned_name', 'mentioned_mention', 'has_role', 'channel_name', 'server_name', 'member_count', 'button', 'choice', 'emoji', 'now', 'web'],
   ai: ['ai_answer', 'tool_input', 'ai_error'],
 };
-const LIST_REPORTERS = ['item', 'list_random', 'list_length', 'list_contains'];
+export const LIST_REPORTERS = ['item', 'list_random', 'list_length', 'list_contains'];
 
 const isReporter = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x) && typeof x.r === 'string';
 const shapeOf = (node) => REPORTERS[node.r]?.shape || ROUND;
@@ -289,7 +289,7 @@ const clone = (value) => JSON.parse(JSON.stringify(value));
 
 // Bots made before reporters had "if [a] [op] [b]": turn those into a pointed block.
 const OLD_OPS = { equals: 'eq', greater: 'gt', less: 'lt', contains: 'contains', starts: 'starts' };
-function upgrade(blocks) {
+export function upgrade(blocks) {
   for (const b of blocks || []) {
     if ((b.type === 'if' || b.type === 'until') && b.cond === undefined && b.op) {
       const pair = { a: b.left ?? '', b: b.right ?? '' };

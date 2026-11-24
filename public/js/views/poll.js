@@ -32,6 +32,7 @@ export function openPoll(channel) {
 
   const page = openPage({
     title: 'New poll',
+    icon: 'bars',
     content: h('div', { class: 'settings-content' },
       settingsCard('Poll', form({
         submitLabel: 'Post poll',

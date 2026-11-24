@@ -25,7 +25,7 @@ const GROUPS = [
 
 // A settings-style page: a searchable list of sections on the left, the open section on the right.
 // `key` puts it in the address as key:<section>, so a refresh comes back to the same section.
-export function openSectionedPage({ title, groups, start, key = null }) {
+export function openSectionedPage({ title, icon: iconName = null, groups, start, key = null }) {
   const content = h('div', { class: 'settings-content' });
   const heading = h('h2', { class: 'settings-page-title' });
   const items = [];
@@ -72,11 +72,11 @@ export function openSectionedPage({ title, groups, start, key = null }) {
   if (items.length <= 4) nav.querySelector('.settings-search').remove();
   const layout = h('div', { class: 'settings-layout' }, nav, h('div', { class: 'settings-main' }, heading, content));
   layout.addEventListener('redraw', () => show(active));
-  const page = openPage({ title, content: layout, key });
+  const page = openPage({ title, icon: iconName, content: layout, key });
   show(items.find((item) => item.id === start) || items[0]);
   return page;
 }
 
 export function openSettings(start = 'account') {
-  return openSectionedPage({ title: 'Settings', groups: GROUPS, start, key: 'settings' });
+  return openSectionedPage({ title: 'Settings', icon: 'settings', groups: GROUPS, start, key: 'settings' });
 }

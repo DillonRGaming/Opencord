@@ -8,6 +8,7 @@ import { navigate, paths, showNav } from '../router.js';
 import { formatStamp } from '../format.js';
 import { attempt, avatar, button, iconButton, pickFiles, toast } from '../ui.js';
 import { startUpload } from '../upload.js';
+import { membersButton } from './side.js';
 import { MESSAGE_MAX } from './composer.js';
 
 let view = null; // { root, channel, serverId, loaded, query, drafting }
@@ -104,7 +105,8 @@ function render() {
       iconButton('back', 'Back', () => showNav(), 'back-button'),
       h('div', { class: 'main-title' }, icon('posts', 18), h('span', {}, channel.name)),
       channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
-      canPost && !view.drafting && button('New post', () => { view.drafting = true; render(); }, 'accent small')),
+      canPost && !view.drafting && button('New post', () => { view.drafting = true; render(); }, 'accent small'),
+      membersButton()),
     h('div', { class: 'page-scroll' }, h('div', { class: 'posts-page' },
       h('div', { class: 'posts-top' }, h('label', { class: 'search-field' }, icon('search', 16), search)),
       view.drafting && draftBox(),

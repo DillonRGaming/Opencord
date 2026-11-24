@@ -64,4 +64,9 @@ function relation(userId, otherId) {
   return toRelation(db.prepare(`${RELATION_SQL} AND relationships.other_id = ?`).get(userId, otherId));
 }
 
-module.exports = { get, setBoth, removeBoth, remove, block, eitherBlocked, areFriends, list, relation };
+// Friend requests waiting for this person to accept (for the account switcher's count).
+function incomingCount(userId) {
+  return db.prepare("SELECT COUNT(*) AS n FROM relationships WHERE user_id = ? AND status = 'incoming'").get(userId).n;
+}
+
+module.exports = { get, setBoth, removeBoth, remove, block, eitherBlocked, areFriends, list, relation, incomingCount };

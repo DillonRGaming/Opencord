@@ -4,7 +4,7 @@ import { icon } from '../icons.js';
 import { state, on, emit, dmName, quietNow, setting } from '../store.js';
 import { navigate, paths } from '../router.js';
 import { formatStamp, renderMarkdown, mentionsMe } from '../format.js';
-import { attempt, avatar, confirmButton, iconButton, segmented } from '../ui.js';
+import { attempt, avatar, confirmButton, iconButton, pageTabs } from '../ui.js';
 import { openPage } from './page.js';
 
 const KIND = { mention: 'mentioned you', everyone: 'mentioned everyone', reply: 'replied to you', role: 'mentioned your role' };
@@ -58,17 +58,17 @@ export async function openNotifications() {
   };
   openPage({
     title: 'Notifications',
-    content: h('div', { class: 'settings-content notifications-page' },
-      h('div', { class: 'notifications-tools' },
-        segmented([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); }),
-        confirmButton({
-          label: 'Clear all', confirmLabel: 'Click again to clear', className: 'button ghost small',
-          onConfirm: async () => {
-            await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
-            load();
-          },
-        })),
-      list),
+    icon: 'bell',
+    key: 'notifications',
+    tabs: pageTabs([['all', 'All'], ['mentions', 'Mentions'], ['replies', 'Replies']], filter, (value) => { filter = value; draw(); }),
+    actions: confirmButton({
+      label: 'Clear all', confirmLabel: 'Click again to clear', className: 'button ghost small',
+      onConfirm: async () => {
+        await Promise.all(notes.map((n) => api.del(`/api/notifications/${n.id}`).catch(() => {})));
+        load();
+      },
+    }),
+    content: h('div', { class: 'notifications-page' }, list),
   });
   load();
   const stop = on('notification', () => (list.isConnected ? load() : stop()));

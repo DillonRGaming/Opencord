@@ -10,6 +10,7 @@ import { colorField } from '../colorPicker.js';
 import { openPage } from './page.js';
 import { groupFace } from './sidebar.js';
 import { openAddServer } from './serverPages.js';
+import { lastBotPath } from './botWorkspace.js';
 
 // Remembers which channel was open in each server, so clicking its icon goes back there.
 // The channel you were last in on each server, kept across reloads.
@@ -26,7 +27,8 @@ const pingText = (n) => (n > 99 ? '99+' : String(n));
 function item({ active, unread, label, onclick, menu, pings = 0 }, face) {
   const el = h('div', { class: `rail-item${active ? ' active' : ''}${unread ? ' unread' : ''}` },
     h('span', { class: 'rail-pill' }),
-    h('button', { type: 'button', title: label, 'aria-label': pings ? `${label}, ${pings} unread` : label, onclick }, face),
+    // The label only shows when the server list is a row of tabs along the top (Appearance → Server list → Top).
+    h('button', { type: 'button', title: label, 'aria-label': pings ? `${label}, ${pings} unread` : label, onclick }, face, h('span', { class: 'rail-label' }, label)),
     pings > 0 && h('span', { class: 'ping-badge' }, pingText(pings)));
   return menu ? withMenu(el, menu) : el;
 }
@@ -129,6 +131,7 @@ function openFolderSettings(folder) {
   const name = h('input', { class: 'input', maxLength: 40, value: folder.name, placeholder: folderName({ ...folder, name: '' }) });
   const page = openPage({
     title: 'Folder',
+    icon: 'folder',
     content: h('div', { class: 'settings-content' },
       settingsCard(null, form({
         submitLabel: 'Save',
@@ -204,6 +207,48 @@ function makeDraggable(el, key, { target, canInto, folderOf = null }) {
 }
 
 export function mountRail(el) {
+  // Tabs along the top scroll sideways with momentum (a flick keeps gliding, then slows) and stretch a little past
+  // either end before springing back. Any wheel or trackpad direction scrolls them. The pinned home and + buttons
+  // don't move: only the tabs between them shift during the stretch (CSS reads --rubber).
+  let pos = 0; // where the strip wants to be, can go past the ends while stretching
+  let vel = 0;
+  let frame = null;
+  const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+  const maxScroll = () => Math.max(0, el.scrollWidth - el.clientWidth);
+  let lastSet = 0; // what step() last set, to notice the strip being scrolled some other way (keyboard, a jump)
+  function step() {
+    const max = maxScroll();
+    if (Math.abs(el.scrollLeft - lastSet) > 2) pos = el.scrollLeft + (pos - Math.min(max, Math.max(0, pos)));
+    pos += vel;
+    vel *= 0.9; // friction
+    if (pos < 0 || pos > max) {
+      const edge = pos < 0 ? 0 : max;
+      vel *= 0.55; // past the end: slow down hard…
+      pos += (edge - pos) * 0.18; // …and spring back
+    }
+    const inside = Math.min(max, Math.max(0, pos));
+    el.scrollLeft = inside;
+    lastSet = el.scrollLeft;
+    const over = pos - inside;
+    el.style.setProperty('--rubber', `${(-over * 0.6).toFixed(2)}px`);
+    if (Math.abs(vel) > 0.15 || Math.abs(over) > 0.4) frame = requestAnimationFrame(step);
+    else { frame = null; pos = inside; el.style.setProperty('--rubber', '0px'); }
+  }
+  el.addEventListener('wheel', (event) => {
+    if (document.documentElement.dataset.rail !== 'top') return;
+    if (el.scrollWidth <= el.clientWidth) return;
+    event.preventDefault();
+    const raw = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    const delta = raw * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? el.clientWidth : 1);
+    if (reduced.matches) { el.scrollLeft += delta; return; }
+    if (!frame) { pos = el.scrollLeft; lastSet = pos; } // pick up from wherever it is now
+    const max = maxScroll();
+    const outside = pos < 0 || pos > max;
+    vel += delta * (outside ? 0.08 : 0.22);
+    vel = Math.max(-80, Math.min(80, vel));
+    if (!frame) frame = requestAnimationFrame(step);
+  }, { passive: false });
+
   function serverItem(server, folderOf = null) {
     return makeDraggable(item({
       active: state.route.serverId === server.id, unread: hasUnread(server), label: server.name,
@@ -250,7 +295,7 @@ export function mountRail(el) {
 
     el.replaceChildren(
       item({
-        active: route.name !== 'server', unread: homeUnread, label: 'Friends and direct messages',
+        active: route.name !== 'server' && route.name !== 'bots', unread: homeUnread, label: 'Friends and direct messages',
         onclick: () => navigate(lastHomePath(), { panel: 'nav' }),
         pings: relationsWith('incoming').length,
       }, h('span', { class: 'rail-button' }, icon('logo', 30))),
@@ -264,6 +309,15 @@ export function mountRail(el) {
         add.classList.add('add-server');
         return add;
       })(),
+      // Developer mode: the bot workspace button sits at the bottom of the rail.
+      ...(state.me.settings?.developerMode ? [(() => {
+        const bots = item({
+          active: route.name === 'bots', label: 'Bots',
+          onclick: () => navigate(route.name === 'bots' ? paths.bots() : lastBotPath()),
+        }, h('span', { class: 'rail-button' }, icon('bot', 22)));
+        bots.classList.add('rail-bots');
+        return bots;
+      })()] : []),
     );
   }
 

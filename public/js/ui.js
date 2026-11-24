@@ -16,9 +16,11 @@ function initials(name) {
   return [...name.trim()].slice(0, 1).join('').toUpperCase() || '?';
 }
 
+const markLoaded = (event) => event.currentTarget.classList.add('loaded');
+
 export function avatar(user, { size = 40, presence = false } = {}) {
   const face = user.avatar
-    ? h('img', { class: 'avatar-face', src: user.avatar, alt: '', draggable: false })
+    ? h('img', { class: 'avatar-face', src: user.avatar, alt: '', draggable: false, onload: markLoaded })
     : h('span', { class: 'avatar-face', style: { background: colorFor(user.id) } }, initials(user.displayName));
   const dot = presence && h('span', { class: `presence ${statusOf(user)}`, dataset: { presence: user.id } });
   return h('span', { class: 'avatar', style: { '--size': `${size}px` } }, face, dot);
@@ -26,7 +28,7 @@ export function avatar(user, { size = 40, presence = false } = {}) {
 
 export function serverIcon(server, size = 48) {
   const face = server.icon
-    ? h('img', { src: server.icon, alt: '', draggable: false })
+    ? h('img', { src: server.icon, alt: '', draggable: false, onload: markLoaded })
     : h('span', {}, server.name.split(/\s+/).map(initials).slice(0, 3).join(''));
   return h('span', { class: 'server-icon', style: { '--size': `${size}px` } }, face);
 }
@@ -160,8 +162,9 @@ export function pickFiles({ accept = '', multiple = false } = {}) {
   });
 }
 
-export function field(label, control, hint) {
-  return h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), control, hint && h('span', { class: 'field-hint' }, hint));
+// A labelled form field. (A third "hint" argument is still accepted but no longer shown: no explainer text under fields.)
+export function field(label, control) {
+  return h('label', { class: 'field' }, h('span', { class: 'field-label' }, label), control);
 }
 
 // A form with one submit button. While onSubmit runs the button is disabled; if it throws, the message is shown.
@@ -183,6 +186,23 @@ export function form({ submitLabel, onSubmit, kind = 'primary' }, ...fields) {
       }
     },
   }, fields, error, h('div', { class: 'form-actions' }, submit));
+}
+
+// Page tabs, the same everywhere: in the header on a computer, in their own row at the top of the page on a phone.
+// `items` are [id, label, badge?]. Returns { header, page, set(id) }: put `header` in the page header and `page`
+// at the top of the page's content.
+export function pageTabs(items, current, onPick) {
+  const make = (extra) => h('div', { class: `tabs ${extra}`, role: 'tablist' }, items.map(([id, label, badge]) => h('button', {
+    type: 'button', role: 'tab', class: 'tab', 'aria-selected': String(id === current), dataset: { tab: String(id) },
+    onclick: () => { set(id); onPick(id); },
+  }, label, badge > 0 && h('span', { class: 'badge' }, badge))));
+  const header = make('header-tabs');
+  const page = make('page-tabs');
+  function set(id) {
+    current = id;
+    for (const tab of [...header.children, ...page.children]) tab.setAttribute('aria-selected', String(tab.dataset.tab === String(id)));
+  }
+  return { header, page, set };
 }
 
 // A row of buttons where exactly one is pressed.
@@ -231,4 +251,36 @@ export function settingsHero(picture, title, meta, ...actions) {
   return h('section', { class: 'settings-card settings-hero' }, picture,
     h('div', { class: 'settings-hero-text' }, h('div', { class: 'settings-hero-title' }, title), meta && h('div', { class: 'settings-hero-meta' }, meta)),
     actions.length > 0 && h('div', { class: 'settings-hero-actions' }, actions));
+}
+
+// --- skeletons: grey shimmering placeholders shaped like what's loading ---
+
+const skel = (cls, style) => h('span', { class: `skel ${cls}`, style });
+const widths = [62, 38, 80, 54, 70, 46, 88, 58];
+
+// Chat messages: a picture, a name line and one or two text lines each.
+export function skeletonMessages(count = 8) {
+  return h('div', { class: 'skel-messages', 'aria-hidden': 'true' }, Array.from({ length: count }, (_, i) => h('div', { class: 'skel-message' },
+    skel('skel-circle', { width: '40px', height: '40px' }),
+    h('div', { class: 'skel-lines' },
+      skel('skel-line', { width: `${70 + (i * 37) % 60}px`, height: '12px' }),
+      skel('skel-line', { width: `${widths[i % widths.length]}%` }),
+      i % 3 === 0 && skel('skel-line', { width: `${widths[(i + 3) % widths.length] / 1.6}%` })))));
+}
+
+// Rows of people (members, DMs, friends): a small picture and a name.
+export function skeletonRows(count = 6, size = 32) {
+  return h('div', { class: 'skel-rows', 'aria-hidden': 'true' }, Array.from({ length: count }, (_, i) => h('div', { class: 'skel-row' },
+    skel('skel-circle', { width: `${size}px`, height: `${size}px` }),
+    skel('skel-line', { width: `${widths[i % widths.length]}%` }))));
+}
+
+// The whole app while it first loads: server rail, sidebar, chat and members, all as placeholders.
+export function skeletonApp() {
+  return h('div', { class: 'app skel-app', 'aria-busy': 'true', 'aria-label': 'Loading' },
+    h('nav', { class: 'rail' }, Array.from({ length: 4 }, () => skel('skel-square', { width: '48px', height: '48px' }))),
+    h('aside', { class: 'sidebar panel' }, h('div', { class: 'skel-pad' }, skel('skel-line', { width: '55%', height: '14px' })), skeletonRows(9)),
+    h('main', { class: 'main' },
+      h('div', { class: 'column panel' }, h('div', { class: 'skel-pad skel-head' }, skel('skel-line', { width: '140px', height: '14px' })), skeletonMessages(7)),
+      h('aside', { class: 'side panel' }, skeletonRows(8))));
 }

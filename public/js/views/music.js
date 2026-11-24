@@ -9,6 +9,7 @@ import { state, on, can, canPostIn } from '../store.js';
 import { showNav } from '../router.js';
 import { attempt, avatar, emptyList, iconButton, toast } from '../ui.js';
 import { ensureMembers } from './members.js';
+import { membersButton } from './side.js';
 import { remote, openPopover, closeFunPicker } from '../fun.js';
 import { mountVideoBrowser, closeVideoBrowser } from './video.js';
 
@@ -828,7 +829,7 @@ function queueList() {
       queue.length > 0 && h('span', { class: 'muted' }, at === -1 ? `${queue.length} song${queue.length === 1 ? '' : 's'}` : left ? `${left} up next` : 'Last song')),
     queue.length > 0 && h('div', { class: 'music-list' }, queue.map(row)),
     canAdd ? add : h('p', { class: 'muted' }, 'Only some roles can add songs here.'),
-    at === -1 && queue.length > 0 && h('p', { class: 'music-hint' }, 'The playlist finished. Tap any song to play it again.'));
+);
 }
 
 // The player lives in its own slot that redraws never touch: moving an embed in the page reloads it,
@@ -852,7 +853,8 @@ function render() {
   view.head.replaceChildren(h('header', { class: 'main-header' },
     iconButton('back', 'Back', () => showNav(), 'back-button'),
     h('div', { class: 'main-title' }, icon(isVideo() ? 'video' : 'music', 18), h('span', {}, channel.name)),
-    channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' })));
+    channel.topic ? h('div', { class: 'main-topic', title: channel.topic }, channel.topic) : h('div', { class: 'main-spacer' }),
+    membersButton()));
   const scroll = view.body.scrollTop;
   // The lyrics box only redraws when the song changes, so it doesn't jump back to the top.
   const item = current();
@@ -986,6 +988,7 @@ on('music:update', (music) => {
   if (music.channelId === view?.channel.id) apply(music);
 });
 on('users members', () => view && render());
+
 on('reload', () => { if (view) syncClock(); }); // reconnected: the clock may have moved
 on('reload', () => view && api.get(`/api/channels/${view.channel.id}/music`).then(apply).catch(() => {}));
 

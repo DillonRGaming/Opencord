@@ -1,5 +1,6 @@
 import { h } from '../dom.js';
-import { on } from '../store.js';
+import { icon } from '../icons.js';
+import { on, emit } from '../store.js';
 import { iconButton } from '../ui.js';
 import { onEscape } from '../escape.js';
 import { closePanel } from './side.js';
@@ -15,25 +16,30 @@ export function mountPages(el) {
   column = el;
 }
 
-// `content` is a node or a list of nodes. `actions` are extra controls for the header (tabs…). Returns { close }.
+// `content` is a node or a list of nodes. Every page header looks the same: back, icon and title, tabs (from
+// pageTabs: `tabs`), then `actions` on the right and a close button. Returns { close }.
 // `key` puts the page in the address (?page=key), so a refresh opens it again: see registerPage.
-export function openPage({ title, content, actions, onClose, key = null }) {
+// `closable: false` leaves out the ✕ (for pages you leave from the sidebar, like Stats).
+export function openPage({ title, icon: iconName = null, tabs = null, content, actions, onClose, key = null, closable = true }) {
   closePage();
   closePanel();
   const el = h('section', { class: 'page-view', 'aria-label': title },
     h('header', { class: 'main-header' },
       iconButton('back', 'Back', () => dismissPage(), 'page-back'),
-      h('h1', { class: 'main-title' }, title),
-      actions,
+      h('h1', { class: 'main-title' }, iconName && icon(iconName, 18), h('span', {}, title)),
+      tabs?.header,
       h('span', { class: 'main-spacer' }),
-      iconButton('x', 'Close', () => dismissPage())),
-    h('div', { class: 'page-scroll' }, h('div', { class: 'page-content' }, content)));
+      actions && h('div', { class: 'main-actions' }, actions),
+      closable && iconButton('x', 'Close', () => dismissPage())),
+    h('div', { class: 'page-scroll' }, h('div', { class: 'page-content' }, tabs?.page, content)));
   const mine = { el, onClose, key, release: onEscape(() => dismissPage()) };
   pushLayer('page');
   current = mine;
   column.append(el);
   column.classList.add('page-open');
   setPageKey(key);
+  document.body.dataset.page = title;
+  emit('page');
   document.body.dataset.panel = 'main';
   // Only with a mouse: on a touch screen, focusing a box pops the keyboard up over what you opened.
   if (matchMedia('(hover: hover)').matches) el.querySelector('.page-content input:not([readonly]):not([type="color"]), .page-content textarea')?.focus();
@@ -48,6 +54,8 @@ export function closePage() {
   el.remove();
   column.classList.remove('page-open');
   setPageKey(null);
+  delete document.body.dataset.page;
+  emit('page');
   onClose?.();
 }
 

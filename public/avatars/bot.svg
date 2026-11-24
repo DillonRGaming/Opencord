@@ -1,19 +1,22 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
-<rect width="256" height="256" fill="#a99bf0"/>
+<!-- The picture every new bot starts with: a happy face on blue. Avatars are cropped round, so it fills the square. -->
+<defs>
+  <!-- the open mouth: flat on top with soft corners, round underneath -->
+  <path id="m" d="M92 148 h72 a8 8 0 0 1 8 8 c0 26 -20 44 -44 44 s-44 -18 -44 -44 a8 8 0 0 1 8 -8 z"/>
+  <clipPath id="c"><use href="#m"/></clipPath>
+</defs>
+<rect width="256" height="256" fill="#5ec4f2"/>
+<g transform="translate(128 132) scale(1.35) translate(-128 -150)">
 <g fill="#141814">
-  <!-- antenna -->
-  <rect x="120" y="58" width="16" height="34" rx="8"/>
-  <circle cx="128" cy="54" r="16"/>
-  <!-- ears -->
-  <rect x="38" y="132" width="22" height="48" rx="11"/>
-  <rect x="196" y="132" width="22" height="48" rx="11"/>
-  <!-- head -->
-  <rect x="54" y="86" width="148" height="126" rx="36"/>
+  <circle cx="90" cy="108" r="16"/>
+  <circle cx="166" cy="108" r="16"/>
+  <use href="#m"/>
 </g>
-<g fill="#a99bf0">
-  <!-- eyes and mouth, cut out in the background colour like the lock's keyhole -->
-  <ellipse cx="102" cy="146" rx="13" ry="17"/>
-  <ellipse cx="154" cy="146" rx="13" ry="17"/>
-  <rect x="104" y="182" width="48" height="10" rx="5"/>
+<g fill="#fff" opacity="0.9">
+  <circle cx="95" cy="103" r="4.5"/>
+  <circle cx="171" cy="103" r="4.5"/>
+</g>
+<!-- the tongue sits in the bottom of the mouth, cut off by its edge -->
+<ellipse cx="128" cy="206" rx="30" ry="24" fill="#f2687a" clip-path="url(#c)"/>
 </g>
 </svg>

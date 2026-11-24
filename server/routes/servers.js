@@ -519,6 +519,11 @@ router.patch('/:id/bots/:botId', (req, res) => {
   if (req.body.program !== undefined) {
     try { fields.program = bots.validateProgram(req.body.program); } catch (err) { fail(400, err.message); }
   }
+  // A program changed by anything but the node editor (the AI, older clients) makes the editor lay it out again.
+  if (fields.program && req.body.graph === undefined) fields.graph = null;
+  if (req.body.graph !== undefined) {
+    try { fields.graph = bots.validateGraph(req.body.graph); } catch (err) { fail(400, err.message); }
+  }
   if (req.body.name !== undefined) {
     const user = users.update(bot.user_id, { displayName: text(req.body.name, 'Bot name', { min: 1, max: 32 }) });
     realtime.toServer(server.id, 'user:update', users.toUser(user));
@@ -562,7 +567,7 @@ router.put('/:id/bots/:botId/avatar', rawImage, async (req, res) => {
 router.put('/:id/bots/:botId/avatar/default/:n', (req, res) => {
   const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   const bot = serverBot(server, req.params.botId);
-  // 1 to DEFAULT_AVATARS, or "bot" for the robot picture.
+  // 1 to DEFAULT_AVATARS, or "bot" for the blue bot face.
   const n = req.params.n === 'bot' ? 'bot' : Number(req.params.n);
   if (n !== 'bot' && (!Number.isInteger(n) || n < 1 || n > users.DEFAULT_AVATARS)) fail(400, 'No such default avatar.');
   res.json(setBotAvatar(server, bot, users.defaultAvatar(n)));

@@ -3,7 +3,7 @@
 import { h } from './dom.js';
 import { onEscape } from './escape.js';
 
-const PRESETS = ['#e3a3a3', '#e0a07e', '#d6bb84', '#c8cf9e', '#a9c79a', '#8fd1b9', '#8fc1d6', '#93a8ef', '#a99bf0', '#d6a8c8', '#f2f2ee', '#b9bdb5', '#6f716b', '#2b2b29'];
+const PRESETS = ['#ef4444', '#f97316', '#eab308', '#84cc16', '#22c55e', '#14b8a6', '#0ea5e9', '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899', '#f2f2ee', '#9ca3af', '#4b5563', '#1f2937'];
 const HEX = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i;
 
 export function normalizeHex(value) {
@@ -74,7 +74,7 @@ function dragArea(el, move) {
 export function openColorPicker(anchor, { value, onInput, onChange, allowNone = false } = {}) {
   closeColorPicker();
   const start = normalizeHex(value);
-  let hsv = hexToHsv(start || '#a99bf0');
+  let hsv = hexToHsv(start || '#8b5cf6');
   let current = start;
   let changed = false;
 

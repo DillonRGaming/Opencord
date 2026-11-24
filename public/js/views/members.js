@@ -4,7 +4,7 @@ import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { state, on, emit, remember, memberRoles, roleColor } from '../store.js';
-import { avatar, statusOf, STATUS_LABELS } from '../ui.js';
+import { avatar, statusOf, STATUS_LABELS, skeletonRows } from '../ui.js';
 import { openProfile } from './profile.js';
 
 let list = null;
@@ -41,6 +41,7 @@ function group(title, members, online) {
 
 function render() {
   if (!list?.isConnected) return;
+  if (!state.members.has(serverId)) { list.replaceChildren(skeletonRows(10)); return; } // still loading
   const members = (state.members.get(serverId) || [])
     .filter(({ user }) => `${user.displayName}\n${user.username}`.toLowerCase().includes(query))
     .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName));

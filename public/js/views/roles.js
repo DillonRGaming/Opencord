@@ -75,7 +75,6 @@ function permissionsBlock(serverId, role, save) {
   const perms = new Set(role.perms || []);
   return h('div', { class: 'role-perms' },
     h('div', { class: 'role-people-title' }, 'Permissions'),
-    role.admin && h('p', { class: 'muted' }, 'Admin powers include all of these.'),
     PERMISSIONS.map(([key, name, about]) => h('label', { class: 'perm-row' },
       h('span', { class: 'perm-text' }, h('strong', {}, name), h('span', {}, about)),
       switchControl(role.admin || perms.has(key), (on) => {

@@ -8,6 +8,7 @@ const { fail, text } = require('../lib/http');
 const users = require('../models/users');
 const channels = require('../models/channels');
 const notifications = require('../models/notifications');
+const relationships = require('../models/relationships');
 const realtime = require('../realtime');
 const hq = require('../lib/hq');
 
@@ -88,10 +89,11 @@ router.post('/logout', auth.requireAuth, (req, res) => {
 
 // The accounts logged in on this browser, for the account switcher.
 router.get('/accounts', auth.requireAuth, (req, res) => {
-  // `pings` for the other accounts: unread DMs plus unread notifications, so the switcher can show a red count.
+  // `pings` for the other accounts: unread DMs, unread notifications and friend requests, so the switcher can show a red count.
   res.json(auth.accountsOf(req, res).map(({ user, current }) => ({
     ...users.toUser(user), current,
-    pings: current ? 0 : Object.values(channels.dmUnreadCounts(user.id)).reduce((a, b) => a + b, 0) + notifications.unreadCount(user.id),
+    pings: current ? 0 : Object.values(channels.dmUnreadCounts(user.id)).reduce((a, b) => a + b, 0) + notifications.unreadCount(user.id)
+      + relationships.incomingCount(user.id),
   })));
 });
 

@@ -29,7 +29,7 @@ function popover(anchor, className, label, children) {
   closeFunPicker();
   const el = h('div', { class: `emoji-picker fun-picker ${className}`, role: 'dialog', 'aria-label': label }, children);
   document.body.append(el);
-  const a = anchor.getBoundingClientRect();
+  const a = (anchor.closest('.composer') || anchor).getBoundingClientRect(); // same spot as the emoji picker
   const box = el.getBoundingClientRect();
   el.style.left = `${Math.max(8, Math.min(a.right - box.width, innerWidth - box.width - 8))}px`;
   el.style.top = `${a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8)}px`;
@@ -143,7 +143,7 @@ export function openKitchen(anchor, onPick) {
     head.replaceChildren(h('span', {}, 'Pick an emoji to mix'));
     const recent = recentMixes();
     right.replaceChildren(...(recent.length ? [h('div', { class: 'picker-heading' }, 'Recent'), ...recent.map((url) => sticker(url, 'Recent sticker'))]
-      : [h('div', { class: 'kitchen-hint' }, icon('sparkles', 28), h('span', {}, 'Google’s Emoji Kitchen: pick an emoji on the left and see every sticker it makes.'))]));
+      : [h('div', { class: 'kitchen-hint' }, icon('sparkles', 28))]));
   }
 
   const el = popover(anchor, 'kitchen-picker', 'Emoji Kitchen', [

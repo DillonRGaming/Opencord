@@ -324,8 +324,6 @@ export function openServerSettings(server, start = null) {
     load();
     return [
       settingsCard('New webhook',
-        h('p', { class: 'muted' }, 'Other programs (GitHub, a build server, a script) can post into a channel by sending '
-          + 'POST {"content": "…"} to the webhook’s URL. Anyone with the URL can post, so keep it secret.'),
         form({
           submitLabel: 'Create webhook',
           onSubmit: async () => {
@@ -382,7 +380,7 @@ export function openServerSettings(server, start = null) {
   // Each section shows only for people with the permission it needs.
   const allow = (perm, entry) => (can(id, perm) ? entry : null);
   const page = openSectionedPage({
-    title: 'Server settings', start, key: `server:${id}`,
+    title: 'Server settings', icon: 'settings', start, key: `server:${id}`,
     groups: [
       [server.name, [
         allow('manageServer', ['overview', 'Overview', overview, 'name icon description banner']),

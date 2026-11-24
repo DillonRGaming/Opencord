@@ -6,7 +6,7 @@ import * as router from './router.js';
 import { navigate, paths } from './router.js';
 import * as theme from './theme.js';
 import { connect } from './realtime.js';
-import { refreshPresenceDots, toast } from './ui.js';
+import { refreshPresenceDots, skeletonApp, toast } from './ui.js';
 import { showAuth } from './views/auth.js';
 import { mountRail } from './views/rail.js';
 import { mountSidebar } from './views/sidebar.js';
@@ -18,6 +18,9 @@ import { mountPages, registerPage, restorePage } from './views/page.js';
 import { showBotWorkspace, leaveBotWorkspace } from './views/botWorkspace.js';
 import { showVoice, closeVoiceView } from './views/voiceView.js';
 import { startGestures } from './gestures.js';
+import { startDropdowns } from './dropdown.js';
+import { startElastic } from './elastic.js';
+import { setUiLanguage } from './uiLanguage.js';
 import { showPosts, closePosts, loadPost } from './views/posts.js';
 import { showWhiteboard, closeWhiteboard } from './views/whiteboard.js';
 import { showCalendar, closeCalendar } from './views/calendar.js';
@@ -33,7 +36,7 @@ let contentEl = null;
 let musicHost = null;
 
 function emptyState(title, text) {
-  return h('div', { class: 'empty-state' }, icon('message', 44), h('h2', {}, title), h('p', {}, text));
+  return h('div', { class: 'empty-state keep' }, h('span', { class: 'empty-icon' }, icon('message', 26)), h('h2', {}, title), h('p', {}, text));
 }
 
 // Channel kinds that have their own view instead of a chat.
@@ -166,6 +169,8 @@ function showApp() {
 }
 
 // Pages that come back after a refresh (see ?page= in views/page.js). Each resolves true if it opened.
+registerPage('stats', async () => { (await import('./views/personStats.js')).openMyStats(); return true; });
+registerPage('notifications', async () => { (await import('./views/notifications.js')).openNotifications(); return true; });
 registerPage('settings', async (section) => { (await import('./views/settings.js')).openSettings(section); return true; });
 registerPage('server', async (serverId, section) => {
   const server = state.servers.get(serverId);
@@ -178,24 +183,32 @@ registerPage('botsettings', async (serverId, botId) => { navigate(paths.bots(ser
 
 async function boot() {
   theme.applyCached();
+  startDropdowns();
+  startElastic();
   router.start();
 
   let data;
+  // Only if loading takes a moment: a quick load goes straight to the app with no flash of placeholders.
+  const shell = setTimeout(() => { if (!root.firstChild || root.querySelector('.boot')) root.replaceChildren(skeletonApp()); }, 150);
   try {
     data = await api.get('/api/bootstrap');
+    clearTimeout(shell);
   } catch (err) {
+    clearTimeout(shell);
     if (err.status !== 401) {
       root.replaceChildren(emptyState("Can't reach Opencord", `${err.message} Reload the page to try again.`));
       return;
     }
     const { route } = state;
     const invite = route.name === 'invite' ? await api.get(`/api/invites/${encodeURIComponent(route.code)}`).catch(() => null) : null;
+    theme.apply({}); // The login and sign-up screens always use the default look (Onyx).
     showAuth(root, invite);
     return;
   }
 
   load(data);
   theme.apply(state.me.settings);
+  setUiLanguage(state.me.settings?.uiLanguage);
   // From here on, a 401 means the session ended somewhere else: go back to the login screen.
   api.setUnauthorizedHandler(() => location.reload());
   showApp();

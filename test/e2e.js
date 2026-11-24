@@ -214,6 +214,12 @@ async function run() {
   wait = nextEvent(aSock, 'typing');
   bSock.emit('typing', general.id);
   assert.deepEqual(await wait, { channelId: general.id, userId: bob.me.id });
+  const mine = await bob.call('GET', '/api/users/@me/stats?tz=0');
+  assert.equal(mine.user.id, bob.me.id);
+  assert.ok(mine.counts && Array.isArray(mine.messagesPerDay));
+  wait = nextEvent(aSock, 'typing', (p) => p.text !== undefined);
+  bSock.emit('typing:text', { channelId: general.id, text: 'hel' });
+  assert.deepEqual(await wait, { channelId: general.id, userId: bob.me.id, text: 'hel' });
   wait = nextEvent(aSock, 'message:create');
   const message = await bob.call('POST', `/api/channels/${general.id}/messages`, { content: 'hello' });
   assert.equal((await wait).content, 'hello');
@@ -704,7 +710,7 @@ async function run() {
   // --- bot profiles: name, status, bio, banner and picture, by whoever manages bots ---
   {
     const bot = await alice.call('POST', `/api/servers/${server.id}/bots`, { name: 'Pretty' });
-    assert.equal(bot.user.avatar, '/avatars/bot.svg', 'new bots get the robot picture');
+    assert.equal(bot.user.avatar, '/avatars/bot.svg?v=3', 'new bots get the bot face picture');
     await bob.expect(403, 'PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, { bio: 'hacked' });
     const wait = nextEvent(bSock, 'user:update', (u) => u.id === bot.user.id && u.bio === 'I help out');
     const updated = await alice.call('PATCH', `/api/servers/${server.id}/bots/${bot.id}/profile`, {
@@ -721,8 +727,8 @@ async function run() {
     const uploaded = await alice.request('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar`, png);
     assert.equal(uploaded.status, 200, JSON.stringify(uploaded.data));
     assert.match(uploaded.data.user.avatar, /^\/media\/avatars\//);
-    assert.equal((await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar/default/bot`)).user.avatar, '/avatars/bot.svg');
-    assert.equal((await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}/avatar`)).user.avatar, '/avatars/bot.svg');
+    assert.equal((await alice.call('PUT', `/api/servers/${server.id}/bots/${bot.id}/avatar/default/bot`)).user.avatar, '/avatars/bot.svg?v=3');
+    assert.equal((await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}/avatar`)).user.avatar, '/avatars/bot.svg?v=3');
     await alice.call('DELETE', `/api/servers/${server.id}/bots/${bot.id}`);
   }
   ok('bot profiles: name, status, bio, banner, default and uploaded pictures; only for bot managers');

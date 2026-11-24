@@ -61,6 +61,17 @@ function init() {
       if (channel && channels.canAccess(userId, channel)) toChannel(channel, 'typing', { channelId, userId });
     });
 
+    // Live draft text, for people who turned on "show what I'm typing". Sent at most ~4 times a second.
+    let lastDraft = 0;
+    socket.on('typing:text', (payload) => {
+      if (Date.now() - lastDraft < 250) return;
+      lastDraft = Date.now();
+      const { channelId, text } = payload || {};
+      if (typeof text !== 'string') return;
+      const channel = typeof channelId === 'string' && channels.get(channelId);
+      if (channel && channels.canAccess(userId, channel)) toChannel(channel, 'typing', { channelId, userId, text: text.slice(0, 300) });
+    });
+
     socket.on('idle', (idle) => setIdle(socket, Boolean(idle)));
 
     socket.on('disconnect', () => {

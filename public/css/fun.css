@@ -46,21 +46,23 @@
 
 /* --- GIF picker, Emoji Kitchen, stickers --- */
 .fun-picker { grid-template-rows: auto auto 1fr auto; }
-.gif-picker { width: min(400px, calc(100vw - 16px)); height: min(480px, calc(100vh - 16px)); }
-.gif-chips { display: flex; gap: 6px; padding: 0 10px 8px; overflow-x: auto; scrollbar-width: none; }
+.gif-chips { display: flex; gap: 6px; padding: 0 10px 10px; overflow-x: auto; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.gif-chips .chip { flex: none; height: 30px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--bg-panel); font-size: 0.82rem; color: var(--text-muted); }
+.gif-chips .chip:hover { background: var(--active); color: var(--text); }
 .gif-scroll { min-height: 0; overflow-y: auto; padding: 0 10px 10px; }
 .gif-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: start; }
 .gif-col { display: grid; gap: 6px; }
 .gif-cell { display: block; width: 100%; border-radius: 8px; overflow: hidden; background: var(--active); }
 .gif-cell img { display: block; width: 100%; height: auto; min-height: 60px; }
-.gif-cell:hover { outline: 2px solid var(--accent); }
-.gif-credit { justify-content: center; font-size: 0.72rem; }
-.kitchen-picker { width: min(440px, calc(100vw - 16px)); height: min(460px, calc(100vh - 16px)); grid-template-rows: auto auto 1fr; }
+.gif-cell:hover { outline: 2px solid var(--text-faint); }
+.gif-credit { justify-content: center; min-height: 28px; font-size: 0.7rem; color: var(--text-faint); background: none; }
+.kitchen-picker { grid-template-rows: auto auto 1fr; }
 .kitchen-head { display: flex; align-items: center; gap: 8px; padding: 0 12px 8px; color: var(--text-muted); font-size: 0.86rem; }
 .kitchen-first { font-size: 1.5rem; font-family: var(--emoji); }
-.kitchen-body { display: grid; grid-template-columns: 132px 1fr; min-height: 0; border-top: 1px solid var(--border); }
-.kitchen-list { display: grid; grid-template-columns: repeat(3, 1fr); align-content: start; gap: 2px; padding: 6px; overflow-y: auto; border-right: 1px solid var(--border); }
-.kitchen-list .picker-emoji.on { background: var(--active); outline: 2px solid var(--accent); }
+.kitchen-body { display: grid; grid-template-columns: 132px 1fr; min-height: 0; }
+.kitchen-list { display: grid; grid-template-columns: repeat(3, 1fr); align-content: start; gap: 2px; padding: 6px; overflow-y: auto; background: var(--bg-panel); border-radius: 10px; margin: 0 0 8px 8px; }
+.kitchen-list .picker-emoji.on { background: var(--active); }
 .kitchen-mixes { display: grid; grid-template-columns: repeat(auto-fill, minmax(62px, 1fr)); align-content: start; gap: 4px; padding: 8px; overflow-y: auto; }
 .kitchen-mixes .picker-heading, .kitchen-mixes .note { grid-column: 1 / -1; }
 .kitchen-sticker { aspect-ratio: 1; padding: 4px; border-radius: 10px; }

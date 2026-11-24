@@ -26,14 +26,104 @@ function input(label, props, isValid, hint) {
     h('span', { class: 'auth-check', 'aria-hidden': 'true' }, icon('check', 14)), reveal);
   const check = () => wrap.classList.toggle('valid', isValid(control.value));
   control.addEventListener('input', check);
-  return { control, el: h('label', { class: 'auth-field' }, h('span', { class: 'auth-label' }, label), wrap, hint && h('span', { class: 'auth-hint' }, hint)) };
+  return { control, el: h('label', { class: 'auth-field' }, h('span', { class: 'auth-label' }, label), wrap) };
 }
 
-// The art half of the screen: the logo drawn big.
+// The art half of the screen: a fake chat racing upward, made of random people saying random things.
+const FEED_NAMES = ['mika', 'jordan', 'pixelfox', 'sam', 'nova', 'river', 'kai', 'ash', 'blue', 'theo', 'luna', 'zed', 'quinn', 'milo', 'ivy', 'rex', 'sora', 'echo'];
+const FEED_LINES = [
+  'ok who is on tonight', 'lmaooo', 'gg', 'that was insane', 'brb food', 'wait what', 'no way', 'send the link',
+  'anyone up for a game?', 'i am so tired', 'this bot is cracked', 'new emoji just dropped', 'who pinged me',
+  'voice in 5?', 'its 3am why are we awake', 'yes', 'nah', 'real', 'bro', 'did you see that', 'pushed the fix',
+  'cant believe that worked', 'one more round', 'w', 'thats crazy', 'ok im back', 'joining now', 'lol same',
+  'hold on', 'loading...', 'skill issue', 'we need a 4th', 'who made this server', 'patch notes are out',
+];
+const FEED_COLORS = ['#f87171', '#fb923c', '#facc15', '#4ade80', '#2dd4bf', '#60a5fa', '#a78bfa', '#f472b6'];
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+
+const CELL_W = 230; // width of one message slot in the honeycomb
+const ROW_H = 74; // height of one row
+
 function showcase() {
-  return h('aside', { class: 'auth-art', 'aria-hidden': 'true' },
-    h('span', { class: 'auth-art-mark one' }, icon('logo', 520)),
-    h('span', { class: 'auth-art-mark two' }, icon('logo', 260)));
+  const track = h('div', { class: 'auth-feed' });
+  const art = h('aside', { class: 'auth-art', 'aria-hidden': 'true' }, track);
+  const speed = matchMedia('(prefers-reduced-motion: reduce)').matches ? 8 : 55; // pixels per second
+  let minute = 8 * 60 + Math.floor(Math.random() * 600);
+  let odd = false;
+
+  const message = () => {
+    const name = pick(FEED_NAMES);
+    const color = FEED_COLORS[FEED_NAMES.indexOf(name) % FEED_COLORS.length];
+    if (Math.random() < 0.3) minute = (minute + 1) % 1440;
+    const time = `${((Math.floor(minute / 60) + 11) % 12) + 1}:${String(minute % 60).padStart(2, '0')} ${minute < 720 ? 'AM' : 'PM'}`;
+    return h('div', { class: 'auth-feed-msg', style: { width: `${CELL_W}px` } },
+      h('span', { class: 'auth-feed-avatar', style: { background: color } }, name[0].toUpperCase()),
+      h('div', { class: 'auth-feed-text' },
+        h('div', { class: 'auth-feed-head' }, h('b', { style: { color } }, name), h('time', {}, time)),
+        typed(pick(FEED_LINES), first ? Math.random() * 2500 : 2200 + Math.random() * 3000)));
+  };
+  // A line that shows typing dots, then types itself out one letter at a time.
+  const typed = (text, delay) => {
+    const line = h('div', { class: 'auth-feed-line typing' });
+    let i = 0;
+    const step = () => {
+      if (!line.isConnected && i) return;
+      line.classList.remove('typing');
+      line.textContent = text.slice(0, ++i);
+      if (i < text.length) setTimeout(step, 35 + Math.random() * 70);
+    };
+    setTimeout(step, delay);
+    return line;
+  };
+  let first = true;
+  // Rows alternate between two offsets, half a slot apart, so the slots sit like a honeycomb.
+  const row = () => {
+    const cols = Math.ceil((art.clientWidth || 600) / CELL_W) + 1;
+    const el = h('div', { class: 'auth-feed-row', style: { height: `${ROW_H}px`, transform: `translateX(${odd ? -CELL_W / 2 : 0}px)` } },
+      ...Array.from({ length: cols }, message));
+    odd = !odd;
+    return el;
+  };
+  const fill = () => {
+    const need = Math.ceil((art.clientHeight || 900) / ROW_H) + 2;
+    while (track.children.length < need) track.append(row());
+    first = false;
+  };
+
+  let offset = 0;
+  let last = 0;
+  const frame = (now) => {
+    if (last && !art.isConnected) return;
+    if (!track.children.length && art.clientHeight) fill();
+    offset += last ? ((now - last) / 1000) * speed : 0;
+    last = now;
+    // A row that has scrolled fully off the top goes away and a new one joins at the bottom.
+    while (offset >= ROW_H && track.firstChild) {
+      offset -= ROW_H;
+      track.firstChild.remove();
+      fill();
+    }
+    track.style.transform = `translateY(${-offset}px)`;
+    requestAnimationFrame(frame);
+  };
+  requestAnimationFrame(frame);
+  return art;
+}
+
+// Google and Discord sign-in, shown but not wired up yet.
+const OAUTH_LOGOS = {
+  Google: '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="#EA4335" d="M12 10.2v3.9h5.5c-.2 1.3-1.6 3.8-5.5 3.8-3.3 0-6-2.7-6-6.1s2.7-6.1 6-6.1c1.9 0 3.1.8 3.8 1.5l2.6-2.5C16.8 3.2 14.6 2.2 12 2.2 6.6 2.2 2.2 6.6 2.2 12s4.4 9.8 9.8 9.8c5.7 0 9.4-4 9.4-9.6 0-.6-.1-1.1-.2-1.6H12z"/></svg>',
+  Discord: '<svg viewBox="0 0 24 24" width="20" height="20"><path fill="#5865F2" d="M20.3 4.4A19.6 19.6 0 0 0 15.4 3l-.6 1.3a18 18 0 0 0-5.6 0L8.6 3a19.5 19.5 0 0 0-4.9 1.5C.6 9.1-.3 13.6.1 18.1a19.8 19.8 0 0 0 6 3l1.3-2a12.7 12.7 0 0 1-2-1l.5-.4a14 14 0 0 0 12.2 0l.5.4c-.6.4-1.3.7-2 1l1.3 2a19.7 19.7 0 0 0 6-3c.5-5.2-.9-9.7-3.6-13.7zM8 15.4c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4zm8 0c-1.2 0-2.2-1.1-2.2-2.4s1-2.4 2.2-2.4 2.2 1.1 2.2 2.4-1 2.4-2.2 2.4z"/></svg>',
+};
+function oauthButtons() {
+  const button = (name) => {
+    const logo = h('span', { class: 'auth-oauth-logo' });
+    logo.innerHTML = OAUTH_LOGOS[name];
+    return h('button', { type: 'button', class: 'auth-oauth', disabled: true, title: 'Coming soon' }, logo, name);
+  };
+  return h('div', { class: 'auth-oauth-wrap' },
+    h('div', { class: 'auth-oauth-row' }, button('Google'), button('Discord')),
+    h('div', { class: 'auth-or' }, 'OR'));
 }
 
 // The log in / create account screen. With an invite, it shows the server first and joins after signing in.
@@ -49,6 +139,9 @@ export function showAuth(root, invite, { add = false } = {}) {
     const server = await api.post(`/api/invites/${invite.code}`).catch(() => null);
     location.href = server ? `/channels/${server.id}` : '/channels/@me';
   }
+
+  // Built once, so switching between sign up and log in keeps the chat running instead of starting over.
+  const art = showcase();
 
   function render() {
     const login = mode === 'login';
@@ -87,15 +180,16 @@ export function showAuth(root, invite, { add = false } = {}) {
         h('div', { class: 'auth-brand' }, icon('logo', 34), 'Opencord'),
         h('div', { class: 'auth-body' },
           h('h1', { class: 'auth-title' }, add ? (login ? 'Add an account' : 'Make another account') : login ? 'Welcome back' : 'Sign up'),
-          h('p', { class: 'auth-lead' }, add ? 'You stay logged in to your other accounts and can switch between them any time.'
-            : invite ? "You've been invited to join" : login ? 'Log in to pick up where you left off.' : 'Make an account. It takes ten seconds.'),
+          (add || invite) && h('p', { class: 'auth-lead' }, add ? 'You stay logged in to your other accounts and can switch between them any time.'
+            : "You've been invited to join"),
           invite && inviteCard(invite),
+          oauthButtons(),
           form,
           h('p', { class: 'auth-switch' }, login ? 'New here? ' : 'Already have an account? ',
             h('button', { type: 'button', onclick: () => { mode = login ? 'register' : 'login'; render(); } },
               login ? 'Create an account' : 'Log in')),
           add && h('p', { class: 'auth-switch' }, h('button', { type: 'button', onclick: () => location.reload() }, 'Back to Opencord')))),
-      showcase()));
+      art));
     username.control.focus();
   }
 

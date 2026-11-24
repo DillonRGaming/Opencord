@@ -55,4 +55,4 @@ Opencord has friends, direct messages and group chats, and servers with many kin
 - Overview (name, icon, description, banner), Channels, Emoji, Invites, Community (welcome message, how long new members wait before posting, who can make invites and pin), Roles, Members, Bans, Bot builder, Webhooks and Audit log. The owner can also delete the server.
 - Roles: Create role, then set its name and colour, choose whether it shows separately in the member list, whether anyone can @mention it, and its permissions. Give people roles from the role page, from Members, or by right-clicking them.
 - The permissions are Manage the server, Manage channels, Manage roles, Manage messages, Moderate members, Manage bots and webhooks, See the audit log, Mention @everyone, and Make invites.
-- Bot builder: bots are made from Scratch-style blocks that you drag and snap together. There are no code files.`;
+- Bot builder: bots are made from nodes joined by wires (a trigger node, then the actions it runs, with value nodes plugged into inputs). There are no code files.`;
