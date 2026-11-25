@@ -33,7 +33,6 @@ webkit2gtk = "2.0.2"
 webview2-com = "0.39.1"
 
 [profile.release]
-codegen-units = 1
-lto = true
+lto = "thin"
 opt-level = "s"
 strip = true

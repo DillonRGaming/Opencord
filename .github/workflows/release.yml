@@ -84,7 +84,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
       - uses: dtolnay/rust-toolchain@stable
-        with: { targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android" }
+        with: { targets: aarch64-linux-android }
       - uses: swatinem/rust-cache@v2
         with: { workspaces: app/src-tauri }
       - run: npm ci
@@ -100,7 +100,7 @@ jobs:
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-        run: npx tauri android build --apk --ci
+        run: npx tauri android build --apk --target aarch64 --ci # 64-bit ARM: every phone from the last ~7 years
       - name: Upload APK
         run: |
           apk="Opencord_${{ needs.draft.outputs.version }}_android.apk"
