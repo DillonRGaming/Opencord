@@ -6,6 +6,8 @@ import android.os.Bundle
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.firebase.messaging.FirebaseMessaging
 
 class MainActivity : TauriActivity() {
@@ -41,6 +43,16 @@ class MainActivity : TauriActivity() {
     super.onWebViewCreate(webView)
     // Sound can start without a tap first (the sign-up music, the ringtone on an incoming call).
     webView.settings.mediaPlaybackRequiresUserGesture = false
+    // Android draws apps edge to edge: keep the page clear of the status bar, the navigation bar, a camera
+    // notch, and the keyboard while it's open.
+    // (The padding goes on the page's container: a WebView doesn't lay its page out inside its own padding.)
+    val container = findViewById<android.view.View>(android.R.id.content)
+    container.setBackgroundColor(android.graphics.Color.parseColor("#0a0a0a"))
+    ViewCompat.setOnApplyWindowInsetsListener(container) { view, insets ->
+      val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
+      view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      WindowInsetsCompat.CONSUMED
+    }
     webView.addJavascriptInterface(object {
       @JavascriptInterface fun token(): String = Push.token(this@MainActivity) ?: ""
       @JavascriptInterface fun takeAction(): String { val a = pendingAction ?: ""; pendingAction = null; return a }
