@@ -8,7 +8,7 @@ const CSP = [
 
 const SECURITY_HEADERS = {
   'X-Content-Type-Options': 'nosniff',
-  'Referrer-Policy': 'same-origin',
+  'Referrer-Policy': 'strict-origin-when-cross-origin', // other sites see only "orbital.monster"; YouTube embeds need that
   'X-Frame-Options': 'DENY',
   'Content-Security-Policy': CSP,
   'Strict-Transport-Security': 'max-age=31536000',
