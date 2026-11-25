@@ -1,6 +1,7 @@
 // Appearance settings. They live in me.settings on the server (so they follow the account between
 // devices) and are mirrored in localStorage so the page doesn't flash the wrong theme while loading.
 
+import { paintAppIcon } from './appIcon.js';
 import { setClock } from './format.js';
 
 export const DEFAULTS = {
@@ -108,6 +109,7 @@ export function apply(settings) {
   document.getElementById('theme-vars').textContent = `@layer app { :root:root:root { ${Object.entries(vars).map(([k, v]) => `${k}: ${v};`).join(' ')} } }`;
   for (const name of Object.keys(vars)) root.style.removeProperty(name);
   document.getElementById('custom-css').textContent = String(s.customCss || '');
+  paintAppIcon(accent, contrastOn(accent));
   try {
     localStorage.setItem(CACHE_KEY, JSON.stringify(s));
   } catch {
