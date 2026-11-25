@@ -5,7 +5,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 
 const TRACK = { src: '/audio/burn-this-shit-down.mp3', title: 'Burn This Shit Down', artist: 'Travis Scott' };
-const START_AT = 20; // seconds into the song
+const START_AT = 30; // seconds into the song
 // Volume over time: a quick fade in to a whisper, then slowly a little louder.
 const FADE_IN = { ms: 2500, to: 0.12 };
 const RISE = { ms: 10000, to: 0.4 };
