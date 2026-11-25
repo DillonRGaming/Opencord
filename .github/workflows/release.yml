@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.v.outputs.version }}
-      release-id: ${{ steps.r.outputs.id }}
+      release_id: ${{ steps.r.outputs.id }}
     steps:
       - id: v
         run: |
@@ -67,7 +67,7 @@ jobs:
         with:
           projectPath: app
           tauriScript: npx tauri
-          releaseId: ${{ needs.draft.outputs.release-id }}
+          releaseId: ${{ needs.draft.outputs.release_id }}
 
   android:
     needs: draft
