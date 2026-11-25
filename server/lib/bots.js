@@ -144,18 +144,32 @@ const REPORTERS = {
   // operators
   add: { slots: ['a', 'b'] }, sub: { slots: ['a', 'b'] }, mul: { slots: ['a', 'b'] }, div: { slots: ['a', 'b'] },
   mod: { slots: ['a', 'b'] }, random: { slots: ['a', 'b'] }, round: { slots: ['a'] },
-  math: { slots: ['a'], fields: { fn: ['abs', 'floor', 'ceiling', 'sqrt'] } },
+  math: { slots: ['a'], fields: { fn: ['abs', 'floor', 'ceiling', 'sqrt', 'sin', 'cos', 'tan', 'asin', 'acos', 'atan', 'ln', 'log', 'e^', '10^'] } },
   join: { slots: ['a', 'b'] }, letter: { slots: ['a', 'b'] }, length: { slots: ['a'] },
-  case: { slots: ['a'], fields: { fn: ['upper', 'lower'] } },
+  case: { slots: ['a'], fields: { fn: ['upper', 'lower', 'title'] } },
+  // more text
+  slice: { slots: ['a', 'b', 'c'] }, replace: { slots: ['a', 'b', 'c'] }, split_item: { slots: ['a', 'b', 'c'] },
+  index_of: { slots: ['a', 'b'] }, ends: { slots: ['a', 'b'] }, trim: { slots: ['a'] }, repeat_text: { slots: ['a', 'b'] },
+  reverse: { slots: ['a'] }, count_of: { slots: ['a', 'b'] }, word_count: { slots: ['a'] }, word_of: { slots: ['a', 'b'] },
+  line_of: { slots: ['a', 'b'] }, pick_if: { slots: ['a', 'b', 'c'] },
+  // more maths and comparing
+  min: { slots: ['a', 'b'] }, max: { slots: ['a', 'b'] }, power: { slots: ['a', 'b'] }, clamp: { slots: ['a', 'b', 'c'] },
+  percent: { slots: ['a', 'b'] }, ne: { slots: ['a', 'b'] }, gte: { slots: ['a', 'b'] }, lte: { slots: ['a', 'b'] },
+  between: { slots: ['a', 'b', 'c'] }, is_number: { slots: ['a'] }, is_empty: { slots: ['a'] },
+  random_pick: { slots: ['a'] }, coin: {},
+  // data
+  json_get: { slots: ['a', 'b'] }, encode: { slots: ['a'], fields: { fn: ['url', 'unurl', 'base64', 'unbase64'] } },
   contains: { slots: ['a', 'b'] }, starts: { slots: ['a', 'b'] }, gt: { slots: ['a', 'b'] }, lt: { slots: ['a', 'b'] }, eq: { slots: ['a', 'b'] },
   and: { slots: ['a', 'b'] }, or: { slots: ['a', 'b'] }, not: { slots: ['a'] },
   // variables and lists
   var: { fields: VAR }, list: { fields: VAR }, item: { slots: ['a'], fields: VAR }, list_length: { fields: VAR },
   list_contains: { slots: ['a'], fields: VAR }, list_random: { fields: VAR },
+  list_join: { slots: ['a'], fields: VAR }, list_index: { slots: ['a'], fields: VAR },
   // what happened
   user_name: {}, user_mention: {}, user_id: {}, message: {}, words: {}, word: { slots: ['a'] }, channel_name: {}, server_name: {},
   member_count: {}, button: {}, choice: {}, emoji: {}, said: {}, mentioned_name: {}, mentioned_mention: {}, has_role: { slots: ['a'] },
   now: { fields: { fn: ['year', 'month', 'date', 'weekday', 'hour', 'minute', 'second', 'time', 'day'] } },
+  unix: {}, bot_name: {}, channel_mention: {},
   // web and AI
   web: { slots: ['a', 'b'] }, ai_answer: { slots: ['a'] }, tool_input: { fields: VAR }, ai_error: {},
 };
@@ -452,7 +466,9 @@ async function slot(x, ctx) {
 async function evaluate(node, ctx) {
   const a = () => slot(node.a, ctx);
   const b = () => slot(node.b, ctx);
+  const c = () => slot(node.c, ctx);
   const n = async (x) => Number(await x) || 0;
+  const str = async (x) => String(await x);
   switch (node.r) {
     case 'add': return tidyNumber(await n(a()) + await n(b()));
     case 'sub': return tidyNumber(await n(a()) - await n(b()));
@@ -469,12 +485,80 @@ async function evaluate(node, ctx) {
     case 'round': return Math.round(await n(a()));
     case 'math': {
       const x = await n(a());
-      return tidyNumber({ abs: Math.abs(x), floor: Math.floor(x), ceiling: Math.ceil(x), sqrt: x >= 0 ? Math.sqrt(x) : 0 }[node.fn] ?? x);
+      // Angles in degrees, like Scratch.
+      const rad = (x * Math.PI) / 180;
+      const deg = (r) => (r * 180) / Math.PI;
+      return tidyNumber({
+        abs: Math.abs(x), floor: Math.floor(x), ceiling: Math.ceil(x), sqrt: x >= 0 ? Math.sqrt(x) : 0,
+        sin: Math.sin(rad), cos: Math.cos(rad), tan: Math.tan(rad), asin: deg(Math.asin(x)), acos: deg(Math.acos(x)), atan: deg(Math.atan(x)),
+        ln: x > 0 ? Math.log(x) : 0, log: x > 0 ? Math.log10(x) : 0, 'e^': Math.exp(x), '10^': 10 ** x,
+      }[node.fn] ?? x);
     }
+    case 'min': return tidyNumber(Math.min(await n(a()), await n(b())));
+    case 'max': return tidyNumber(Math.max(await n(a()), await n(b())));
+    case 'power': return tidyNumber((await n(a())) ** (await n(b())));
+    case 'clamp': { const x = await n(a()); const lo = await n(b()); const hi = await n(c()); return Math.min(Math.max(x, Math.min(lo, hi)), Math.max(lo, hi)); }
+    case 'percent': return tidyNumber(((await n(a())) * (await n(b()))) / 100);
+    case 'ne': return compare(await a(), await b()) !== 0;
+    case 'gte': return compare(await a(), await b()) >= 0;
+    case 'lte': return compare(await a(), await b()) <= 0;
+    case 'between': { const x = await a(); return compare(x, await b()) >= 0 && compare(x, await c()) <= 0; }
+    case 'is_number': { const t = (await str(a())).trim(); return t !== '' && !Number.isNaN(Number(t)); }
+    case 'is_empty': return (await str(a())).trim() === '';
+    case 'random_pick': {
+      const options = (await str(a())).split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
+      return options.length ? options[Math.floor(Math.random() * options.length)] : '';
+    }
+    case 'coin': return Math.random() < 0.5 ? 'heads' : 'tails';
+    // Letters "from" to "to" of the text, counting from 1, both ends included.
+    case 'slice': {
+      const chars = [...(await str(c()))];
+      const from = Math.max(1, Math.round(await n(a())) || 1);
+      const to = Math.round(await n(b())) || chars.length;
+      return chars.slice(from - 1, Math.max(from - 1, to)).join('');
+    }
+    case 'replace': {
+      const find = await str(a());
+      const text = await str(c());
+      return (find ? text.split(find).join(await str(b())) : text).slice(0, MAX_TEXT);
+    }
+    case 'split_item': {
+      const sep = await str(b());
+      const parts = (await str(c())).split(sep || ' ');
+      const raw = String(await a()).trim().toLowerCase();
+      return parts[listIndex(raw, parts.length)] ?? '';
+    }
+    case 'index_of': { const i = (await str(b())).toLowerCase().indexOf((await str(a())).toLowerCase()); return i < 0 ? 0 : [...(await str(b())).slice(0, i)].length + 1; }
+    case 'ends': return (await str(a())).toLowerCase().endsWith((await str(b())).toLowerCase());
+    case 'trim': return (await str(a())).trim();
+    case 'repeat_text': return (await str(a())).repeat(Math.min(Math.max(0, Math.round(await n(b()))), MAX_TEXT)).slice(0, MAX_TEXT);
+    case 'reverse': return [...(await str(a()))].reverse().join('');
+    case 'count_of': { const find = (await str(a())).toLowerCase(); return find ? (await str(b())).toLowerCase().split(find).length - 1 : 0; }
+    case 'word_count': return (await str(a())).split(/\s+/).filter(Boolean).length;
+    case 'word_of': { const words = (await str(b())).split(/\s+/).filter(Boolean); return words[listIndex(await a(), words.length)] ?? ''; }
+    case 'line_of': { const lines = (await str(b())).split('\n'); return lines[listIndex(await a(), lines.length)] ?? ''; }
+    case 'pick_if': return truthy(await a()) ? b() : c();
+    case 'json_get': { try { return pick(JSON.parse(await str(a())), (await str(b())).trim()).slice(0, MAX_TEXT); } catch { return ''; } }
+    case 'encode': {
+      const text = await str(a());
+      try {
+        if (node.fn === 'unurl') return decodeURIComponent(text);
+        if (node.fn === 'base64') return Buffer.from(text, 'utf8').toString('base64').slice(0, MAX_TEXT);
+        if (node.fn === 'unbase64') return Buffer.from(text, 'base64').toString('utf8').slice(0, MAX_TEXT);
+        return encodeURIComponent(text).slice(0, MAX_TEXT);
+      } catch { return ''; }
+    }
+    case 'unix': return Math.floor(Date.now() / 1000);
+    case 'bot_name': return users.get(ctx.bot.user_id)?.display_name ?? '';
+    case 'channel_mention': return ctx.channel ? `#${ctx.channel.name}` : '';
     case 'join': return `${await a()}${await b()}`.slice(0, MAX_TEXT);
     case 'letter': return [...String(await b())][Math.round(await n(a())) - 1] ?? '';
     case 'length': return [...String(await a())].length;
-    case 'case': return node.fn === 'lower' ? String(await a()).toLowerCase() : String(await a()).toUpperCase();
+    case 'case': {
+      const text = String(await a());
+      if (node.fn === 'title') return text.toLowerCase().replace(/(^|\s)\S/g, (m) => m.toUpperCase());
+      return node.fn === 'lower' ? text.toLowerCase() : text.toUpperCase();
+    }
     case 'contains': return String(await a()).toLowerCase().includes(String(await b()).toLowerCase());
     case 'starts': return String(await a()).toLowerCase().startsWith(String(await b()).toLowerCase());
     case 'gt': return compare(await a(), await b()) > 0;
@@ -495,6 +579,11 @@ async function evaluate(node, ctx) {
     case 'list_contains': {
       const want = String(await a()).toLowerCase();
       return getList(ctx.bot.id, node.name).some((item) => item.toLowerCase() === want);
+    }
+    case 'list_join': return getList(ctx.bot.id, node.name).join(await str(a())).slice(0, MAX_TEXT);
+    case 'list_index': {
+      const want = (await str(a())).toLowerCase();
+      return getList(ctx.bot.id, node.name).findIndex((item) => item.toLowerCase() === want) + 1;
     }
     case 'list_random': {
       const items = getList(ctx.bot.id, node.name);
@@ -1310,4 +1399,26 @@ function clickButton(channel, message, user, label) {
   return ran;
 }
 
-module.exports = { toBot, forServer, get, create, update, remove, validateProgram, validateGraph, setAdmin, clickButton, pickFromMenu };
+// --- "see its value" in the node editor ---
+
+// Works out one node without running the bot: a value node gives its result, an action node shows the
+// inputs it would use (Fetch data really fetches). Nothing is sent or changed. The person looking at it
+// stands in for "them", in the server's first text channel.
+async function preview(bot, { value, block }, viewer) {
+  const channel = channels.forServer(bot.server_id).find((c) => c.kind === 'text') || null;
+  const user = viewer ? { id: viewer.id, username: viewer.username, displayName: viewer.display_name } : null;
+  const ctx = {
+    bot, steps: 0, sends: 0, started: Date.now(), channel, user, args: [], prompt: '',
+    message: { content: '', author: user, mentions: [] }, toolResult: [], aiDepth: 0,
+  };
+  if (value !== undefined) return { value: await slot(validateSlot(value, { n: 0 }), ctx) };
+  const [clean] = validateBlocks([block]);
+  if (!clean) return { inputs: {} };
+  const inputs = await resolve(clean, ctx);
+  if (clean.type === 'http') {
+    inputs.result = String(await evaluate({ r: 'web', a: inputs.url || '', b: inputs.field || '' }, ctx));
+  }
+  return { inputs };
+}
+
+module.exports = { preview, toBot, forServer, get, create, update, remove, validateProgram, validateGraph, setAdmin, clickButton, pickFromMenu };

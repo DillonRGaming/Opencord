@@ -579,6 +579,18 @@ router.delete('/:id/bots/:botId/avatar', (req, res) => {
   res.json(setBotAvatar(server, bot, users.defaultAvatar('bot'))); // removing a picture goes back to the robot
 });
 
+// The node editor's "see its value": works out one node as the bot would, without running anything.
+router.post('/:id/bots/:botId/preview', async (req, res) => {
+  const server = access.permServer(req.params.id, req.user.id, 'manageBots');
+  const bot = serverBot(server, req.params.botId);
+  limits.take('botPreviews', req.user.id);
+  try {
+    res.json(await bots.preview(bot, { value: req.body.value, block: req.body.block }, req.user));
+  } catch (err) {
+    fail(400, err.message || 'That node can’t be worked out.');
+  }
+});
+
 router.delete('/:id/bots/:botId', (req, res) => {
   const server = access.permServer(req.params.id, req.user.id, 'manageBots');
   const bot = serverBot(server, req.params.botId);

@@ -363,8 +363,8 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
 .window-control svg { width: 12px; height: 12px; }
 .window-control:hover { background: var(--hover); color: var(--text); }
 .window-control.close:hover { background: var(--danger); color: #fff; }
-[data-frameless] .main:not(:has(> .side:not([hidden]))) .column .main-header,
-[data-frameless] .side:not([hidden]) .side-header { padding-right: calc(12px + 3 * 36px); }
+[data-frameless]:not([data-rail="top"]) .main:not(:has(> .side:not([hidden]))) .column .main-header,
+[data-frameless]:not([data-rail="top"]) .side:not([hidden]) .side-header { padding-right: calc(12px + 3 * 36px); }
 /* Rounded window corners (square when maximized). The window is see-through; the page paints a
    rounded background behind everything. It can't be on <html> or <body>: either one fills the whole
    window, square corners included. */
@@ -375,3 +375,8 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
   background: var(--bg-app); border-radius: calc(var(--radius-panel) + var(--gap));
 }
 [data-frameless][data-maximized] body::before { border-radius: 0; }
+/* Servers along the top: the window buttons sit at the end of that bar instead of in the headers. */
+@media (min-width: 800px) {
+  [data-frameless][data-rail="top"] .window-controls { top: calc(var(--gap) + 6px); }
+  [data-frameless][data-rail="top"] .rail { padding-right: calc(3 * 36px + 8px); }
+}

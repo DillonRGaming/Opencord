@@ -31,6 +31,7 @@ const RATES = {
   signupGlobal: { limit: 30, windowMs: HOUR, label: 'Sign-ups across Opencord', message: 'Lots of people are signing up right now. Try again in a little while.' },
   loginPerIp: { limit: 30, windowMs: 15 * MINUTE, label: 'Log-in attempts from one address' },
   loginFailsPerAccount: { limit: 10, windowMs: 15 * MINUTE, label: 'Wrong passwords for one account', message: 'Too many wrong passwords for this account. Try again in 15 minutes.' },
+  botPreviews: { limit: 60, windowMs: MINUTE, label: 'Bot node previews per person', message: 'Too many previews. Wait a minute.' },
   messages: { limit: 10, windowMs: 10 * 1000, label: 'Messages per person', message: 'You are sending messages too fast. Wait a few seconds.' },
   friendRequests: { limit: 30, windowMs: HOUR, label: 'Friend requests per person', message: 'You have sent a lot of friend requests. Try again later.' },
   groupsCreated: { limit: 10, windowMs: HOUR, label: 'Group DMs made per person', message: 'You have made a lot of groups. Try again later.' },

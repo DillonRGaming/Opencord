@@ -49,9 +49,9 @@ const MATCH = [['contains', 'contains'], ['starts', 'starts with'], ['equals', '
 //   select         a fixed choice ({ options })                   var / list  a variable or list name
 //   channel / voice / role / color / lines / secret
 
-const T = (key) => ({ key, kind: 'text' });
+const T = (key, label) => ({ key, kind: 'text', ...(label && { label }) });
 const N = (key) => ({ key, kind: 'number' });
-const B = (key) => ({ key, kind: 'bool' });
+const B = (key, label) => ({ key, kind: 'bool', ...(label && { label }) });
 const V = { key: 'name', kind: 'var' };
 const L = { key: 'name', kind: 'list' };
 const CH = { key: 'channel', kind: 'channel', here: true };
@@ -170,8 +170,38 @@ export const REPORTERS = {
   starts: { category: 'operators', shape: BOOL, parts: [T('a'), 'starts with', T('b'), '?'], make: () => ({ r: 'starts', a: 'apple', b: 'a' }) },
   mod: { category: 'operators', parts: [T('a'), 'mod', T('b')], make: () => ({ r: 'mod', a: '', b: '' }) },
   round: { category: 'operators', parts: ['round', T('a')], make: () => ({ r: 'round', a: '' }) },
-  math: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['abs', 'abs'], ['floor', 'floor'], ['ceiling', 'ceiling'], ['sqrt', 'sqrt']] }, 'of', T('a')], make: () => ({ r: 'math', fn: 'abs', a: '' }) },
-  case: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['upper', 'UPPERCASE'], ['lower', 'lowercase']] }, 'of', T('a')], make: () => ({ r: 'case', fn: 'upper', a: 'hello' }) },
+  math: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['abs', 'abs'], ['floor', 'floor'], ['ceiling', 'ceiling'], ['sqrt', 'sqrt'], ['sin', 'sin'], ['cos', 'cos'], ['tan', 'tan'], ['asin', 'asin'], ['acos', 'acos'], ['atan', 'atan'], ['ln', 'ln'], ['log', 'log'], ['e^', 'e ^'], ['10^', '10 ^']] }, 'of', T('a')], make: () => ({ r: 'math', fn: 'abs', a: '' }) },
+  case: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['upper', 'UPPERCASE'], ['lower', 'lowercase'], ['title', 'Title Case']] }, 'of', T('a')], make: () => ({ r: 'case', fn: 'upper', a: 'hello' }) },
+  min: { category: 'operators', parts: ['smaller of', T('a'), 'and', T('b')], make: () => ({ r: 'min', a: '3', b: '7' }) },
+  max: { category: 'operators', parts: ['bigger of', T('a'), 'and', T('b')], make: () => ({ r: 'max', a: '3', b: '7' }) },
+  power: { category: 'operators', parts: [T('a', 'Number'), 'to the power of', T('b', 'Power')], make: () => ({ r: 'power', a: '2', b: '8' }) },
+  clamp: { category: 'operators', parts: ['keep', T('a', 'Number'), 'between', T('b', 'Min'), 'and', T('c', 'Max')], make: () => ({ r: 'clamp', a: '15', b: '1', c: '10' }) },
+  percent: { category: 'operators', parts: [T('a', 'Percent'), '% of', T('b', 'Number')], make: () => ({ r: 'percent', a: '25', b: '200' }) },
+  ne: { category: 'operators', shape: BOOL, parts: [T('a'), '≠', T('b')], make: () => ({ r: 'ne', a: '', b: '50' }) },
+  gte: { category: 'operators', shape: BOOL, parts: [T('a'), '≥', T('b')], make: () => ({ r: 'gte', a: '', b: '50' }) },
+  lte: { category: 'operators', shape: BOOL, parts: [T('a'), '≤', T('b')], make: () => ({ r: 'lte', a: '', b: '50' }) },
+  between: { category: 'operators', shape: BOOL, parts: [T('a', 'Value'), 'is between', T('b', 'From'), 'and', T('c', 'To'), '?'], make: () => ({ r: 'between', a: '5', b: '1', c: '10' }) },
+  is_number: { category: 'operators', shape: BOOL, parts: [T('a'), 'is a number?'], make: () => ({ r: 'is_number', a: '42' }) },
+  is_empty: { category: 'operators', shape: BOOL, parts: [T('a'), 'is empty?'], make: () => ({ r: 'is_empty', a: '' }) },
+  random_pick: { category: 'operators', parts: ['random one of', T('a', 'Options (comma or line separated)')], make: () => ({ r: 'random_pick', a: 'rock, paper, scissors' }) },
+  coin: { category: 'operators', parts: ['flip a coin'], make: () => ({ r: 'coin' }) },
+  pick_if: { category: 'operators', parts: ['if', B('a', 'Condition'), 'then', T('b', 'Then'), 'else', T('c', 'Else')], make: () => ({ r: 'pick_if', b: 'yes', c: 'no' }) },
+
+  // text
+  slice: { category: 'operators', parts: ['letters', T('a', 'From'), 'to', T('b', 'To'), 'of', T('c', 'Text')], make: () => ({ r: 'slice', a: '1', b: '5', c: 'hello world' }) },
+  replace: { category: 'operators', parts: ['replace', T('a', 'Find'), 'with', T('b', 'Replace with'), 'in', T('c', 'Text')], make: () => ({ r: 'replace', a: 'world', b: 'there', c: 'hello world' }) },
+  split_item: { category: 'operators', parts: ['part', T('a', 'Position'), 'of', T('c', 'Text'), 'split by', T('b', 'Separator')], make: () => ({ r: 'split_item', a: '2', b: ',', c: 'red,green,blue' }) },
+  index_of: { category: 'operators', parts: ['position of', T('a', 'Find'), 'in', T('b', 'Text')], make: () => ({ r: 'index_of', a: 'world', b: 'hello world' }) },
+  ends: { category: 'operators', shape: BOOL, parts: [T('a'), 'ends with', T('b'), '?'], make: () => ({ r: 'ends', a: 'apple', b: 'e' }) },
+  trim: { category: 'operators', parts: ['trim spaces from', T('a')], make: () => ({ r: 'trim', a: '  hello  ' }) },
+  repeat_text: { category: 'operators', parts: ['repeat', T('a', 'Text'), T('b', 'Times'), 'times'], make: () => ({ r: 'repeat_text', a: 'ha', b: '3' }) },
+  reverse: { category: 'operators', parts: ['reverse', T('a')], make: () => ({ r: 'reverse', a: 'hello' }) },
+  count_of: { category: 'operators', parts: ['how many', T('a', 'Find'), 'in', T('b', 'Text')], make: () => ({ r: 'count_of', a: 'l', b: 'hello' }) },
+  word_count: { category: 'operators', parts: ['number of words in', T('a')], make: () => ({ r: 'word_count', a: 'hello there world' }) },
+  word_of: { category: 'operators', parts: ['word', T('a', 'Position'), 'of', T('b', 'Text')], make: () => ({ r: 'word_of', a: '1', b: 'hello there' }) },
+  line_of: { category: 'operators', parts: ['line', T('a', 'Position'), 'of', T('b', 'Text')], make: () => ({ r: 'line_of', a: '1', b: '' }) },
+  json_get: { category: 'operators', parts: ['get', T('b', 'Path'), 'from JSON', T('a', 'JSON')], make: () => ({ r: 'json_get', a: '{"name": "Opencord"}', b: 'name' }) },
+  encode: { category: 'operators', parts: [{ key: 'fn', kind: 'select', options: [['url', 'URL encode'], ['unurl', 'URL decode'], ['base64', 'Base64 encode'], ['unbase64', 'Base64 decode']] }, T('a')], make: () => ({ r: 'encode', fn: 'url', a: 'hello world' }) },
 
   // variables and lists (one of each per name in the palette)
   var: { category: 'variables', parts: [V], make: (name) => ({ r: 'var', name }) },
@@ -180,6 +210,8 @@ export const REPORTERS = {
   list_random: { category: 'lists', parts: ['random item of', L], make: (name) => ({ r: 'list_random', name }) },
   list_length: { category: 'lists', parts: ['length of', L], make: (name) => ({ r: 'list_length', name }) },
   list_contains: { category: 'lists', shape: BOOL, parts: [L, 'contains', T('a'), '?'], make: (name) => ({ r: 'list_contains', name, a: 'thing' }) },
+  list_join: { category: 'lists', parts: [L, 'joined with', T('a', 'Between items')], make: (name) => ({ r: 'list_join', name, a: ', ' }) },
+  list_index: { category: 'lists', parts: ['position of', T('a'), 'in', L], make: (name) => ({ r: 'list_index', name, a: 'thing' }) },
 
   // info: who, what and where
   user_name: { category: 'info', parts: ['their name'], make: () => ({ r: 'user_name' }) },
@@ -199,6 +231,9 @@ export const REPORTERS = {
   choice: { category: 'info', parts: ['menu choice'], make: () => ({ r: 'choice' }) },
   emoji: { category: 'info', parts: ['reaction emoji'], make: () => ({ r: 'emoji' }) },
   now: { category: 'info', parts: ['current', { key: 'fn', kind: 'select', options: [['hour', 'hour'], ['minute', 'minute'], ['second', 'second'], ['weekday', 'day of week'], ['date', 'date'], ['month', 'month'], ['year', 'year'], ['time', 'time'], ['day', 'day']] }], make: () => ({ r: 'now', fn: 'hour' }) },
+  unix: { category: 'info', parts: ['seconds since 1970'], make: () => ({ r: 'unix' }) },
+  bot_name: { category: 'info', parts: ['my name'], make: () => ({ r: 'bot_name' }) },
+  channel_mention: { category: 'info', parts: ['#this channel'], make: () => ({ r: 'channel_mention' }) },
   web: { category: 'info', parts: ['data from', T('a'), 'at', T('b')], make: () => ({ r: 'web', a: 'https://api.adviceslip.com/advice', b: 'slip.advice' }) },
 
   // AI
@@ -209,11 +244,13 @@ export const REPORTERS = {
 
 // Which reporters go in each palette group, after the stack blocks (variables and lists add one per name).
 export const REPORTER_ORDER = {
-  operators: ['add', 'sub', 'mul', 'div', 'random', 'gt', 'lt', 'eq', 'and', 'or', 'not', 'join', 'letter', 'length', 'contains', 'starts', 'mod', 'round', 'math', 'case'],
-  info: ['user_name', 'user_mention', 'user_id', 'message', 'said', 'words', 'word', 'mentioned_name', 'mentioned_mention', 'has_role', 'channel_name', 'server_name', 'member_count', 'button', 'choice', 'emoji', 'now', 'web'],
+  operators: ['add', 'sub', 'mul', 'div', 'random', 'gt', 'lt', 'eq', 'ne', 'gte', 'lte', 'between', 'and', 'or', 'not', 'is_number', 'is_empty', 'pick_if',
+    'join', 'letter', 'length', 'contains', 'starts', 'ends', 'slice', 'replace', 'split_item', 'index_of', 'count_of', 'trim', 'repeat_text', 'reverse',
+    'word_count', 'word_of', 'line_of', 'case', 'mod', 'round', 'math', 'min', 'max', 'power', 'clamp', 'percent', 'random_pick', 'coin', 'json_get', 'encode'],
+  info: ['user_name', 'user_mention', 'user_id', 'message', 'said', 'words', 'word', 'mentioned_name', 'mentioned_mention', 'has_role', 'channel_name', 'channel_mention', 'server_name', 'member_count', 'bot_name', 'button', 'choice', 'emoji', 'now', 'unix', 'web'],
   ai: ['ai_answer', 'tool_input', 'ai_error'],
 };
-export const LIST_REPORTERS = ['item', 'list_random', 'list_length', 'list_contains'];
+export const LIST_REPORTERS = ['item', 'list_random', 'list_length', 'list_contains', 'list_join', 'list_index'];
 
 const isReporter = (x) => Boolean(x) && typeof x === 'object' && !Array.isArray(x) && typeof x.r === 'string';
 const shapeOf = (node) => REPORTERS[node.r]?.shape || ROUND;

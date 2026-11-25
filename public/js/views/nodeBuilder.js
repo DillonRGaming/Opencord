@@ -42,6 +42,14 @@ const NAMES = {
   'r:said': 'What they said', 'r:words': 'Command words', 'r:word': 'Command word', 'r:mentioned_name': 'Mentioned name',
   'r:mentioned_mention': '@Mentioned', 'r:has_role': 'Has role', 'r:channel_name': 'Channel name', 'r:server_name': 'Server name',
   'r:member_count': 'Member count', 'r:button': 'Button clicked', 'r:choice': 'Menu choice', 'r:emoji': 'Reaction emoji',
+  'r:min': 'Smaller of', 'r:max': 'Bigger of', 'r:power': 'Power', 'r:clamp': 'Keep between', 'r:percent': 'Percent of',
+  'r:ne': 'Not equal', 'r:gte': 'At least', 'r:lte': 'At most', 'r:between': 'Is between', 'r:is_number': 'Is a number',
+  'r:is_empty': 'Is empty', 'r:random_pick': 'Random one of', 'r:coin': 'Flip a coin', 'r:pick_if': 'If then else',
+  'r:slice': 'Text from … to …', 'r:replace': 'Replace text', 'r:split_item': 'Split text', 'r:index_of': 'Position in text',
+  'r:ends': 'Ends with', 'r:trim': 'Trim spaces', 'r:repeat_text': 'Repeat text', 'r:reverse': 'Reverse text',
+  'r:count_of': 'Count in text', 'r:word_count': 'Word count', 'r:word_of': 'Word of text', 'r:line_of': 'Line of text',
+  'r:json_get': 'Read JSON', 'r:encode': 'Encode / decode', 'r:list_join': 'Join list', 'r:list_index': 'Position in list',
+  'r:unix': 'Unix time', 'r:bot_name': 'My name', 'r:channel_mention': '#This channel',
   'r:now': 'Current time', 'r:web': 'Web data', 'r:ai_answer': 'AI answer', 'r:tool_input': 'Tool input', 'r:ai_error': 'AI error',
 };
 const LABELS = {
@@ -49,7 +57,7 @@ const LABELS = {
   times: 'Times', cond: 'Condition', name: 'Name', value: 'Value', index: 'Position', url: 'URL', key: 'API key', model: 'Model',
   count: 'How many', reason: 'Reason', minutes: 'Minutes', kind: 'Kind', slow: 'Seconds between messages', lock: 'Action',
   role: 'Role', color: 'Colour', match: 'Match', description: 'Description', fn: 'Function', a: 'Value', b: 'Second value',
-  left: 'Left', right: 'Right', field: 'Field', min: 'Min', max: 'Max', math: 'Operation', textCase: 'Case',
+  left: 'Left', right: 'Right', field: 'Field', result: 'Result', c: 'Third value', min: 'Min', max: 'Max', math: 'Operation', textCase: 'Case',
 };
 const OUT_LABELS = { if: { do: 'true' }, if_else: { do: 'true', else: 'false' }, repeat: { do: 'loop' }, forever: { do: 'loop' }, until: { do: 'loop' } };
 
@@ -81,7 +89,7 @@ for (const [type, rep] of Object.entries(REPORTERS)) {
   DEFS[`r:${type}`] = {
     id: `r:${type}`, kind: 'value', category: rep.category, title: NAMES[`r:${type}`] || type, inputs: rep.parts.filter((p) => typeof p === 'object'),
     parts: rep.parts, bool: rep.shape === 'bool', outs: () => [],
-    make: () => { const d = rep.make(['var', 'item', 'list_random', 'list_length', 'list_contains'].includes(type) ? '' : undefined); delete d.r; if ('name' in d && !d.name) d.name = type === 'var' ? 'my variable' : 'my list'; return d; },
+    make: () => { const d = rep.make(['var', 'item', 'list_random', 'list_length', 'list_contains', 'list_join', 'list_index'].includes(type) ? '' : undefined); delete d.r; if ('name' in d && !d.name) d.name = type === 'var' ? 'my variable' : 'my list'; return d; },
   };
 }
 const cmdNames = (node) => [...new Set((node.data.names || []).map((n) => String(n).trim().replace(/^[!/]/, '').toLowerCase().replace(/\s+/g, '')).filter(Boolean))].slice(0, 25);
@@ -91,10 +99,10 @@ const colorOf = (def) => catById[def.category]?.colors[0] || '#999';
 
 // --- graph ⇄ program ---
 
-// Turns the graph into the program the server runs.
-export function compile(graph) {
+// How one node compiles: a value node into a reporter, an action node into a block (its inputs, with value
+// nodes wired into them). `chain` fills the block's branches; without it they're left empty.
+function nodeCompiler(graph, chain = () => []) {
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
-  const wireFrom = (id, out) => graph.edges.find((e) => e.from === id && e.out === out);
   const wireInto = (id, key) => graph.edges.find((e) => e.to === id && e.in === key);
 
   function value(node, depth = 0) {
@@ -116,9 +124,17 @@ export function compile(graph) {
       if (from && DEFS[from.def]?.kind === 'value') out[part.key] = value(from);
       else if (part.kind !== 'bool') out[part.key] = node.data[part.key] ?? '';
     }
-    for (const m of BLOCKS[node.def].mouths || []) out[m] = chain(wireFrom(node.id, m)?.to, seen);
+    for (const m of BLOCKS[node.def].mouths || []) out[m] = chain(node.id, m, seen);
     return out;
   }
+  return { value, action };
+}
+
+// Turns the graph into the program the server runs.
+export function compile(graph) {
+  const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const wireFrom = (id, out) => graph.edges.find((e) => e.from === id && e.out === out);
+  const { action } = nodeCompiler(graph, (id, mouth, seen) => chain(wireFrom(id, mouth)?.to, seen));
   // Follows the wires from one node: each node runs, then the node its "next" wire goes to. A node switched
   // off is passed over; a wire back to a node already in this flow stops it (no loops through wires).
   function chain(id, seen = new Set()) {
@@ -241,6 +257,8 @@ export function createBotBuilder(server, bot) {
   }
   let view = graph.view || { x: 40, y: 40, zoom: 1 };
   let selected = null; // node id
+  // "See its value": clicking a node works it out on the server and shows the result under it.
+  const peeks = new Map(); // node id → { busy } | { text } | { error }
   let selectedWire = null; // edge id
   let dirty = false;
   let admin = Boolean(bot.admin);
@@ -495,9 +513,40 @@ export function createBotBuilder(server, bot) {
       control(node, p)))),
     !mainOut && outs.length > 0 && h('div', { class: 'nb-outs' }, outs.map((o) => h('div', { class: 'nb-out' },
       h('span', {}, o.label || 'next'),
-      outPort(node, o.key)))));
+      outPort(node, o.key)))),
+    peekEl(node));
     return el;
   }
+  function peekEl(node) {
+    const peek = peeks.get(node.id);
+    if (!peek) return null;
+    const close = h('button', { type: 'button', class: 'nb-mini', title: 'Hide', onclick: () => { peeks.delete(node.id); redrawNode(node); } }, icon('x', 13));
+    if (peek.busy) return h('div', { class: 'nb-peek busy' }, 'Working it out…');
+    if (peek.error) return h('div', { class: 'nb-peek error' }, h('span', {}, peek.error), close);
+    return h('div', { class: 'nb-peek' }, h('pre', {}, peek.text), close);
+  }
+
+  const shown = (x) => (x === '' ? '(empty)' : typeof x === 'boolean' ? String(x) : String(x));
+  // Value nodes show their result; action nodes show the inputs they'd run with (Fetch data also fetches).
+  // Triggers have nothing to work out.
+  async function peek(node) {
+    const def = defOf(node);
+    if (!def || def.kind === 'trigger' || locked(def)) return;
+    const { value, action } = nodeCompiler(graph);
+    const body = def.kind === 'value' ? { value: value(node) } : { block: action(node, new Set()) };
+    peeks.set(node.id, { busy: true });
+    redrawNode(node);
+    try {
+      const res = await api.post(`/api/servers/${server.id}/bots/${bot.id}/preview`, body);
+      const text = 'value' in res ? shown(res.value)
+        : Object.entries(res.inputs || {}).map(([key, v]) => `${LABELS[key] || key}: ${shown(v)}`).join('\n') || 'Nothing to work out.';
+      peeks.set(node.id, { text });
+    } catch (err) {
+      peeks.set(node.id, { error: err.message });
+    }
+    if (byId(node.id)) redrawNode(node);
+  }
+
   // Wires follow nodes as they grow (typing in a box, more commands).
   let wireFrame = 0;
   const sizes = new ResizeObserver(() => {
@@ -676,7 +725,7 @@ export function createBotBuilder(server, bot) {
     viewport.classList.remove('panning');
     for (const el of world.querySelectorAll('.nb-port.ok')) el.classList.remove('ok');
     if (d.kind === 'pan') return;
-    if (d.kind === 'node') { if (d.moved) changed({ redraw: false }); return; }
+    if (d.kind === 'node') { if (d.moved) changed({ redraw: false }); else peek(d.node); return; }
     const under = document.elementFromPoint(event.clientX, event.clientY);
     const port = under?.closest?.('.nb-port');
     const target = under?.closest?.('.nb-node');
