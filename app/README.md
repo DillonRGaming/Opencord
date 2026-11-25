@@ -49,7 +49,6 @@ if they're lost, installed apps can't update anymore.
 
 ```bash
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/opencord.key
-gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
 base64 -w0 ~/.tauri/opencord-android.jks | gh secret set ANDROID_KEYSTORE
 gh secret set ANDROID_KEYSTORE_PASSWORD < ~/.tauri/android-password
 gh secret set ANDROID_KEY_ALIAS --body opencord
