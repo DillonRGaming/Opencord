@@ -8,8 +8,8 @@ export const inApp = Boolean(tauri?.core);
 export const onAndroid = /Android/i.test(navigator.userAgent);
 const invoke = (command, args) => tauri.core.invoke(command, args);
 
-// The public repo the app builds are published to.
-const RELEASES = 'DillonRGaming/opencord-releases';
+// Where the app builds are published (this repo's releases).
+const RELEASES = 'DillonRGaming/Opencord';
 
 // --- notifications ---
 

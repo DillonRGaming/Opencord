@@ -1,5 +1,5 @@
 # Builds the Opencord app for Linux, Windows and Android when a version tag (v1.2.3) is pushed,
-# and publishes them to the public releases repo, where the installed apps look for updates.
+# and publishes them as a release of this repo, where the installed apps look for updates.
 name: Release app
 
 on:
@@ -11,9 +11,12 @@ on:
         description: "Version to release, like 1.2.3"
         required: true
 
+permissions:
+  contents: write
+
 env:
-  RELEASES_REPO: DillonRGaming/opencord-releases
-  GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+  RELEASES_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
   draft:
@@ -58,14 +61,12 @@ jobs:
         run: node scripts/set-app-version.mjs "${{ needs.draft.outputs.version }}"
       - uses: tauri-apps/tauri-action@v0
         env:
-          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: app
           tauriScript: npx tauri
-          owner: DillonRGaming
-          repo: opencord-releases
           releaseId: ${{ needs.draft.outputs.release-id }}
 
   android:

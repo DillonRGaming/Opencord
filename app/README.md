@@ -35,8 +35,8 @@ npm run android:dev    # a phone plugged in, or an emulator
 
 ## Releasing
 
-Push a version tag. GitHub Actions builds all three and publishes them to
-[DillonRGaming/opencord-releases](https://github.com/DillonRGaming/opencord-releases). Installed apps update from there.
+Push a version tag. GitHub Actions builds all three and publishes them as a
+[release of this repo](https://github.com/DillonRGaming/Opencord/releases). Installed apps update from there.
 
 ```bash
 git tag v0.2.0 && git push origin v0.2.0
@@ -44,14 +44,10 @@ git tag v0.2.0 && git push origin v0.2.0
 
 ### One-time setup
 
-1. Create the public repo `DillonRGaming/opencord-releases` (it can be empty). Builds go there because this repo is private and
-   apps can't download from a private repo.
-2. Create a fine-grained token with **Contents: read and write** on `opencord-releases` only.
-3. Add these secrets to this repo. The keys were made on your machine in `~/.tauri/`, so keep a backup:
-   if they're lost, installed apps can't update anymore.
+Add these secrets to the repo. The keys were made on your machine in `~/.tauri/`, so keep a backup:
+if they're lost, installed apps can't update anymore.
 
 ```bash
-gh secret set RELEASES_TOKEN
 gh secret set TAURI_SIGNING_PRIVATE_KEY < ~/.tauri/opencord.key
 gh secret set TAURI_SIGNING_PRIVATE_KEY_PASSWORD --body ""
 base64 -w0 ~/.tauri/opencord-android.jks | gh secret set ANDROID_KEYSTORE
