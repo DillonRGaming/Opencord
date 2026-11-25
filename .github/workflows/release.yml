@@ -31,9 +31,9 @@ jobs:
           echo "version=${v#v}" >> "$GITHUB_OUTPUT"
       - id: r
         run: |
-          gh release create "v${{ steps.v.outputs.version }}" --repo "$RELEASES_REPO" --draft \
-            --title "Opencord ${{ steps.v.outputs.version }}" --notes "Download the file for your system below."
-          echo "id=$(gh api "repos/$RELEASES_REPO/releases" --jq '.[] | select(.tag_name == "v${{ steps.v.outputs.version }}") | .id')" >> "$GITHUB_OUTPUT"
+          id=$(gh api -X POST "repos/$RELEASES_REPO/releases" -f tag_name="v${{ steps.v.outputs.version }}" \
+            -f name="Opencord ${{ steps.v.outputs.version }}" -f body="Download the file for your system below." -F draft=true --jq .id)
+          echo "id=$id" >> "$GITHUB_OUTPUT"
 
   desktop:
     needs: draft
@@ -68,6 +68,7 @@ jobs:
           projectPath: app
           tauriScript: npx tauri
           releaseId: ${{ needs.draft.outputs.release_id }}
+          tagName: v${{ needs.draft.outputs.version }}
 
   android:
     needs: draft
