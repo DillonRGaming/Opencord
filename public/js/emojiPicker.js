@@ -20,6 +20,23 @@ export function customEmojis() {
   return [...state.servers.values()].flatMap((server) => (server.emojis || []).map((e) => ({ ...e, serverName: server.name, serverId: server.id })));
 }
 
+// Puts a picker (emoji, GIFs, Emoji Kitchen) above what opened it, kept on screen. From the message box they
+// line up with its right edge; on phones they sit just above it, exactly as wide as it.
+export function placePicker(el, anchor) {
+  const composer = anchor.closest('.composer');
+  const a = (composer || anchor).getBoundingClientRect();
+  if (composer && matchMedia('(max-width: 799px)').matches) {
+    el.style.left = `${a.left}px`;
+    el.style.width = `${a.width}px`;
+    el.style.height = `${Math.min(420, a.top - 16)}px`;
+    el.style.top = `${a.top - 8 - el.getBoundingClientRect().height}px`;
+    return;
+  }
+  const box = el.getBoundingClientRect();
+  el.style.left = `${Math.max(8, Math.min(a.right - box.width, innerWidth - box.width - 8))}px`;
+  el.style.top = `${a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8)}px`;
+}
+
 export const customCode = (emoji) => `<:${emoji.name}:${emoji.id}>`;
 
 // Draws a stored reaction or picked value: unicode as text, custom as an image.
@@ -82,13 +99,7 @@ export function openEmojiPicker(anchor, onPick, { keepOpen = false } = {}) {
   document.body.append(el);
   draw();
 
-  // Sit above the anchor, kept on screen. From the message box, all the pickers line up with its right edge.
-  const a = (anchor.closest('.composer') || anchor).getBoundingClientRect();
-  const box = el.getBoundingClientRect();
-  const left = Math.max(8, Math.min(a.right - box.width, innerWidth - box.width - 8));
-  const top = a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8);
-  el.style.left = `${left}px`;
-  el.style.top = `${top}px`;
+  placePicker(el, anchor);
   if (matchMedia('(hover: hover)').matches) search.focus();
 
   const outside = (event) => { if (!el.contains(event.target) && !anchor.contains(event.target)) closeEmojiPicker(); };

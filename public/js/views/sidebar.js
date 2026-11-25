@@ -255,7 +255,10 @@ async function statusMenu(event) {
   // The other accounts logged in on this browser, to switch to.
   const accounts = await listAccounts().catch(() => []);
   const others = accounts.filter((a) => !a.current);
-  showMenu({ clientX: box.left, clientY: box.top - 16, preventDefault() {}, stopPropagation() {} }, [
+  // With music playing, its bar sits on top of the user panel: the menu goes above that instead.
+  const dock = document.getElementById('music-dock');
+  const top = dock && !dock.hidden && dock.offsetHeight ? dock.getBoundingClientRect().top : box.top;
+  showMenu({ clientX: box.left, clientY: top - 16, preventDefault() {}, stopPropagation() {} }, [
     ...[['online', 'Online'], ['idle', 'Idle'], ['dnd', 'Do not disturb'], ['invisible', 'Invisible']].map(([value, label]) => ({
       label, checked: current === value, dot: value === 'invisible' ? 'offline' : value, onClick: () => choose(value),
     })),

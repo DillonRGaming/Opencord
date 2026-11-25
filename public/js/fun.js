@@ -5,6 +5,7 @@ import { h } from './dom.js';
 import { icon } from './icons.js';
 import { onEscape } from './escape.js';
 import { searchEmoji } from './emojiData.js';
+import { placePicker } from './emojiPicker.js';
 
 export const remote = (url) => `/media/remote?url=${encodeURIComponent(url)}`;
 
@@ -29,10 +30,7 @@ function popover(anchor, className, label, children) {
   closeFunPicker();
   const el = h('div', { class: `emoji-picker fun-picker ${className}`, role: 'dialog', 'aria-label': label }, children);
   document.body.append(el);
-  const a = (anchor.closest('.composer') || anchor).getBoundingClientRect(); // same spot as the emoji picker
-  const box = el.getBoundingClientRect();
-  el.style.left = `${Math.max(8, Math.min(a.right - box.width, innerWidth - box.width - 8))}px`;
-  el.style.top = `${a.top - box.height - 8 > 8 ? a.top - box.height - 8 : Math.min(a.bottom + 8, innerHeight - box.height - 8)}px`;
+  placePicker(el, anchor); // same spot as the emoji picker
   const outside = (event) => { if (!el.contains(event.target) && !anchor.contains(event.target)) closeFunPicker(); };
   document.addEventListener('pointerdown', outside, true);
   open = { el, anchor, outside, release: onEscape(closeFunPicker) };
