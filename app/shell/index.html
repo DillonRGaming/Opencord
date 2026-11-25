@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Opencord</title>
+  <style>
+    :root { color-scheme: dark; }
+    /* Rounded corners: the background is on a layer, since one on <html> or <body> fills the whole window. */
+    html, body { background: transparent; }
+    body { margin: 0; height: 100vh; display: grid; place-items: center; color: #9aa39b; font: 15px system-ui, sans-serif; }
+    body::before { content: ""; position: fixed; inset: 0; z-index: -1; background: #111411; border-radius: 26px; }
+    p { margin: 0; opacity: 0; transition: opacity 0.3s; }
+    p.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <p id="status">Can’t reach Opencord. Trying again…</p>
+  <script>
+    // The app shows the live site, so it's always the newest version. This page only shows while offline.
+    const SITE = 'https://orbital.monster/';
+    const status = document.getElementById('status');
+    async function go() {
+      try {
+        await fetch(SITE, { mode: 'no-cors', cache: 'no-store' });
+        location.replace(SITE);
+      } catch {
+        status.classList.add('show');
+        setTimeout(go, 3000);
+      }
+    }
+    addEventListener('online', go);
+    go();
+  </script>
+</body>
+</html>

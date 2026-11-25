@@ -12,6 +12,7 @@ import { searchEmoji } from '../emojiData.js';
 import { availableCommands, runCommand } from '../commands.js';
 import { openGifPicker, openKitchen } from '../fun.js';
 import { recordVoice } from '../voiceMessage.js';
+import { createRichInput } from '../richInput.js';
 
 const TYPING_EVERY_MS = 3000;
 const SUGGEST_MAX = 8;
@@ -170,8 +171,42 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
     autoGrow(textarea);
     textarea.focus();
   }
-  const textarea = h('textarea', {
-    rows: 1, placeholder, 'aria-label': placeholder, maxLength: MESSAGE_MAX,
+  // Snippets: a shortcut from Settings → Snippets, typed then followed by a space, becomes its text.
+  // Ctrl+Z straight after puts the shortcut back.
+  let lastExpansion = null;
+  function undoSnippet(event) {
+    if (!((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'z' && lastExpansion)) return false;
+    const { start, text, short } = lastExpansion;
+    lastExpansion = null;
+    if (textarea.value.slice(start, start + text.length + 1) !== `${text} `) return false;
+    event.preventDefault();
+    insertText(`${short} `, start, start + text.length + 1);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  }
+  // Runs on beforeinput, so it works with phone keyboards too (they don't send key presses).
+  function expandSnippet(event) {
+    const typedSpace = event.inputType === 'insertText' && event.data === ' ';
+    if (event.inputType !== 'insertText' || !typedSpace) { if (event.inputType?.startsWith('insert')) lastExpansion = null; return; }
+    lastExpansion = null;
+    if (event.isComposing || setting('snippetsOn', true) === false) return;
+    const snippets = setting('snippets', []);
+    if (!Array.isArray(snippets) || !snippets.length) return;
+    const end = textarea.selectionStart;
+    if (end !== textarea.selectionEnd) return;
+    const word = /(?:^|\s)(\S+)$/.exec(textarea.value.slice(0, end))?.[1];
+    const found = word && snippets.find((s) => s.short === word);
+    if (!found) return;
+    event.preventDefault();
+    const start = end - word.length;
+    insertText(`${found.text} `, start, end);
+    lastExpansion = { start, text: found.text, short: word };
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  // Looks and acts like a textarea, but server emoji show as pictures instead of <:name:id>.
+  const textarea = createRichInput({
+    placeholder,
     oninput: () => {
       autoGrow(textarea);
       updateSuggest();
@@ -186,6 +221,7 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
     },
     onblur: () => setTimeout(closeSuggest, 150),
     onkeydown: (event) => {
+      if (undoSnippet(event)) return;
       if (suggest.items.length && !suggest.items[0].hint) {
         if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
           event.preventDefault();
@@ -224,6 +260,8 @@ export function createComposer(channel, placeholder, { onEditLast, threadId = nu
       addFiles(files);
     },
   });
+  textarea.setAttribute('aria-label', placeholder);
+  textarea.addEventListener('beforeinput', expandSnippet);
   const replyBar = h('div', { class: 'reply-bar' });
   const emojiButton = iconButton('smile', 'Emoji', () => openEmojiPicker(emojiButton, (value) => insertText(`${value} `), { keepOpen: true }));
 

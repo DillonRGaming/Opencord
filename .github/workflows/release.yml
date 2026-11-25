@@ -1,0 +1,113 @@
+# Builds the Opencord app for Linux, Windows and Android when a version tag (v1.2.3) is pushed,
+# and publishes them to the public releases repo, where the installed apps look for updates.
+name: Release app
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, like 1.2.3"
+        required: true
+
+env:
+  RELEASES_REPO: DillonRGaming/opencord-releases
+  GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      release-id: ${{ steps.r.outputs.id }}
+    steps:
+      - id: v
+        run: |
+          v="${{ inputs.version || github.ref_name }}"
+          echo "version=${v#v}" >> "$GITHUB_OUTPUT"
+      - id: r
+        run: |
+          gh release create "v${{ steps.v.outputs.version }}" --repo "$RELEASES_REPO" --draft \
+            --title "Opencord ${{ steps.v.outputs.version }}" --notes "Download the file for your system below."
+          echo "id=$(gh api "repos/$RELEASES_REPO/releases" --jq '.[] | select(.tag_name == "v${{ steps.v.outputs.version }}") | .id')" >> "$GITHUB_OUTPUT"
+
+  desktop:
+    needs: draft
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: app/src-tauri }
+      - run: npm ci
+        working-directory: app
+      - name: Set version
+        shell: bash
+        run: node scripts/set-app-version.mjs "${{ needs.draft.outputs.version }}"
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: app
+          tauriScript: npx tauri
+          owner: DillonRGaming
+          repo: opencord-releases
+          releaseId: ${{ needs.draft.outputs.release-id }}
+
+  android:
+    needs: draft
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: 17 }
+      - uses: android-actions/setup-android@v3
+      - name: NDK
+        run: |
+          sdkmanager "ndk;27.2.12479018"
+          echo "NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> "$GITHUB_ENV"
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: app/package-lock.json }
+      - uses: dtolnay/rust-toolchain@stable
+        with: { targets: "aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android" }
+      - uses: swatinem/rust-cache@v2
+        with: { workspaces: app/src-tauri }
+      - run: npm ci
+        working-directory: app
+      - name: Set version
+        run: node scripts/set-app-version.mjs "${{ needs.draft.outputs.version }}"
+      - name: Signing key
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 -d > "$RUNNER_TEMP/opencord.jks"
+          echo "ANDROID_KEYSTORE_PATH=$RUNNER_TEMP/opencord.jks" >> "$GITHUB_ENV"
+      - name: Build APK
+        working-directory: app
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: npx tauri android build --apk --ci
+      - name: Upload APK
+        run: |
+          apk="Opencord_${{ needs.draft.outputs.version }}_android.apk"
+          cp app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk "$apk"
+          gh release upload "v${{ needs.draft.outputs.version }}" "$apk" --repo "$RELEASES_REPO"
+
+  publish:
+    needs: [draft, desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release edit "v${{ needs.draft.outputs.version }}" --repo "$RELEASES_REPO" --draft=false --latest

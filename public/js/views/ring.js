@@ -7,10 +7,18 @@ import { state, on, emit, findChannel, dmName, dmPeople, remember, setting, quie
 import { navigate, paths } from '../router.js';
 import { avatar } from '../ui.js';
 import { voice, joinVoice } from '../voice.js';
+import { inApp, startRinging } from '../native.js';
 
 let ringing = null; // { channelId, el, timer, sound }
 
-function ringSound() {
+// The ring: a tone here, plus (in the app) a call notification, the window brought forward and vibration.
+function ring(caller, channel) {
+  const stopTone = ringTone();
+  const stopNative = startRinging(`${caller.displayName} is calling`, channel.kind === 'group' ? `Calling ${dmName(channel)}` : 'Incoming call');
+  return () => { stopTone(); stopNative(); };
+}
+
+function ringTone() {
   try {
     const ctx = new AudioContext();
     const beep = (at, freq) => {
@@ -18,7 +26,7 @@ function ringSound() {
       const gain = ctx.createGain();
       osc.frequency.value = freq;
       gain.gain.setValueAtTime(0, at);
-      gain.gain.linearRampToValueAtTime(0.08, at + 0.03);
+      gain.gain.linearRampToValueAtTime(inApp ? 0.25 : 0.08, at + 0.03);
       gain.gain.linearRampToValueAtTime(0, at + 0.35);
       osc.connect(gain).connect(ctx.destination);
       osc.start(at);
@@ -65,7 +73,7 @@ on('call:ring', async ({ channelId, userId }) => {
       onclick: () => { stop(); joinVoice(channel); navigate(paths.dmCall(channelId)); },
     }, icon('phone', 20)));
   document.body.append(el);
-  ringing = { channelId, el, sound: ringSound(), timer: setTimeout(stop, 30_000) };
+  ringing = { channelId, el, sound: ring(caller, channel), timer: setTimeout(stop, 30_000) };
 });
 
 // The caller gave up, or we picked up somewhere else.

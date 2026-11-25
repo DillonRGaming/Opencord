@@ -1,0 +1,16 @@
+{
+  "name": "opencord-app",
+  "private": true,
+  "description": "The Opencord desktop and Android app: a native shell around orbital.monster.",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "android:dev": "tauri android dev",
+    "android:build": "tauri android build --apk",
+    "icons": "tauri icon icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.6"
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "identifier": "dev",
+  "description": "Dev builds only: the same permissions for a local server.",
+  "windows": [
+    "main"
+  ],
+  "remote": {
+    "urls": [
+      "http://localhost:*/*",
+      "http://127.0.0.1:*/*"
+    ]
+  },
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-minimize",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-internal-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-is-maximized",
+    "notification:default",
+    "allow-attention",
+    "allow-app-info",
+    {
+      "identifier": "allow-pending-update",
+      "platforms": [
+        "linux",
+        "windows",
+        "macOS"
+      ]
+    },
+    {
+      "identifier": "allow-install-update",
+      "platforms": [
+        "linux",
+        "windows",
+        "macOS"
+      ]
+    }
+  ]
+}

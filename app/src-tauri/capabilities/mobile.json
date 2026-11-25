@@ -1,0 +1,29 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "mobile",
+  "description": "Phones: vibration, and opening the new APK from GitHub to update.",
+  "windows": [
+    "main"
+  ],
+  "platforms": [
+    "android",
+    "iOS"
+  ],
+  "remote": {
+    "urls": [
+      "https://orbital.monster/*",
+      "https://www.orbital.monster/*"
+    ]
+  },
+  "permissions": [
+    "haptics:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        {
+          "url": "https://github.com/*"
+        }
+      ]
+    }
+  ]
+}

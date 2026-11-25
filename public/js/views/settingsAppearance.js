@@ -2,9 +2,10 @@ import { h, debounce } from '../dom.js';
 import { state } from '../store.js';
 import { changeSettings } from '../actions.js';
 import { ACCENTS, DEFAULTS, FONTS, THEMES } from '../theme.js';
-import { button, segmented, settingRow, settingsCard, switchControl } from '../ui.js';
+import { button, iconButton, segmented, settingRow, settingsCard, switchControl } from '../ui.js';
 import { colorField } from '../colorPicker.js';
 import { LANGUAGES, targetLanguage } from '../translate.js';
+import { inApp, notificationPermission, requestNotifications } from '../native.js';
 
 // Colours for the little theme previews: background, panel, raised.
 const PREVIEW = {
@@ -207,17 +208,15 @@ function quietHoursCard(current) {
 
 export function notificationsPage() {
   const current = settingsNow();
-  const status = h('span', { class: 'range-value' }, 'Notification' in window ? Notification.permission.replace('default', 'not asked yet') : 'not supported');
+  const status = h('span', { class: 'range-value' }, notificationPermission().replace('default', 'not asked yet').replace('unsupported', 'not supported'));
   return [
     settingsCard('Desktop',
       settingRow('Show desktop notifications', toggle(current.desktopNotifications !== false, async (value) => {
         changeSettings({ desktopNotifications: value });
-        if (value && 'Notification' in window && Notification.permission === 'default') {
-          status.textContent = await Notification.requestPermission();
-        }
+        if (value && notificationPermission() === 'default') status.textContent = await requestNotifications();
       })),
-      settingRow('Browser permission', [status, 'Notification' in window && Notification.permission !== 'granted' && button('Allow', async () => {
-        status.textContent = await Notification.requestPermission();
+      settingRow(inApp ? 'System permission' : 'Browser permission', [status, !['granted', 'unsupported'].includes(notificationPermission()) && button('Allow', async () => {
+        status.textContent = await requestNotifications();
       }, 'ghost small')])),
     settingsCard('Sound',
       settingRow('Play a sound', toggle(current.notificationSound !== false, (value) => changeSettings({ notificationSound: value })))),
@@ -226,5 +225,48 @@ export function notificationsPage() {
       settingRow('Red counts on unread DMs', toggle(current.dmPings !== false, (value) => changeSettings({ dmPings: value }))),
       settingRow('Ring when someone calls', toggle(current.callRing !== false, (value) => changeSettings({ callRing: value })))),
     quietHoursCard(current),
+  ];
+}
+
+// Snippets: short codes that turn into longer text when you press space after them in the message box.
+export function snippetsPage() {
+  const list = h('div', { class: 'snippet-list' });
+  const saved = () => (Array.isArray(state.me.settings?.snippets) ? state.me.settings.snippets : []);
+  const save = (snippets) => changeSettings({ snippets });
+  const short = h('input', { class: 'input snippet-short', placeholder: 'gts', maxLength: 32, 'aria-label': 'Shortcut' });
+  const long = h('input', { class: 'input', placeholder: 'go to shop', maxLength: 500, 'aria-label': 'Replaced with' });
+  const error = h('div', { class: 'snippet-error', role: 'status' });
+
+  function draw() {
+    const items = saved();
+    list.replaceChildren(...(items.length ? items.map((s, i) => h('div', { class: 'snippet-row' },
+      h('code', { class: 'snippet-short' }, s.short),
+      h('span', { class: 'snippet-arrow' }, '→'),
+      h('span', { class: 'snippet-text' }, s.text),
+      iconButton('x', `Remove ${s.short}`, () => { save(saved().filter((_, j) => j !== i)); draw(); })))
+      : [h('div', { class: 'snippet-empty' }, 'No snippets yet.')]));
+  }
+
+  function add() {
+    const key = short.value.trim();
+    const text = long.value.trim();
+    error.textContent = '';
+    if (!key || !text) return void (error.textContent = 'Fill in both boxes.');
+    if (/\s/.test(key)) return void (error.textContent = 'Shortcuts can’t have spaces.');
+    const rest = saved().filter((s) => s.short !== key); // same shortcut again replaces it
+    if (rest.length >= 100) return void (error.textContent = 'You can have up to 100 snippets.');
+    save([...rest, { short: key, text }]);
+    short.value = long.value = '';
+    short.focus();
+    draw();
+  }
+  for (const input of [short, long]) input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+  draw();
+  return [
+    settingsCard('Snippets',
+      h('p', { class: 'setting-hint' }, 'Type a shortcut in the message box and press space to swap it for the full text. Ctrl+Z right after puts the shortcut back.'),
+      h('div', { class: 'snippet-add' }, short, h('span', { class: 'snippet-arrow' }, '→'), long, button('Add', add)),
+      error, list),
+    settingsCard('Expand snippets', settingRow('Replace shortcuts when I press space', option('snippetsOn', [[true, 'On'], [false, 'Off']], settingsNow()))),
   ];
 }

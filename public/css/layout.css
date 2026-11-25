@@ -175,6 +175,7 @@ button.main-title:hover { background: var(--hover); }
 .side { display: flex; flex-direction: column; width: 300px; flex: none; min-height: 0; --presence-ring: var(--bg-panel); }
 .side[hidden] { display: none; }
 .side-header { display: flex; align-items: center; justify-content: space-between; flex: none; height: 60px; padding: 0 12px 0 20px; }
+@media (min-width: 800px) { .side-header .phone-only { display: none; } }
 .side-header h2 { font-size: 0.86rem; font-weight: 500; color: var(--text-muted); }
 .side-body { display: grid; align-content: start; gap: 1.1rem; flex: 1; min-height: 0; overflow-y: auto; padding: 0 20px 20px; }
 
@@ -348,3 +349,29 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
 .music-dock-text { flex: 1; min-width: 0; line-height: 1.3; }
 .music-dock-title { display: block; font-weight: 500; font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .music-dock-sub { display: block; font-size: 0.76rem; color: var(--text-faint); }
+
+/* --- desktop app: no system title bar --- */
+/* The window buttons sit top right, centred on the 60px headers; the rightmost header makes room. */
+.window-controls {
+  position: fixed; z-index: 60; top: calc(var(--gap) + 14px); right: calc(var(--gap) + 10px);
+  display: flex; gap: 2px;
+}
+.window-control {
+  display: grid; place-items: center; width: 34px; height: 32px; border-radius: 8px;
+  color: var(--text-muted); background: none; transition: background 0.12s, color 0.12s;
+}
+.window-control svg { width: 12px; height: 12px; }
+.window-control:hover { background: var(--hover); color: var(--text); }
+.window-control.close:hover { background: var(--danger); color: #fff; }
+[data-frameless] .main:not(:has(> .side:not([hidden]))) .column .main-header,
+[data-frameless] .side:not([hidden]) .side-header { padding-right: calc(12px + 3 * 36px); }
+/* Rounded window corners (square when maximized). The window is see-through; the page paints a
+   rounded background behind everything. It can't be on <html> or <body>: either one fills the whole
+   window, square corners included. */
+[data-frameless], [data-frameless] body { background: transparent; }
+[data-frameless] body::before {
+  content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  /* Same curve as the panels: their radius plus the gap around them. */
+  background: var(--bg-app); border-radius: calc(var(--radius-panel) + var(--gap));
+}
+[data-frameless][data-maximized] body::before { border-radius: 0; }

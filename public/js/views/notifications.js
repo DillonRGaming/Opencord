@@ -6,6 +6,7 @@ import { navigate, paths } from '../router.js';
 import { formatStamp, renderMarkdown, mentionsMe } from '../format.js';
 import { attempt, avatar, confirmButton, iconButton, pageTabs } from '../ui.js';
 import { openPage } from './page.js';
+import { notify, notificationPermission, requestNotifications, notificationsSupported, vibrate } from '../native.js';
 
 const KIND = { mention: 'mentioned you', everyone: 'mentioned everyone', reply: 'replied to you', role: 'mentioned your role' };
 let filter = 'all';
@@ -81,20 +82,20 @@ function wantsDesktop() {
 }
 
 export async function askForDesktopNotifications() {
-  if (!('Notification' in window)) return 'unsupported';
-  if (Notification.permission === 'default') return Notification.requestPermission();
-  return Notification.permission;
+  if (!notificationsSupported) return 'unsupported';
+  return notificationPermission() === 'default' ? requestNotifications() : notificationPermission();
 }
 
 on('notification', (note) => {
   const here = note.channel && state.route.channelId === note.channel.id && document.hasFocus();
   if (state.me?.presence === 'dnd' || quietNow()) return;
-  if (here || !wantsDesktop() || !('Notification' in window) || Notification.permission !== 'granted') return;
+  if (here || !wantsDesktop()) return;
   const { message } = note;
-  const shown = new Notification(`${message.author.displayName} ${KIND[note.kind] || ''}`.trim(), {
-    body: message.content.slice(0, 200), tag: note.id, icon: message.author.avatar || '/favicon.svg',
+  notify({
+    title: `${message.author.displayName} ${KIND[note.kind] || ''}`.trim(), body: message.content.slice(0, 200),
+    tag: note.id, icon: message.author.avatar || '/favicon.svg', onClick: () => open(note),
   });
-  shown.onclick = () => { window.focus(); open(note); shown.close(); };
+  vibrate([60, 80, 60]);
   if (state.me?.settings?.notificationSound !== false) ping();
 });
 
@@ -123,10 +124,12 @@ on('message:create', (message) => {
   const dm = state.dms.get(message.channelId);
   if (!dm || message.author.id === state.me.id || setting('dmNotifications', true) === false) return;
   if (state.me?.presence === 'dnd' || quietNow() || mentionsMe(message.content)) return;
-  if ((state.route.channelId === dm.id && document.hasFocus()) || !wantsDesktop() || !('Notification' in window) || Notification.permission !== 'granted') return;
-  const shown = new Notification(dm.kind === 'group' ? `${message.author.displayName} in ${dmName(dm)}` : message.author.displayName, {
+  if ((state.route.channelId === dm.id && document.hasFocus()) || !wantsDesktop()) return;
+  notify({
+    title: dm.kind === 'group' ? `${message.author.displayName} in ${dmName(dm)}` : message.author.displayName,
     body: message.content.slice(0, 200) || 'Sent a file', tag: message.id, icon: message.author.avatar || '/favicon.svg',
+    onClick: () => navigate(paths.dm(dm.id)),
   });
-  shown.onclick = () => { window.focus(); navigate(paths.dm(dm.id)); shown.close(); };
+  vibrate([60, 80, 60]);
   if (setting('notificationSound', true) !== false) ping();
 });

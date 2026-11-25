@@ -17,8 +17,9 @@ const writePref = (key, value) => { try { localStorage.setItem(key, value); } ca
 let membersHidden = matchMedia('(max-width: 799px)').matches || readPref(MEMBERS_KEY) === '1';
 let shownServer = null; // the server whose member list is on screen, so switching channels doesn't redraw it
 
-function header(title, onClose) {
-  return h('header', { class: 'side-header' }, h('h2', {}, title), iconButton('x', 'Close', onClose));
+// extraClass on the ✕: the member list's is only shown on phones; on wider screens the header's toggle closes it.
+function header(title, onClose, extraClass = '') {
+  return h('header', { class: 'side-header' }, h('h2', {}, title), iconButton('x', 'Close', onClose, extraClass));
 }
 
 // Closed by the person (✕ or Escape), not by moving to another chat: says so, so preferences can follow.
@@ -46,7 +47,7 @@ function render() {
   if (shownServer === serverId) return;
   shownServer = serverId;
   const body = h('div', { class: 'side-body members' });
-  el.replaceChildren(header('Members', () => toggleMembers(false)), body);
+  el.replaceChildren(header('Members', () => toggleMembers(false), 'phone-only'), body);
   showMembers(body, serverId);
 }
 

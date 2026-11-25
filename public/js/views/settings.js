@@ -2,7 +2,7 @@ import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { openPage, setPageKey } from './page.js';
 import { profilePage } from './settingsProfile.js';
-import { appearancePage, chatPage, accessibilityPage, advancedPage, customCssPage, notificationsPage, privacyPage, translationPage } from './settingsAppearance.js';
+import { appearancePage, chatPage, accessibilityPage, advancedPage, customCssPage, notificationsPage, privacyPage, snippetsPage, translationPage } from './settingsAppearance.js';
 import { accountPage } from './settingsAccount.js';
 
 // [heading, [[id, label, build, search words]]]
@@ -15,6 +15,7 @@ const GROUPS = [
   ['App settings', [
     ['appearance', 'Appearance', appearancePage, 'theme colour color accent font size text corners spacing sidebar dark light'],
     ['chat', 'Chat', chatPage, 'messages compact cozy clock time avatars previews spoilers enter send typing pictures links emoji'],
+    ['snippets', 'Snippets', snippetsPage, 'shortcuts text replace expand abbreviations autocorrect gts'],
     ['translation', 'Translation', translationPage, 'translate language auto detect'],
     ['notifications', 'Notifications', notificationsPage, 'desktop sound alerts mentions dms ring calls quiet hours'],
     ['accessibility', 'Accessibility', accessibilityPage, 'contrast animations motion'],
