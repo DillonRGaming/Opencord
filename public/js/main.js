@@ -166,6 +166,8 @@ function showApp() {
   startGestures();
   connect();
   restorePage();
+  // The Android app: push notifications for calls and messages while it's closed.
+  if (window.OpencordPush) import('./views/androidPush.js').then((m) => m.startAndroidPush());
 }
 
 // Pages that come back after a refresh (see ?page= in views/page.js). Each resolves true if it opened.

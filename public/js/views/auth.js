@@ -2,6 +2,7 @@ import * as api from '../api.js';
 import { h } from '../dom.js';
 import { icon } from '../icons.js';
 import { inviteCard } from './serverPages.js';
+import { authMusic } from './authMusic.js';
 
 const USERNAME = /^[a-z0-9_.]{2,32}$/i;
 
@@ -30,15 +31,15 @@ function input(label, props, isValid, hint) {
 }
 
 // The art half of the screen: a fake chat racing upward, made of random people saying random things.
-const FEED_NAMES = ['mika', 'jordan', 'pixelfox', 'sam', 'nova', 'river', 'kai', 'ash', 'blue', 'theo', 'luna', 'zed', 'quinn', 'milo', 'ivy', 'rex', 'sora', 'echo'];
-const FEED_LINES = [
+export const FEED_NAMES = ['mika', 'jordan', 'pixelfox', 'sam', 'nova', 'river', 'kai', 'ash', 'blue', 'theo', 'luna', 'zed', 'quinn', 'milo', 'ivy', 'rex', 'sora', 'echo'];
+export const FEED_LINES = [
   'ok who is on tonight', 'lmaooo', 'gg', 'that was insane', 'brb food', 'wait what', 'no way', 'send the link',
   'anyone up for a game?', 'i am so tired', 'this bot is cracked', 'new emoji just dropped', 'who pinged me',
   'voice in 5?', 'its 3am why are we awake', 'yes', 'nah', 'real', 'bro', 'did you see that', 'pushed the fix',
   'cant believe that worked', 'one more round', 'w', 'thats crazy', 'ok im back', 'joining now', 'lol same',
   'hold on', 'loading...', 'skill issue', 'we need a 4th', 'who made this server', 'patch notes are out',
 ];
-const FEED_COLORS = ['#f87171', '#fb923c', '#facc15', '#4ade80', '#2dd4bf', '#60a5fa', '#a78bfa', '#f472b6'];
+export const FEED_COLORS = ['#f87171', '#fb923c', '#facc15', '#4ade80', '#2dd4bf', '#60a5fa', '#a78bfa', '#f472b6'];
 const pick = (list) => list[Math.floor(Math.random() * list.length)];
 
 const CELL_W = 230; // width of one message slot in the honeycomb
@@ -47,7 +48,7 @@ const ROW_H = 74; // height of one row
 function showcase() {
   const track = h('div', { class: 'auth-feed' });
   const art = h('aside', { class: 'auth-art', 'aria-hidden': 'true' }, track);
-  const speed = matchMedia('(prefers-reduced-motion: reduce)').matches ? 8 : 55; // pixels per second
+  const speed = matchMedia('(prefers-reduced-motion: reduce)').matches ? 8 : 22; // pixels per second
   let minute = 8 * 60 + Math.floor(Math.random() * 600);
   let odd = false;
 
@@ -57,7 +58,9 @@ function showcase() {
     if (Math.random() < 0.3) minute = (minute + 1) % 1440;
     const time = `${((Math.floor(minute / 60) + 11) % 12) + 1}:${String(minute % 60).padStart(2, '0')} ${minute < 720 ? 'AM' : 'PM'}`;
     return h('div', { class: 'auth-feed-msg', style: { width: `${CELL_W}px` } },
-      h('span', { class: 'auth-feed-avatar', style: { background: color } }, name[0].toUpperCase()),
+      h('span', { class: 'auth-feed-avatar', style: { background: color } }, name[0].toUpperCase(),
+        // Half of them show a status, like the real member list.
+        Math.random() < 0.5 && h('span', { class: `presence ${pick(['online', 'online', 'idle', 'dnd', 'offline'])}` })),
       h('div', { class: 'auth-feed-text' },
         h('div', { class: 'auth-feed-head' }, h('b', { style: { color } }, name), h('time', {}, time)),
         typed(pick(FEED_LINES), first ? Math.random() * 2500 : 2200 + Math.random() * 3000)));
@@ -76,16 +79,26 @@ function showcase() {
     return line;
   };
   let first = true;
+  // Phones shrink the chat with CSS zoom; sizes and speed below are in the feed's own (zoomed) pixels.
+  const zoom = () => parseFloat(getComputedStyle(track).zoom) || 1;
   // Rows alternate between two offsets, half a slot apart, so the slots sit like a honeycomb.
+  // Enough messages to cross the art, or the whole window if it's wider (it may be widened later).
+  const cols = () => Math.ceil(Math.max(art.clientWidth, innerWidth) / (CELL_W * zoom())) + 1;
   const row = () => {
-    const cols = Math.ceil((art.clientWidth || 600) / CELL_W) + 1;
     const el = h('div', { class: 'auth-feed-row', style: { height: `${ROW_H}px`, transform: `translateX(${odd ? -CELL_W / 2 : 0}px)` } },
-      ...Array.from({ length: cols }, message));
+      ...Array.from({ length: cols() }, message));
     odd = !odd;
     return el;
   };
+  // A wider window: lengthen the rows already there.
+  const widen = () => {
+    if (!art.isConnected) return removeEventListener('resize', widen);
+    const want = cols();
+    for (const el of track.children) while (el.children.length < want) el.append(message());
+  };
+  addEventListener('resize', widen);
   const fill = () => {
-    const need = Math.ceil((art.clientHeight || 900) / ROW_H) + 2;
+    const need = Math.ceil((art.clientHeight || 900) / (ROW_H * zoom())) + 2;
     while (track.children.length < need) track.append(row());
     first = false;
   };
@@ -95,7 +108,7 @@ function showcase() {
   const frame = (now) => {
     if (last && !art.isConnected) return;
     if (!track.children.length && art.clientHeight) fill();
-    offset += last ? ((now - last) / 1000) * speed : 0;
+    offset += last ? ((now - last) / 1000) * (speed / zoom()) : 0; // same on-screen speed at any zoom
     last = now;
     // A row that has scrolled fully off the top goes away and a new one joins at the bottom.
     while (offset >= ROW_H && track.firstChild) {
@@ -131,7 +144,11 @@ function oauthButtons() {
 export function showAuth(root, invite, { add = false } = {}) {
   let mode = add ? 'login' : 'register';
 
+  // Music on this screen (not when adding another account): fades out as the app opens.
+  const music = add ? null : authMusic();
+
   async function finish() {
+    await music?.fadeOut();
     if (!invite) {
       location.reload();
       return;
@@ -189,7 +206,8 @@ export function showAuth(root, invite, { add = false } = {}) {
             h('button', { type: 'button', onclick: () => { mode = login ? 'register' : 'login'; render(); } },
               login ? 'Create an account' : 'Log in')),
           add && h('p', { class: 'auth-switch' }, h('button', { type: 'button', onclick: () => location.reload() }, 'Back to Opencord')))),
-      art));
+      art,
+      music?.el));
     username.control.focus();
   }
 

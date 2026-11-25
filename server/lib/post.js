@@ -6,6 +6,7 @@ const servers = require('../models/servers');
 const notifications = require('../models/notifications');
 const realtime = require('../realtime');
 const previews = require('./previews');
+const push = require('./push');
 
 const listeners = []; // (event, payload) → void, e.g. the bot runner
 
@@ -30,9 +31,16 @@ function postMessage(channel, authorId, content, { attachmentIds = [], replyToId
   if (threadId) realtime.toChannel(channel, 'message:update', messages.serialize(messages.get(threadId)));
 
   const replyAuthor = replyToId ? messages.get(replyToId)?.author_id : threadId ? messages.get(threadId)?.author_id : null;
+  const pushed = new Set();
   for (const [userId, kind] of notifications.recipients(content, audienceIds(channel), authorId, replyAuthor, channel.server_id)) {
     const note = notifications.create(userId, kind, row.id, authorId);
     realtime.toUser(userId, 'notification', { id: note.id, kind, readAt: null, createdAt: note.created_at, message: json, channel: channels.serialize(channel, userId) });
+    pushed.add(userId);
+    pushMessage(userId, channel, json, kind);
+  }
+  // DMs reach phones too, mention or not.
+  if (channel.type === 'dm') {
+    for (const userId of channels.dmMemberIds(channel.id)) if (userId !== authorId && !pushed.has(userId)) pushMessage(userId, channel, json, 'dm');
   }
   for (const fn of listeners) {
     try { fn('message', { channel, message: json }); } catch (err) { console.error(err); }
@@ -40,6 +48,15 @@ function postMessage(channel, authorId, content, { attachmentIds = [], replyToId
   attachPreviews(channel, row.id, content);
   require('./links').relay(channel, row);
   return json;
+}
+
+// A phone notification for someone who isn't on Opencord right now (the app or site open shows its own).
+const PUSH_KIND = { mention: 'mentioned you', everyone: 'mentioned everyone', reply: 'replied to you', role: 'mentioned your role' };
+function pushMessage(userId, channel, message, kind) {
+  if (realtime.isOnline(userId) || message.author.bot) return;
+  const where = channel.type === 'dm' ? '' : ` in #${channel.name}`;
+  const title = kind === 'dm' ? message.author.displayName : `${message.author.displayName} ${PUSH_KIND[kind] || ''}${where}`.trim();
+  push.send(userId, { type: 'message', channelId: channel.id, serverId: channel.server_id || '', title, body: message.content || 'Sent a file' });
 }
 
 // Previews arrive a moment after the message: fetch them, save them, and update everyone's copy.

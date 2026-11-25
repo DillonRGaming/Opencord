@@ -82,6 +82,7 @@ router.post('/login', async (req, res) => {
 });
 
 router.post('/logout', auth.requireAuth, (req, res) => {
+  require('../lib/push').forgetSession(req.sessionHash); // this phone stops getting pushes for the account
   const switched = auth.endSession(req, res);
   realtime.disconnectSessions([req.sessionHash]);
   res.json({ switched });

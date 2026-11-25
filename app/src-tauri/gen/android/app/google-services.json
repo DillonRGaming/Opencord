@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "594168472169",
+    "project_id": "opencord-eac7d",
+    "storage_bucket": "opencord-eac7d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:594168472169:android:e500fe2501c096cafd38f8",
+        "android_client_info": {
+          "package_name": "monster.orbital.opencord"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBHpR__hBRcZWCjkIVBz8QxTvVZFOe_aQY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -121,9 +121,11 @@
 .auth-feed-row { display: flex; align-items: center; }
 .auth-feed-msg { display: flex; align-items: center; gap: 10px; flex: none; padding-right: 14px; }
 .auth-feed-avatar {
+  position: relative; --presence-ring: var(--bg-panel);
   display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: 50%;
   color: #111; font-weight: 700; font-size: 0.95rem;
 }
+.auth-feed-avatar .presence { position: absolute; right: -2px; bottom: -2px; width: 14px; height: 14px; }
 .auth-feed-text { min-width: 0; font-size: 0.92rem; line-height: 1.35; }
 .auth-feed-line { min-height: 1.35em; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .auth-feed-line.typing::before { content: '•••'; letter-spacing: 2px; color: var(--text-faint); animation: auth-dots 1s ease-in-out infinite; }
@@ -133,9 +135,17 @@
 .auth-feed-head time { overflow: hidden; text-overflow: ellipsis; font-size: 0.72rem; color: var(--text-faint); }
 
 @media (max-width: 899px) {
-  .auth { grid-template-columns: minmax(0, 1fr); }
-  .auth-art { display: none; }
+  .auth { position: relative; grid-template-columns: minmax(0, 1fr); }
+  /* Phones: the chat drifts across the top of the form's panel and fades into it. */
+  .auth-art {
+    position: absolute; z-index: 1; top: var(--gap); left: var(--gap); right: var(--gap); height: min(190px, 24dvh);
+    border-radius: var(--radius-panel) var(--radius-panel) 0 0; pointer-events: none; opacity: 0.55;
+    -webkit-mask-image: linear-gradient(#000 25%, transparent 95%); mask-image: linear-gradient(#000 25%, transparent 95%);
+  }
+  .auth-art::before, .auth-art::after { display: none; }
+  .auth-feed { zoom: 0.62; }
   .auth-main { padding: 24px 20px; }
+  .auth-main > * { position: relative; z-index: 2; }
   .auth-title { font-size: 2.2rem; }
 }
 
@@ -1113,3 +1123,53 @@ button.ms-rank-row:hover { background: var(--hover); }
   background: var(--bg-raised); box-shadow: var(--shadow, 0 8px 24px rgb(0 0 0 / 0.35)); font-size: 0.88rem;
 }
 .app-update span { flex: 1; min-width: 0; }
+
+/* --- invite cards: an invite link in a message, over a faint copy of the sign-up page's drifting chat --- */
+.invite-embeds { display: grid; gap: 8px; margin-top: 6px; }
+.invite-embed {
+  --invite-bg: var(--bg-app);
+  position: relative; overflow: hidden; width: min(440px, 100%); border-radius: 14px;
+  background: var(--invite-bg); border: 1px solid var(--border);
+}
+.invite-embed.loading { height: 74px; background: var(--bg-raised); animation: skeleton 0.9s ease-in-out infinite alternate; }
+.invite-embed-art {
+  position: absolute; inset: 0; overflow: hidden; pointer-events: none; opacity: 0.35;
+  -webkit-mask-image: linear-gradient(90deg, transparent 15%, #000 60%); mask-image: linear-gradient(90deg, transparent 15%, #000 60%);
+  filter: blur(0.6px);
+}
+.invite-embed-feed { padding-left: 8px; animation: invite-drift 120s linear infinite; }
+@keyframes invite-drift { to { transform: translateY(-50%); } }
+@media (prefers-reduced-motion: reduce) { .invite-embed-feed { animation: none; } }
+.invite-embed-half { display: grid; gap: 10px; padding-bottom: 10px; }
+.invite-embed-row { display: flex; gap: 12px; }
+.invite-embed-row:nth-child(even) { margin-left: -60px; }
+.invite-embed-msg { display: flex; align-items: center; gap: 6px; flex: none; width: 130px; }
+.invite-embed-avatar { display: grid; place-items: center; flex: none; width: 20px; height: 20px; border-radius: 50%; color: #111; font-size: 0.6rem; font-weight: 700; }
+.invite-embed-head { display: flex; align-items: baseline; gap: 5px; white-space: nowrap; font-size: 0.64rem; }
+.invite-embed-head b { font-weight: 600; }
+.invite-embed-head time { font-size: 0.55rem; color: var(--text-faint); }
+.invite-embed-line { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 100px; font-size: 0.64rem; }
+.invite-embed-body { position: relative; display: flex; align-items: center; gap: 12px; padding: 12px; }
+.invite-embed-body .server-icon { flex: none; border-radius: 14px; }
+.invite-embed-text { display: grid; flex: 1; min-width: 0; }
+.invite-embed-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 1rem; font-weight: 600; }
+.invite-embed-members { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.82rem; color: var(--text-muted); }
+.invite-embed-join { flex: none; border-radius: 10px; }
+.invite-embed-copy { flex: none; width: 30px; height: 30px; color: var(--text-faint); }
+.invite-embed-copy:hover { color: var(--text-muted); }
+.invite-embed-copied { font-size: 0.7rem; color: var(--text-muted); }
+/* An expired invite: the same card, with the server hidden and just the note. */
+.invite-embed.dead .invite-embed-body { justify-content: center; min-height: 74px; }
+.invite-embed.dead .invite-embed-art { opacity: 0.2; -webkit-mask-image: none; mask-image: none; }
+.invite-embed-dead { text-align: center; font-size: 0.88rem; color: var(--text-muted); }
+
+/* The sign-up screen's music: a quiet "now playing" tag in the bottom left, over the chat art. */
+.auth-music {
+  position: fixed; z-index: 5; left: calc(var(--gap) + 12px); bottom: calc(var(--gap) + 10px);
+  display: flex; align-items: center; gap: 4px; max-width: calc(50vw - 40px);
+  font-size: 0.7rem; color: var(--text-faint);
+}
+.auth-music-toggle { display: grid; place-items: center; flex: none; width: 22px; height: 22px; border-radius: 50%; color: var(--text-faint); }
+.auth-music-toggle:hover { color: var(--text-muted); }
+.auth-music-text { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+@media (max-width: 899px) { .auth-music { max-width: calc(100vw - 40px); } }

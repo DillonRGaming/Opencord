@@ -13,6 +13,7 @@ import { openLightbox } from './lightbox.js';
 import { pollView } from './poll.js';
 import { gameView } from './game.js';
 import { RICH_TYPES, richView } from './rich.js';
+import { inviteCards, isInviteLink, withoutInviteLinks } from './inviteCard.js';
 import { isVoiceMessage, voiceMessageView } from '../voiceMessage.js';
 import { remote } from '../fun.js';
 import { LANGUAGES, languageName, targetLanguage, translate, autoTranslateOn, worthTranslating } from '../translate.js';
@@ -149,7 +150,10 @@ function contentView(message) {
     return h('div', { class: `sticker${kitchen ? ' kitchen' : ''}` }, h('img', { src: remote(url), alt: kitchen ? 'Emoji Kitchen sticker' : 'GIF', loading: 'lazy' }));
   }
   const edited = () => message.editedAt && h('span', { class: 'message-edited', title: formatStamp(message.editedAt) }, '(edited)');
-  const content = h('div', { class: 'message-content' }, renderMarkdown(message.content), edited());
+  // Invite links show as cards below instead of as text.
+  const text = withoutInviteLinks(message.content);
+  if (!text) return edited() || null;
+  const content = h('div', { class: 'message-content' }, renderMarkdown(text), edited());
   if (EMOJI_ONLY.test(message.content.trim())) content.classList.add('jumbo');
   // Code blocks fold on their own, so they don't count toward the length here.
   const prose = message.content.replace(/```[\s\S]*?```/g, '');
@@ -408,7 +412,8 @@ export function messageRow(message, previous, mine, handlers) {
       message.game && gameView(message),
       location && locationView(location),
       message.attachments.length > 0 && h('div', { class: 'attachments' }, message.attachments.map(attachmentView)),
-      message.embeds?.length > 0 && !STICKER_LINK.test(message.content.trim()) && h('div', { class: 'embeds' }, message.embeds.map(embedView)),
+      inviteCards(message.content),
+      message.embeds?.some((e) => !isInviteLink(e.url || '')) && !STICKER_LINK.test(message.content.trim()) && h('div', { class: 'embeds' }, message.embeds.filter((e) => !isInviteLink(e.url || '')).map(embedView)),
       message.components?.some((c) => RICH_TYPES.includes(c.type)) && h('div', { class: 'rich' }, message.components.filter((c) => RICH_TYPES.includes(c.type)).map(richView)),
       message.components?.some((c) => !RICH_TYPES.includes(c.type)) && !['call', 'location'].includes(message.components[0].type) && buttonsView(message),
       reactionSlot,

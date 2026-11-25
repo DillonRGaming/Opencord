@@ -4,6 +4,7 @@ const users = require('./models/users');
 const servers = require('./models/servers');
 const channels = require('./models/channels');
 const stats = require('./lib/stats');
+const push = require('./lib/push');
 
 let io;
 const socketCounts = new Map(); // userId → open sockets; online while ≥ 1
@@ -129,7 +130,13 @@ function init() {
       announceVoice(channel);
       // The first person into a DM call rings everyone else in the DM, and the chat gets a "started a call" line.
       if (channel.type === 'dm' && !peers.length) {
-        for (const other of channels.dmMemberIds(channel.id)) if (other !== userId) toUser(other, 'call:ring', { channelId: channel.id, userId });
+        const caller = users.get(userId);
+        for (const other of channels.dmMemberIds(channel.id)) {
+          if (other === userId) continue;
+          toUser(other, 'call:ring', { channelId: channel.id, userId });
+          // Phones with the app closed ring too (it gives up after 30 seconds, like the call card).
+          push.send(other, { type: 'call', channelId: channel.id, title: caller?.display_name || 'Someone', body: 'Incoming call…' }, { ttlSeconds: 30 });
+        }
         startCallMessage(channel, userId);
       }
       reply?.({ self: socket.id, peers: [...room.entries()].filter(([id]) => id !== socket.id && !id.startsWith('bot:')).map(([id, p]) => ({ socketId: id, ...p })), skip: peers.length });
@@ -238,9 +245,13 @@ function leaveVoice(socket) {
   const room = voice.get(channelId);
   room?.delete(socket.id);
   if (room && !room.size) voice.delete(channelId);
-  if (callMessages.has(channelId) && ![...(room?.keys() || [])].some((id) => !id.startsWith('bot:'))) endCallMessage(channelId);
+  const nobodyLeft = ![...(room?.keys() || [])].some((id) => !id.startsWith('bot:'));
+  if (callMessages.has(channelId) && nobodyLeft) endCallMessage(channelId);
+  // The call is over: phones still ringing for it stop.
+  const channel = channels.get(channelId);
+  if (nobodyLeft && channel?.type === 'dm') for (const other of channels.dmMemberIds(channelId)) push.send(other, { type: 'call_end', channelId }, { ttlSeconds: 30 });
   io.to(voiceRoom(channelId)).emit('voice:peer-left', { socketId: socket.id });
-  announceVoice(channels.get(channelId));
+  announceVoice(channel);
 }
 
 // Bots can sit in a voice channel (shown in the list, no audio). Their "socket" id is bot:<userId>.

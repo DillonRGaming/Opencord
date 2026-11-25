@@ -364,7 +364,8 @@ button.server-banner .sidebar-header:hover, .server-banner .sidebar-header:hover
 .window-control:hover { background: var(--hover); color: var(--text); }
 .window-control.close:hover { background: var(--danger); color: #fff; }
 [data-frameless]:not([data-rail="top"]) .main:not(:has(> .side:not([hidden]))) .column .main-header,
-[data-frameless]:not([data-rail="top"]) .side:not([hidden]) .side-header { padding-right: calc(12px + 3 * 36px); }
+[data-frameless]:not([data-rail="top"]) .side:not([hidden]) .side-header,
+[data-frameless]:not([data-rail="top"]) .page-view > .main-header { padding-right: calc(12px + 3 * 36px); }
 /* Rounded window corners (square when maximized). The window is see-through; the page paints a
    rounded background behind everything. It can't be on <html> or <body>: either one fills the whole
    window, square corners included. */

@@ -105,6 +105,13 @@ router.delete('/users/@me/avatar', (req, res) => {
   setAvatar(req, res, null);
 });
 
+// The Android app's push token, so calls and messages reach the phone while the app is closed.
+router.post('/users/@me/push-token', (req, res) => {
+  const token = text(req.body.token, 'Token', { min: 20, max: 4096 });
+  require('../lib/push').register(req.user.id, req.sessionHash, token);
+  res.json({ ok: true });
+});
+
 router.put('/users/@me/password', async (req, res) => {
   const current = text(req.body.currentPassword, 'Current password', { trim: false });
   const next = text(req.body.newPassword, 'New password', { min: 8, max: 200, trim: false });
