@@ -15,10 +15,10 @@ const readMuted = () => { try { return localStorage.getItem(MUTE_KEY) === '1'; }
 const saveMuted = (on) => { try { localStorage.setItem(MUTE_KEY, on ? '1' : '0'); } catch { /* storage off */ } };
 
 export function authMusic() {
-  const audio = new Audio(TRACK.src);
+  // "#t=" starts the song that far in, from the very first play.
+  const audio = new Audio(`${TRACK.src}#t=${START_AT}`);
   audio.loop = true;
   audio.volume = 0;
-  audio.addEventListener('loadedmetadata', () => { audio.currentTime = START_AT; }, { once: true });
   // Rises once it's really playing; stops rising when it fades out.
   let rising = 0;
   audio.addEventListener('playing', () => {
