@@ -39,6 +39,8 @@ class MainActivity : TauriActivity() {
   // The page (only ever orbital.monster) reads the push token and pending actions through this.
   override fun onWebViewCreate(webView: WebView) {
     super.onWebViewCreate(webView)
+    // Sound can start without a tap first (the sign-up music, the ringtone on an incoming call).
+    webView.settings.mediaPlaybackRequiresUserGesture = false
     webView.addJavascriptInterface(object {
       @JavascriptInterface fun token(): String = Push.token(this@MainActivity) ?: ""
       @JavascriptInterface fun takeAction(): String { val a = pendingAction ?: ""; pendingAction = null; return a }

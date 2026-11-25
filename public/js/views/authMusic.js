@@ -51,11 +51,12 @@ export function authMusic() {
     if (!on) start();
   }
 
-  // Blocked until the page has been clicked or typed in: try again on the first one.
+  // Blocked until the page has been tapped, clicked or typed in: try again on the first one. (A touch
+  // only counts once the finger lifts, so pointerdown alone isn't enough on phones.)
+  const UNLOCK = ['click', 'touchend', 'keydown'];
   const start = () => audio.play().catch(() => {
-    const retry = () => { removeEventListener('pointerdown', retry, true); removeEventListener('keydown', retry, true); audio.play().catch(() => {}); };
-    addEventListener('pointerdown', retry, true);
-    addEventListener('keydown', retry, true);
+    const retry = () => { for (const e of UNLOCK) removeEventListener(e, retry, true); audio.play().catch(() => {}); };
+    for (const e of UNLOCK) addEventListener(e, retry, true);
   });
 
   setMuted(muted);
