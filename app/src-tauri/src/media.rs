@@ -12,6 +12,7 @@ pub fn allow_camera_and_mic(window: &WebviewWindow) {
         let view = webview.inner();
         if let Some(settings) = WebViewExt::settings(&view) {
             settings.set_enable_media_stream(true);
+            settings.set_enable_webrtc(true); // off by default in WebKitGTK: without it calls have no sound or video
             settings.set_enable_mediasource(true);
             settings.set_media_playback_requires_user_gesture(false);
         }

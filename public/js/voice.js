@@ -105,7 +105,10 @@ function watchLevel(stream) {
   context.createMediaStreamSource(stream).connect(analyser);
   const data = new Uint8Array(analyser.frequencyBinCount);
   let quietSince = 0;
+  // Phones often start the context suspended (it's made after an await, not in the tap) or suspend it when the
+  // app goes to the background; a suspended context reads silence, so the green ring never lights.
   const timer = setInterval(() => {
+    if (context.state !== 'running') { context.resume().catch(() => {}); return; }
     analyser.getByteFrequencyData(data);
     const avg = data.reduce((a, b) => a + b, 0) / data.length;
     const now = Date.now();

@@ -18,6 +18,14 @@ pub const SITE: &str = "https://orbital.monster";
 fn is_ours(url: &tauri::Url) -> bool {
     matches!(url.scheme(), "tauri" | "asset" | "about" | "data" | "blob")
         || matches!(url.host_str(), Some("orbital.monster" | "www.orbital.monster" | "tauri.localhost" | "localhost"))
+        || is_embed(url)
+}
+
+/// WebKitGTK asks the navigation handler about iframes too, so the YouTube player's own pages must be allowed
+/// or the video player breaks inside the app.
+fn is_embed(url: &tauri::Url) -> bool {
+    url.path().starts_with("/embed/")
+        && matches!(url.host_str(), Some("www.youtube-nocookie.com" | "www.youtube.com" | "youtube.com"))
 }
 
 /// Where the window opens: the offline-aware shell page, which then loads the live site.
